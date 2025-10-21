@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import PostComponent from './Feed/Post';
+import PostComponent from '../features/feed/PostItem';
 import LoadingSpinner from './LoadingSpinner';
 import { useAppState } from '../state/useAppStorage';
 import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfs'; // Keep using lib directly

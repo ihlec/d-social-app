@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { UserProfile } from '../types';
-import { useAppState } from '../hooks/useAppState';
-import { ShareIcon } from '../../src2/components/Icons'; 
+import { UserProfile } from '../../types';
+import { useAppState } from '../../state/useAppStorage';
+import { ShareIcon } from '../../components/Icons'; 
 import toast from 'react-hot-toast';
 
 interface ProfileHeaderProps {

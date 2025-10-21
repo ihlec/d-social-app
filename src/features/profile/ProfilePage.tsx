@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import ProfileHeader from '../../../src/components/ProfileHeader';
-import Feed from '../components/Feed/Feed';
+import ProfileHeader from '../../features/profile/ProfileHeader';
+import Feed from '../../features/feed/Feed';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useAppState } from '../../state/useAppStorage';
 import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfs';

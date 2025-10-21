@@ -1,9 +1,9 @@
 // src/hooks/useAppFeed.ts
 import { useState, useCallback } from 'react'; // Removed useEffect, useRef
 import toast from 'react-hot-toast';
-import { Post, UserProfile, Follow, UserState } from '../types';
-import { fetchPost } from '../../src2/api/ipfs';
-import { fetchUserStateByIpns, fetchUserProfile } from './libHelpers';
+import { Post, UserProfile, Follow, UserState } from '../../types';
+import { fetchPost } from '../../api/ipfs';
+import { fetchUserStateByIpns, fetchUserProfile } from './../../state/stateActions';
 
 const MAX_FOLLOWS_PER_STATE = 10;
 
