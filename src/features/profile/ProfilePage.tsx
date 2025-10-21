@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import ProfileHeader from '../components/ProfileHeader';
+import ProfileHeader from '../../../src/components/ProfileHeader';
 import Feed from '../components/Feed/Feed';
-import LoadingSpinner from '../components/Common/LoadingSpinner';
-import { useAppState } from '../hooks/useAppState';
-import { resolveIpns, fetchUserState, fetchPost } from '../lib/ipfs';
-import { UserState, Post, UserProfile } from '../types';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import { useAppState } from '../../state/useAppStorage';
+import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfs';
+import { UserState, Post, UserProfile } from '../../types';
 
 // Define the specific feed types for the profile page
 type ProfileFeedType = 'posts' | 'likes' | 'dislikes';

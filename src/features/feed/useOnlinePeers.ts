@@ -1,7 +1,7 @@
 // src/hooks/useAppPeers.ts
 import { useEffect } from 'react';
-import { UserState, OnlinePeer } from '../types';
-import { fetchOnlinePeers } from '../lib/utils';
+import { UserState, OnlinePeer } from '../../types';
+import { fetchOnlinePeers } from '../../../src/api/peersFinder.ts';
 
 interface UseAppPeersArgs {
 	isLoggedIn: boolean;

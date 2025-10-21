@@ -1,5 +1,5 @@
 import React, { createContext, useMemo, ReactNode } from 'react';
-import { useAppStateInternal, UseAppStateReturn } from '../hooks/useAppState';
+import { useAppStateInternal, UseAppStateReturn } from './useAppStorage';
 
 const AppStateContext = createContext<UseAppStateReturn | null>(null);
 

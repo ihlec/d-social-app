@@ -1,8 +1,8 @@
 // src/hooks/useParentPostFetcher.ts
 import { useCallback, useRef } from 'react';
 import { Post, UserProfile } from '../types';
-import { fetchPost } from '../lib/ipfs';
-import { fetchUserProfile } from './libHelpers';
+import { fetchPost } from '../api/ipfs';
+import { fetchUserProfile } from '../state/stateActions';
 
 interface UseParentPostFetcherArgs {
 	allPostsMap: Map<string, Post>;

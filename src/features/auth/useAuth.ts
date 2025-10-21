@@ -1,7 +1,7 @@
 // src/hooks/useAppAuth.ts
 import { useCallback, useEffect } from 'react'; // Removed useState
 import toast from 'react-hot-toast';
-import { UserState, UserProfile } from '../types';
+import { UserState, UserProfile } from '../../types';
 import {
     getSession,
     loginToFilebase,
@@ -10,8 +10,8 @@ import {
     createEmptyUserState,
     resolveIpns,
     fetchUserState
-} from '../lib/ipfs';
-import { loadOptimisticCookie, saveOptimisticCookie } from './libHelpers'; // Removed EXPECTED_CID_KEY for now
+} from '../../api/ipfs';
+import { loadOptimisticCookie, saveOptimisticCookie } from '../../state/stateActions'; // Removed EXPECTED_CID_KEY for now
 
 const POST_COOLDOWN_MS = 300 * 1000;
 

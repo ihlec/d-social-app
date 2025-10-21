@@ -1,14 +1,14 @@
 // src/pages/HomePage.tsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAppState } from '../hooks/useAppState';
+import { useAppState } from '../state/useAppStorage';
 import Sidebar from '../components/Sidebar';
 import NewPostForm from '../components/Feed/NewPostForm';
 import Feed from '../components/Feed/Feed';
 import FeedSelector from '../components/Feed/FeedSelector';
 import { Post, NewPostData, UserProfile, Follow } from '../types';
 import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
-import { RefreshIcon } from '../components/Common/Icons';
+import { RefreshIcon } from '../components/Icons';
 import logo from '/logo.png';
 
 // ... (helper functions: getLatestActivityTimestamp, buildPostTree remain the same) ...

@@ -2,9 +2,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Post, UserProfile, UserState } from '../../types';
 import PostMedia from './PostMedia';
-import { formatTimestamp } from '../../lib/utils';
+import { formatTimestamp } from '../../api/utils';
 // --- FIX: Restore imports ---
-import { LikeIcon, DislikeIcon, ReplyIcon, ShareIcon } from '../Common/Icons';
+import { LikeIcon, DislikeIcon, ReplyIcon, ShareIcon } from '../../components/Icons';
 // --- End Fix ---
 import toast from 'react-hot-toast';
 

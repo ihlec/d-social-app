@@ -1,7 +1,7 @@
 // src/lib/ipfs.ts
 // --- FIX: Remove unused UserProfile import ---
 import { UserState, Post, Session } from '../types';
-import { getCookie, setCookie, eraseCookie } from './utils';
+import { getCookie, setCookie, eraseCookie } from '../lib/utils';
 // --- FIX 1: Add S3Client import ---
 import { S3Client } from "@aws-sdk/client-s3";
 // --- ADD TOAST IMPORT ---

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Tooltip } from './Common/Tooltip';
-import { InfoIcon } from './Common/Icons';
+import { Tooltip } from '../../components/Tooltip';
+import { InfoIcon } from '../../components/Icons';
 
 interface LoginProps {
     onLoginFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;

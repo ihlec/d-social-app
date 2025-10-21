@@ -1,20 +1,20 @@
 // src/hooks/useAppState.ts
 import { useState, useMemo, useContext, useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
-import AppStateContext from '../components/AppStateContext';
+import AppStateContext from './AppContext';
 import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '../types';
-import { useCooldown } from './useCooldown';
+import { useCooldown } from '../hooks/useCooldown';
 // --- FIX: Add fetchUserState ---
-import { invalidateIpnsCache, fetchUserState } from '../lib/ipfs';
+import { invalidateIpnsCache, fetchUserState } from '../api/ipfs';
 // --- End Fix ---
 
 // Import new modular hooks
-import { useParentPostFetcher } from './useParentPostFetcher';
-import { useAppAuth, UseAppAuthReturn } from './useAppAuth';
-import { useAppFeed, UseAppFeedReturn } from './useAppFeed';
-import { useAppExplore } from './useAppExplore';
-import { useAppPeers } from './useAppPeers';
-import { useAppActions } from './useAppActions';
+import { useParentPostFetcher } from '../hooks/useSharedPostFetcher';
+import { useAppAuth, UseAppAuthReturn } from '../features/auth/useAuth';
+import { useAppFeed, UseAppFeedReturn } from '../features/feed/useFeed';
+import { useAppExplore } from '../features/feed/useExploreFeed';
+import { useAppPeers } from '../features/feed/useOnlinePeers';
+import { useAppActions } from './useActions';
 
 const POST_COOLDOWN_MS = 300 * 1000;
 const REFRESH_DELAY_MS = 250;

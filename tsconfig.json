@@ -29,6 +29,6 @@
        "@/*": ["src/*"]
      }
   },
-  "include": ["src"],
+  "include": ["src", "src/api/filebase.ts", "src/api/ipfs.ts", "src/api/utils.ts", "src/components/Icons.tsx", "src/components/LoadingSpinner.tsx", "src/components/Tooltip.tsx", "src/features/auth/Login.tsx", "src/features/auth/useAuth.ts", "src/components/PostPage.tsx", "src/features/profile/ProfilePage.tsx", "src/hooks/useCooldown.ts", "src/hooks/useIntersectionObserver.ts", "src/hooks/useSharedPostFetcher.ts", "src/lib/media.ts", "src/pages/HomePage.tsx", "src/state/useAppStorage.ts", "src/state/AppContext.tsx", "src/state/stateActions.ts", "src/state/useActions.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

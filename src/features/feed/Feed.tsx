@@ -1,7 +1,7 @@
 import React from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
-import PostComponent from './Post';
-import LoadingSpinner from '../Common/LoadingSpinner';
+import PostComponent from './PostItem';
+import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
 
 interface FeedProps {

@@ -1,8 +1,8 @@
 // src/App.tsx
 // Removed unused React import
 import { HashRouter } from 'react-router-dom';
-import { AppStateProvider } from './components/AppStateContext';
-import AppRouter from './pages/router';
+import { AppStateProvider } from './state/AppContext';
+import AppRouter from './AppRouter';
 import { Toaster } from 'react-hot-toast';
 
 function App() {

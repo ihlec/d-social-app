@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Post } from '../../types';
-import { AddMediaIcon } from '../Common/Icons';
+import { AddMediaIcon } from '../../components/Icons';
 
 interface NewPostFormProps {
   onAddPost: (postData: { content: string; referenceCID?: string; file?: File }) => void;

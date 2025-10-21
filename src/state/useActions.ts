@@ -7,7 +7,7 @@ import {
     _uploadStateAndPublishToIpns,
     _uploadStateOnly,
     fetchUserStateByIpns
-} from './libHelpers';
+} from './stateActions';
 // Removed unused createEmptyUserState
 
 const ARRAY_CHUNK_LIMIT = 5;

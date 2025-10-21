@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import PostComponent from '../components/Feed/Post';
-import LoadingSpinner from '../components/Common/LoadingSpinner';
-import { useAppState } from '../hooks/useAppState';
-import { fetchPost, resolveIpns, fetchUserState } from '../lib/ipfs'; // Keep using lib directly
+import PostComponent from './Feed/Post';
+import LoadingSpinner from './LoadingSpinner';
+import { useAppState } from '../state/useAppStorage';
+import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfs'; // Keep using lib directly
 import { Post, UserProfile } from '../types';
 
 // Helper to recursively fetch thread (parents + reconstruct replies)

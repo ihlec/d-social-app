@@ -65,13 +65,51 @@ This project is a reconstruction based on distributed application files.
 * The IPFS and Filebase interaction logic in `src/lib/` contains placeholders and requires careful implementation and testing against the actual APIs.
 * AWS S3 client (`@aws-sdk/client-s3`) needs proper configuration (credentials, region) likely handled within the login flow in `useAppState.ts` for Filebase.
 
-## AI Debug
+## AI Input for refactoring
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
 
+- fix multi-user per browser currupted session cookie
 - expose shared pages to not-logged-in users
 - comments parents and post children
 - replying to test shows IPNS instead of label
 - keep like red - directly after clicking not just on refresh 
 
+
+
+Project Structure (Feature-Sliced)
+
+The project is organized using a feature-sliced architecture. This design groups files by feature (e.g., auth, feed, profile) rather than by file type. This makes the codebase more modular and easier to navigate.
+
+src/
+
+api/: Contains low-level functions for interacting with external services (IPFS, Filebase, Peers API).
+
+components/: Contains globally reusable, generic UI components (e.g., LoadingSpinner).
+
+features/: The core of the application. Each sub-directory is a self-contained feature.
+
+auth/: User login and session management.
+
+feed/: Logic and components for displaying all feeds.
+
+layout/: Major layout components like the Sidebar.
+
+post/: The page for viewing a single post and its thread.
+
+profile/: The user profile page and its components.
+
+hooks/: Shared, generic custom hooks not tied to a specific feature (e.g., useCooldown).
+
+lib/: General utility functions and helpers that don't make external API calls.
+
+pages/: The top-level component for the main home page.
+
+state/: Global state management, including the master useAppState hook and React Context provider.
+
+App.tsx: The root React component.
+
+AppRouter.tsx: Defines all application routes.
+
+types.ts: Global TypeScript definitions.

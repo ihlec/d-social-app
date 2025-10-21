@@ -8,8 +8,8 @@ import {
     uploadJsonToIpfs,
     publishToIpns,
     updateIpnsRecord
-} from '../lib/ipfs';
-import { uploadJsonToFilebase, uploadFileToFilebase } from '../lib/filebase';
+} from '../api/ipfs';
+import { uploadJsonToFilebase, uploadFileToFilebase } from '../api/filebase';
 import { createThumbnail } from '../lib/media';
 import { UserProfile, UserState, OptimisticStateCookie, NewPostData, Post } from '../types';
 
