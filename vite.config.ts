@@ -1,24 +1,20 @@
+// vite.config.ts
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { fileURLToPath } from 'url'; // Ensure 'url' is imported
-import path from 'path'; // Ensure 'path' is imported
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+// Define the directory name equivalent for ESM context
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
    resolve: {
     alias: {
-      // Use import.meta.url and fileURLToPath for ESM __dirname equivalent
-      '@': path.resolve(path.dirname(fileURLToPath(import.meta.url)), './src'),
+      '@': path.resolve(__dirname, './src'), 
+      'src': path.resolve(__dirname, './src'), 
     },
   },
-   // Add build target for older browser compatibility if needed
-   // build: {
-   //   target: 'es2020'
-   // },
-   // optimizeDeps: {
-   //   esbuildOptions: {
-   //     target: 'es2020'
-   //   }
-   // }
 })

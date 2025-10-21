@@ -2,7 +2,7 @@
 // Removed unused React import
 import { HashRouter } from 'react-router-dom';
 import { AppStateProvider } from './state/AppContext';
-import AppRouter from './AppRouter';
+import AppRouter from './pages/AppRouter';
 import { Toaster } from 'react-hot-toast';
 
 function App() {

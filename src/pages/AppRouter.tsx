@@ -1,7 +1,6 @@
-// src/router/index.tsx
 // Removed unused React import
 import { Routes, Route, Navigate } from 'react-router-dom';
-import HomePage from 'src/pages/HomePage';
+import HomePage from './HomePage';
 import ProfilePage from 'src/features/profile/ProfilePage';
 import PostPage from 'src/components/PostPage';
 import Login from 'src/features/auth/Login';

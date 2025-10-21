@@ -4,11 +4,14 @@
     "target": "ES2020",
     "useDefineForClassFields": true,
     // --- Change this line ---
-    "lib": ["ES2022", "DOM", "DOM.Iterable"], // Changed from ES2020
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ], // Changed from ES2020
     // --- End Change ---
     "module": "ESNext",
     "skipLibCheck": true,
-
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -16,19 +19,26 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-
     /* Alias */
-     "baseUrl": ".",
-     "paths": {
-       "@/*": ["src/*"]
-     }
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
-  "include": ["src", "src/api/filebase.ts", "src/api/ipfs.ts", "src/api/utils.ts", "src/components/Icons.tsx", "src/components/LoadingSpinner.tsx", "src/components/Tooltip.tsx", "src/features/auth/Login.tsx", "src/features/auth/useAuth.ts", "src/components/PostPage.tsx", "src/features/profile/ProfilePage.tsx", "src/hooks/useCooldown.ts", "src/hooks/useIntersectionObserver.ts", "src/hooks/useSharedPostFetcher.ts", "src/lib/media.ts", "src/pages/HomePage.tsx", "src/state/useAppStorage.ts", "src/state/AppContext.tsx", "src/state/stateActions.ts", "src/state/useActions.ts"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ]
 }
