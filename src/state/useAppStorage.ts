@@ -23,7 +23,9 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export interface UseAppStateReturn {
     // ... (interface remains the same)
-    isLoggedIn: boolean;
+    // --- FIX: isLoggedIn can now be null during initial load ---
+    isLoggedIn: boolean | null;
+    // --- End Fix ---
 	userState: UserState | null;
 	myIpnsKey: string;
 	latestStateCID: string;
@@ -61,7 +63,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const [myIpnsKey, setMyIpnsKey] = useState<string>('');
 	// latestStateCID is now primarily set by useAppAuth from cookie/login
 	const [latestStateCID, setLatestStateCID] = useState<string>('');
-	const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+    // --- FIX: Initialize isLoggedIn to null ---
+	const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+    // --- End Fix ---
 	const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
 	const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
 	const [exploreAllPostsMap, setExploreAllPostsMap] = useState<Map<string, Post>>(new Map());
@@ -74,7 +78,10 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const { isCoolingDown, countdown } = useCooldown(lastPostTimestamp, POST_COOLDOWN_MS);
 
 	const resetAllState = useCallback(() => { // ...
-        setUserState(null); setMyIpnsKey(''); setLatestStateCID(''); setIsLoggedIn(false); setAllPostsMap(new Map()); setUserProfilesMap(new Map()); setExploreAllPostsMap(new Map()); setExploreUserProfilesMap(new Map()); setUnresolvedFollows([]); setOtherUsers([]); initialLoadRef.current = false; toast("Logged out.");
+        // --- FIX: Set isLoggedIn to false on reset ---
+        setUserState(null); setMyIpnsKey(''); setLatestStateCID(''); setIsLoggedIn(false); 
+        // --- End Fix ---
+        setAllPostsMap(new Map()); setUserProfilesMap(new Map()); setExploreAllPostsMap(new Map()); setExploreUserProfilesMap(new Map()); setUnresolvedFollows([]); setOtherUsers([]); initialLoadRef.current = false; toast("Logged out.");
 	}, []);
 
 	// --- Modular Hook Composition ---
@@ -98,7 +105,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	// --- Assembled Functions ---
     // refreshFeed is now ONLY for manual refresh button clicks (or programmatic forced refreshes elsewhere)
 	const refreshFeed = useCallback(async (force = false) => {
-		if (!isLoggedIn || !myIpnsKey) return;
+        // --- FIX: Check for true ---
+		if (isLoggedIn !== true || !myIpnsKey) return;
+        // --- End Fix ---
 
 		let stateToProcess: UserState | null = null;
         let skipProcessFeed = false;
@@ -110,7 +119,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                 console.log(`[refreshFeed] Cooldown active (${countdown}s left). Fetching state from cookie CID: ${latestStateCID}`);
                 toast("Refreshing feed (using local state reference due to cooldown)", { duration: 2000 });
                 try {
-                    stateToProcess = await fetchUserState(latestStateCID);
+                    // --- FIX: Pass profile name hint ---
+                    stateToProcess = await fetchUserState(latestStateCID, userState?.profile?.name);
+                    // --- End Fix ---
                     setUserState(stateToProcess); // Update main state
                 } catch (err) { console.error("[refreshFeed] Failed to fetch state from cookie CID during cooldown:", err); toast.error("Failed to load state during cooldown."); stateToProcess = null; }
             } else {
@@ -137,15 +148,19 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 
     // --- FIX: Revised Initial Load useEffect ---
     useEffect(() => {
-        // Run only once after login is confirmed, IPNS key is set, AND latestStateCID is available
-        if (isLoggedIn && myIpnsKey && latestStateCID && !initialLoadRef.current) {
+        // --- FIX: Check for isLoggedIn === true ---
+        if (isLoggedIn === true && myIpnsKey && latestStateCID && userState?.profile && !initialLoadRef.current) {
+        // --- End Fix ---
             initialLoadRef.current = true; // Mark as run
             console.log("[useAppState useEffect] Initial load: Fetching state via cookie/login CID:", latestStateCID);
 
             // Directly fetch and process the state pointed to by the initial CID
             const loadInitialState = async () => {
                 try {
-                    const initialState = await fetchUserState(latestStateCID);
+                    // --- FIX: Pass profile name hint ---
+                    // userState.profile.name is the correct name from useAuth's hydration
+                    const initialState = await fetchUserState(latestStateCID, userState.profile.name);
+                    // --- End Fix ---
                     console.log("[useAppState useEffect] Initial state fetched:", initialState);
                     setUserState(initialState); // Set the full initial state
                     console.log("[useAppState useEffect] Processing initial feed...");

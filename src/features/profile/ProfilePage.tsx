@@ -64,7 +64,9 @@ const ProfilePage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedFeed, setSelectedFeed] = useState<ProfileFeedType>('posts');
 
-    const currentUserLabel = localStorage.getItem("currentUserLabel");
+    // --- FIX: Use sessionStorage ---
+    const currentUserLabel = sessionStorage.getItem("currentUserLabel");
+    // --- End Fix ---
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
 
     // Combine global maps for initial/fallback data lookup

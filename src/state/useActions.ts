@@ -338,23 +338,26 @@ export const useAppActions = ({
 
 	const updateProfile = useCallback(async (profileData: Partial<UserProfile>) => {
 		if (!userState || isProcessing) return;
-		const label = localStorage.getItem("currentUserLabel") || "";
+        // --- FIX: Use sessionStorage ---
+		const label = sessionStorage.getItem("currentUserLabel") || "";
 		const newName = profileData.name || userState.profile.name || label;
-		if (profileData.name && profileData.name !== label) localStorage.setItem("currentUserLabel", profileData.name);
+		if (profileData.name && profileData.name !== label) sessionStorage.setItem("currentUserLabel", profileData.name);
+        // --- End Fix ---
 		const newUserState: UserState = { ...userState, profile: { ...userState.profile, name: newName, ...profileData }, updatedAt: Date.now() };
 		setUserState(newUserState); // Optimistic UI
 		setUserProfilesMap((prev: Map<string, UserProfile>) => new Map(prev).set(myIpnsKey, newUserState.profile));
 		try {
 			setIsProcessing(true);
-            // No chunking needed for profile update, as profile is not an indefinitely growing array.
-            // It's metadata that should be in the head chunk.
+            // No chunking needed for profile update
             const headCID = await _uploadStateAndPublishToIpns(newUserState, myIpnsKey);
 			setLatestStateCID(headCID);
 			toast.success("Profile updated!");
 		} catch (e) {
 			setUserState(userState); // Revert UI
 			setUserProfilesMap((prev: Map<string, UserProfile>) => new Map(prev).set(myIpnsKey, userState.profile));
-			localStorage.setItem("currentUserLabel", label);
+            // --- FIX: Use sessionStorage ---
+			sessionStorage.setItem("currentUserLabel", label);
+            // --- End Fix ---
             toast.error(`Profile update failed: ${e instanceof Error ? e.message : "Unknown"}`);
 		} finally {
 			setIsProcessing(false);

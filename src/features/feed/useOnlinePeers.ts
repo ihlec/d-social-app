@@ -4,7 +4,9 @@ import { UserState, OnlinePeer } from '../../types';
 import { fetchOnlinePeers } from '../../../src/api/peersFinder.ts';
 
 interface UseAppPeersArgs {
-	isLoggedIn: boolean;
+    // --- FIX: Allow isLoggedIn to be null during startup ---
+	isLoggedIn: boolean | null;
+    // --- End Fix ---
 	myIpnsKey: string;
 	userState: UserState | null;
 	setOtherUsers: React.Dispatch<React.SetStateAction<OnlinePeer[]>>;
@@ -21,7 +23,9 @@ export const useAppPeers = ({
 }: UseAppPeersArgs) => {
 
 	useEffect(() => {
-		if (!isLoggedIn || !myIpnsKey || !userState?.profile?.name) return;
+        // --- FIX: Only run when isLoggedIn is explicitly true ---
+		if (isLoggedIn !== true || !myIpnsKey || !userState?.profile?.name) return;
+		// --- End Fix ---
 		
 		let intervalId: number;
 		const currentUserName = userState.profile.name;

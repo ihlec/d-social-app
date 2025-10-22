@@ -19,7 +19,9 @@ interface UseAppAuthArgs {
 	setUserState: React.Dispatch<React.SetStateAction<UserState | null>>;
 	setMyIpnsKey: React.Dispatch<React.SetStateAction<string>>;
 	setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
-	setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean>>;
+    // --- FIX: Allow null type ---
+	setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean | null>>;
+    // --- End Fix ---
 	resetAllState: () => void;
     currentUserState: UserState | null;
 }
@@ -45,9 +47,10 @@ export const useAppAuth = ({
 
 	// Session rehydration on mount
 	useEffect(() => {
-        // ... (hydration logic remains the same)
-		const session = getSession();
-		const currentUserLabel = localStorage.getItem("currentUserLabel") || "";
+        // --- FIX: Use sessionStorage ---
+        const currentUserLabel = sessionStorage.getItem("currentUserLabel") || "";
+        // --- End Fix ---
+		const session = getSession(); // getSession() now also reads from sessionStorage
 		if (session.sessionType && currentUserLabel && session.resolvedIpnsKey) {
 			const ipnsKey = session.resolvedIpnsKey;
 			const optimisticStateData = loadOptimisticCookie(ipnsKey);
@@ -66,7 +69,10 @@ export const useAppAuth = ({
 			setIsLoggedIn(true);
 		} else {
             console.log("[useAppAuth useEffect] No session found.");
-            setIsLoggedIn(false); setMyIpnsKey(''); setUserState(null); setLatestStateCID('');
+            // --- FIX: This is critical. Set to false to stop loading. ---
+            setIsLoggedIn(false); 
+            // --- End Fix ---
+            setMyIpnsKey(''); setUserState(null); setLatestStateCID('');
 		}
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []); // Keep dependencies minimal for mount-only effect
@@ -77,27 +83,35 @@ export const useAppAuth = ({
 
 	const loginWithFilebase = useCallback(async (nameLabel: string, bucketCredential?: string) => { // ...
         if (!nameLabel || !bucketCredential) { toast.error("Credentials required."); return; }
-		logout();
+        // --- FIX: Call resetAllState directly instead of logout() ---
+		resetAllState();
+        // --- End Fix ---
 		await toast.promise((async () => {
 			const { session, state, cid } = await loginToFilebase(nameLabel, bucketCredential);
-			localStorage.setItem("currentUserLabel", nameLabel);
+            // --- FIX: Use sessionStorage ---
+			sessionStorage.setItem("currentUserLabel", nameLabel);
+            // --- End Fix ---
 			setMyIpnsKey(session.resolvedIpnsKey!);
 			setUserState(state); setLatestStateCID(cid); setIsLoggedIn(true);
 			saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: nameLabel, updatedAt: state.updatedAt });
 		})(), { loading: "Logging in...", success: "Welcome!", error: (e) => `Login failed: ${e instanceof Error ? e.message : String(e)}` });
-	}, [logout, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn]);
+	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn]);
 
 	const loginWithKubo = useCallback(async (apiUrl: string, keyName: string) => { // ...
         if (!apiUrl || !keyName) { toast.error("API URL/Key Name required."); return; }
-		logout();
+        // --- FIX: Call resetAllState directly instead of logout() ---
+		resetAllState();
+        // --- End Fix ---
 		await toast.promise((async () => {
 			const { session, state, cid } = await loginToKubo(apiUrl, keyName);
-			localStorage.setItem("currentUserLabel", keyName);
+            // --- FIX: Use sessionStorage ---
+			sessionStorage.setItem("currentUserLabel", keyName);
+            // --- End Fix ---
 			setMyIpnsKey(session.resolvedIpnsKey!);
 			setUserState(state); setLatestStateCID(cid); setIsLoggedIn(true);
 			saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: keyName, updatedAt: state.updatedAt });
 		})(), { loading: "Logging in...", success: "Welcome!", error: (e) => `Login failed: ${e instanceof Error ? e.message : String(e)}` });
-	}, [logout, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn]);
+	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn]);
 
     const refreshAuthState = useCallback(async (): Promise<UserState | null> => {
         // ... (refreshAuthState logic remains the same)
@@ -108,9 +122,14 @@ export const useAppAuth = ({
         let headCid: string | null = null; let state: UserState | null = null;
         try {
             headCid = await resolveIpns(identifierToResolve); console.log(`[refreshAuthState] Resolved IPNS ${identifierToResolve} to CID: ${headCid}`);
-            state = await fetchUserState(headCid); console.log("[refreshAuthState] Fetched own aggregated state:", state);
+            // --- FIX: Pass profile name hint ---
+            state = await fetchUserState(headCid, currentUserState?.profile?.name);
+            // --- End Fix ---
+            console.log("[refreshAuthState] Fetched own aggregated state:", state);
             setUserState(state); setLatestStateCID(headCid);
-            const userName = state.profile.name || localStorage.getItem("currentUserLabel") || ""; saveOptimisticCookie(ipnsKey, { cid: headCid, name: userName, updatedAt: state.updatedAt });
+            // --- FIX: Use sessionStorage ---
+            const userName = state.profile.name || sessionStorage.getItem("currentUserLabel") || ""; saveOptimisticCookie(ipnsKey, { cid: headCid, name: userName, updatedAt: state.updatedAt });
+            // --- End Fix ---
             return state;
         } catch (error) { console.error("[refreshAuthState] Error fetching own state:", error); toast.error("Failed to refresh user state."); return null; }
     }, [currentUserState, setUserState, setLatestStateCID]);

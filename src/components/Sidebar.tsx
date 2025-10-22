@@ -69,8 +69,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         setTimeout(() => setCopiedKey(null), 2000);
     };
 
+    // --- FIX: Use sessionStorage ---
     // Get the display name/label (might be Kubo key name or Filebase label)
-    const displayName = userState?.profile?.name || localStorage.getItem("currentUserLabel") || 'Loading...';
+    const displayName = userState?.profile?.name || sessionStorage.getItem("currentUserLabel") || 'Loading...';
+    // --- End Fix ---
 
   return (
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>

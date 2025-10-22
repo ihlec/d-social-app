@@ -7,8 +7,29 @@ import { S3Client } from "@aws-sdk/client-s3";
 // --- ADD TOAST IMPORT ---
 import toast from 'react-hot-toast';
 
-const SESSION_COOKIE_NAME = 'dSocialSession';
+// --- FIX: Use a cookie prefix instead of a static name ---
+const SESSION_COOKIE_PREFIX = 'dSocialSession';
+// --- End Fix ---
+
 const DEFAULT_USER_STATE_CID = "QmRh23Gd4AJLBH82CN9wz2MAe6sY95AqDSDBMFW1qnheny"; // Used
+
+// --- NEW HELPER: Get user-specific cookie name ---
+/**
+ * Gets the session cookie name based on the user label.
+ * --- FIX: Reads from sessionStorage (tab-specific) ---
+ */
+function getDynamicSessionCookieName(label?: string | null): string | null {
+    const userLabel = label || sessionStorage.getItem("currentUserLabel"); // <-- FIX: Use sessionStorage
+    if (!userLabel) {
+        console.warn("getDynamicSessionCookieName: No user label found.");
+        return null;
+    }
+    // Simple sanitization to prevent invalid cookie characters (e.g., spaces, semicolons)
+    const sanitizedLabel = userLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${SESSION_COOKIE_PREFIX}_${sanitizedLabel}`;
+}
+// --- End New Helper ---
+
 
 // --- Filebase API Functions ---
 
@@ -83,9 +104,18 @@ function createFilebaseS3Client(apiKey: string, apiSecret: string): S3Client {
 /**
  * Loads the current session from the cookie.
  * FIX 3: This now re-creates the S3 client if the session is Filebase.
+ * --- FIX: This now uses a dynamic cookie name based on sessionStorage ---
  */
 export function getSession(): Session {
-    const sessionCookie = loadSessionCookie<Session>(SESSION_COOKIE_NAME);
+    // --- FIX: Use dynamic cookie name ---
+    const cookieName = getDynamicSessionCookieName(); // <-- Reads from sessionStorage
+    if (!cookieName) {
+        console.log("[getSession] No dynamic cookie name, returning null session.");
+        return { sessionType: null };
+    }
+    // --- End Fix ---
+
+    const sessionCookie = loadSessionCookie<Session>(cookieName); // Modified
 
     if (sessionCookie?.sessionType === 'filebase' &&
         sessionCookie.bucketName &&
@@ -105,6 +135,7 @@ export function getSession(): Session {
         return sessionCookie;
     }
 
+    console.log(`[getSession] No valid session found in cookie '${cookieName}'.`);
     return { sessionType: null };
  }
 
@@ -119,9 +150,19 @@ export function saveSessionCookie<T>(name: string, value: T): void {
 export function loadSessionCookie<T>(name: string): T | null {
   const cookieValue = getCookie(name); if (cookieValue) { try { return JSON.parse(cookieValue) as T; } catch (e) { console.error("Failed parse cookie:", e); eraseCookie(name); return null; } } return null;
 }
+
+// --- FIX: logoutSession now uses dynamic cookie name and sessionStorage ---
 export function logoutSession(): void {
-    eraseCookie(SESSION_COOKIE_NAME); localStorage.removeItem("currentUserLabel");
+    const cookieName = getDynamicSessionCookieName(); // Get name *before* removing label
+    if (cookieName) {
+        eraseCookie(cookieName);
+        console.log(`[logoutSession] Erased cookie: ${cookieName}`);
+    } else {
+        console.warn("[logoutSession] No cookie name found to erase.");
+    }
+    sessionStorage.removeItem("currentUserLabel"); // <-- FIX: Use sessionStorage
 }
+// --- End Fix ---
 
 // --- FIX: loginToKubo now fetches state and returns { session, state, cid } ---
 export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ session: Session, state: UserState, cid: string }> {
@@ -133,14 +174,22 @@ export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ se
          
          const resolvedIpnsKey = keyInfo.Id; 
          const session: Session = { sessionType: 'kubo', rpcApiUrl: apiUrl, ipnsKeyName: keyName, resolvedIpnsKey }; 
-         saveSessionCookie(SESSION_COOKIE_NAME, session); 
+
+         // --- FIX: Use dynamic cookie name ---
+         // Note: sessionStorage is set in useAuth, but we pass keyName to the helper
+         const cookieName = getDynamicSessionCookieName(keyName);
+         if (!cookieName) throw new Error("Could not create session cookie name.");
+         saveSessionCookie(cookieName, session); 
+         // --- End Fix ---
 
          // Fetch the user state
          let cid = '';
          let state: UserState;
          try {
              cid = await resolveIpns(resolvedIpnsKey);
-             state = await fetchUserState(cid);
+             // --- FIX: Pass profile name hint ---
+             state = await fetchUserState(cid, keyName);
+             // --- End Fix ---
          } catch (e) {
              console.warn(`Could not resolve initial state for ${keyName}, using default.`);
              cid = DEFAULT_USER_STATE_CID;
@@ -151,7 +200,7 @@ export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ se
 
      } catch (error) { 
          console.error("Kubo login failed:", error); 
-         logoutSession(); 
+         logoutSession(); // This will clear the label and any old cookie
          throw error; 
      }
 }
@@ -187,7 +236,13 @@ export async function loginToFilebase(nameLabel: string, bucketCredential?: stri
         filebaseKey: apiKey,
         filebaseSecret: apiSecret
      };
-     saveSessionCookie(SESSION_COOKIE_NAME, sessionToSave);
+
+     // --- FIX: Use dynamic cookie name ---
+     // Note: sessionStorage is set in useAuth, but we pass nameLabel to the helper
+     const cookieName = getDynamicSessionCookieName(nameLabel);
+     if (!cookieName) throw new Error("Could not create session cookie name.");
+     saveSessionCookie(cookieName, sessionToSave);
+     // --- End Fix ---
      
      const session = { ...sessionToSave, s3Client: s3Client };
 
@@ -196,7 +251,9 @@ export async function loginToFilebase(nameLabel: string, bucketCredential?: stri
      let state: UserState;
      try {
          cid = await resolveIpns(nameLabel); // Use the label for the first resolve
-         state = await fetchUserState(cid);
+         // --- FIX: Pass profile name hint ---
+         state = await fetchUserState(cid, nameLabel);
+         // --- End Fix ---
      } catch (e) {
          console.warn(`Could not resolve initial state for ${nameLabel}, using default.`);
          cid = DEFAULT_USER_STATE_CID;
@@ -366,7 +423,8 @@ async function fetchCidViaGateways(cid: string): Promise<any> {
 }
 
 // --- FIX: fetchUserState with detailed logging and robust error handling ---
-export async function fetchUserState(cid: string): Promise<UserState> {
+// --- FIX: Added profileNameHint argument ---
+export async function fetchUserState(cid: string, profileNameHint?: string): Promise<UserState> {
     let aggregatedState: Partial<UserState> = {
         postCIDs: [],
         follows: [],
@@ -384,11 +442,12 @@ export async function fetchUserState(cid: string): Promise<UserState> {
     console.log(`[fetchUserState] Starting aggregation from head CID: ${cid}`);
 
     while (currentCid && chunksProcessed < maxChunksToFetch) {
+        // --- FIX: Use profileNameHint if we hit the default CID ---
         if (currentCid === DEFAULT_USER_STATE_CID && isHead) {
-            console.log(`[fetchUserState] Hit default CID on head, returning empty state.`);
-            // NOTE: Assuming createEmptyUserState and DEFAULT_USER_STATE_CID are in scope
-            return createEmptyUserState({ name: "Default User" }); 
+            console.log(`[fetchUserState] Hit default CID on head, using profileNameHint: '${profileNameHint}'`);
+            return createEmptyUserState({ name: profileNameHint || "Default User" }); 
         }
+        // --- End Fix ---
 
         chunksProcessed++;
         console.log(`[fetchUserState] Processing chunk ${chunksProcessed}, CID: ${currentCid}`);
@@ -462,7 +521,9 @@ export async function fetchUserState(cid: string): Promise<UserState> {
 
     // Now, normalize the final aggregated state (ensure all arrays exist, profile defaults)
     return {
-        profile: aggregatedState.profile || { name: 'Unknown User' },
+        // --- FIX: Use hint as fallback if aggregation resulted in no profile ---
+        profile: aggregatedState.profile || { name: profileNameHint || 'Unknown User' },
+        // --- End Fix ---
         postCIDs: aggregatedState.postCIDs ?? [],
         follows: aggregatedState.follows ?? [],
         likedPostCIDs: aggregatedState.likedPostCIDs ?? [],
@@ -481,7 +542,14 @@ export async function fetchUserState(cid: string): Promise<UserState> {
  */
 export async function fetchUserStateChunk(cid: string): Promise<Partial<UserState>> {
     if (cid === DEFAULT_USER_STATE_CID) {
-         return createEmptyUserState({ name: "Default User" });
+         // --- FIX: Return the *actual* default state, not a new one ---
+         // The caller (`fetchUserState`) will now handle the profile logic.
+         return {
+            profile: { name: "Default User" },
+            postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [],
+            updatedAt: 0, extendedUserState: null
+         };
+         // --- End Fix ---
     }
     try {
         const data = await fetchPost(cid); // fetchPost handles gateways/kubo

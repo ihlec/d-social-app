@@ -129,8 +129,10 @@ export async function _uploadStateAndPublishToIpns(stateToPublish: UserState | P
     const session = getSession();
     if (!session.sessionType) throw new Error("No active session.");
 
+    // --- FIX: Use sessionStorage ---
     // Determine profile name for cookie
-    const profileName = ('profile' in stateToPublish && stateToPublish.profile?.name) || localStorage.getItem("currentUserLabel") || '';
+    const profileName = ('profile' in stateToPublish && stateToPublish.profile?.name) || sessionStorage.getItem("currentUserLabel") || '';
+    // --- End Fix ---
     const timestamp = ('updatedAt' in stateToPublish && stateToPublish.updatedAt) || Date.now(); // Get timestamp
 
     let headCID: string;
@@ -160,7 +162,7 @@ export async function _uploadStateAndPublishToIpns(stateToPublish: UserState | P
  * Uploads a state object without publishing to IPNS or updating the cookie.
  * Used internally for creating chunks.
  * @param stateToUpload The UserState object to upload.
- * @returns The CID of the uploaded state.
+ *@returns The CID of the uploaded state.
  */
 export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserState>): Promise<string> {
      const session = getSession();
