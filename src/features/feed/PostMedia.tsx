@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Post } from '../../types';
-import { getMediaUrl } from '../../api/ipfs';
+import { getMediaUrl } from '../../api/ipfsIpns';
 import { FileIcon, PlayIcon } from '../../components/Icons';
 
 interface PostMediaProps {

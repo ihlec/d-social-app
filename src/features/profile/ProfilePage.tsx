@@ -6,7 +6,7 @@ import ProfileHeader from '../../features/profile/ProfileHeader';
 import Feed from '../../features/feed/Feed';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useAppState } from '../../state/useAppStorage';
-import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfs';
+import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfsIpns';
 import { UserState, Post, UserProfile } from '../../types';
 
 // Define the specific feed types for the profile page

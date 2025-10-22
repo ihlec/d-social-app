@@ -5,7 +5,7 @@ import AppStateContext from './AppContext';
 import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '../types';
 import { useCooldown } from '../hooks/useCooldown';
 // --- FIX: Add fetchUserState ---
-import { invalidateIpnsCache, fetchUserState } from '../api/ipfs';
+import { invalidateIpnsCache, fetchUserState } from '../api/ipfsIpns';
 // --- End Fix ---
 
 // Import new modular hooks

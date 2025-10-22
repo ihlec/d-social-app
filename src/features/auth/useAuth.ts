@@ -10,7 +10,7 @@ import {
     createEmptyUserState,
     resolveIpns,
     fetchUserState
-} from '../../api/ipfs';
+} from '../../api/ipfsIpns';
 import { loadOptimisticCookie, saveOptimisticCookie } from '../../state/stateActions'; // Removed EXPECTED_CID_KEY for now
 
 const POST_COOLDOWN_MS = 300 * 1000;

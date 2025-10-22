@@ -1,5 +1,6 @@
+// src/context/AppContext.tsx
 import React, { createContext, useMemo, ReactNode } from 'react';
-import { useAppStateInternal, UseAppStateReturn } from './useAppStorage';
+import { useAppStateInternal, UseAppStateReturn } from '../state/useAppStorage';
 
 const AppStateContext = createContext<UseAppStateReturn | null>(null);
 
@@ -8,37 +9,102 @@ interface AppStateProviderProps {
 }
 
 export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) => {
-  const appState = useAppStateInternal(); // The hook containing the actual logic
+  // --- FIX: Destructure all values from the hook ---
+  const {
+    isLoggedIn,
+    userState,
+    myIpnsKey,
+    latestStateCID,
+    isLoadingFeed,
+    isProcessing,
+    isCoolingDown,
+    countdown,
+    allPostsMap,
+    userProfilesMap,
+    exploreAllPostsMap,
+    exploreUserProfilesMap,
+    combinedUserProfilesMap,
+    unresolvedFollows,
+    otherUsers,
+    loginWithFilebase,
+    loginWithKubo,
+    logout,
+    addPost,
+    likePost,
+    dislikePost,
+    followUser,
+    unfollowUser,
+    refreshFeed,
+    isLoadingExplore, // <-- FIX: Added missing property
+    loadMoreExplore,
+    refreshExploreFeed,
+    updateProfile,
+    ensurePostsAreFetched,
+  } = useAppStateInternal(); // The hook containing the actual logic
 
-  // Memoize the context value to prevent unnecessary re-renders of consumers
-  const contextValue = useMemo(() => appState, [
-    appState.isLoggedIn,
-    appState.userState,
-    appState.myIpnsKey,
-    appState.latestStateCID,
-    appState.isLoadingFeed,
-    appState.isProcessing,
-    appState.isCoolingDown,
-    appState.countdown,
-    appState.allPostsMap,
-    appState.userProfilesMap,
-    appState.exploreAllPostsMap,
-    appState.exploreUserProfilesMap,
-    appState.combinedUserProfilesMap,
-    appState.unresolvedFollows,
-    appState.otherUsers,
-    appState.loginWithFilebase,
-    appState.loginWithKubo,
-    appState.logout,
-    appState.addPost,
-    appState.likePost,
-    appState.dislikePost,
-    appState.followUser,
-    appState.unfollowUser,
-    appState.refreshFeed,
-    appState.loadMoreExplore,
-    appState.refreshExploreFeed,
-    appState.updateProfile,
+  // --- FIX: Memoize the *creation* of the context value object ---
+  // This ensures consumers only re-render when a value they use *actually* changes.
+  const contextValue = useMemo(() => ({
+    isLoggedIn,
+    userState,
+    myIpnsKey,
+    latestStateCID,
+    isLoadingFeed,
+    isProcessing,
+    isCoolingDown,
+    countdown,
+    allPostsMap,
+    userProfilesMap,
+    exploreAllPostsMap,
+    exploreUserProfilesMap,
+    combinedUserProfilesMap,
+    unresolvedFollows,
+    otherUsers,
+    loginWithFilebase,
+    loginWithKubo,
+    logout,
+    addPost,
+    likePost,
+    dislikePost,
+    followUser,
+    unfollowUser,
+    refreshFeed,
+    isLoadingExplore, // <-- FIX: Added missing property
+    loadMoreExplore,
+    refreshExploreFeed,
+    updateProfile,
+    ensurePostsAreFetched,
+  }), [
+    // Add all states and functions to the dependency array
+    isLoggedIn,
+    userState,
+    myIpnsKey,
+    latestStateCID,
+    isLoadingFeed,
+    isProcessing,
+    isCoolingDown,
+    countdown,
+    allPostsMap,
+    userProfilesMap,
+    exploreAllPostsMap,
+    exploreUserProfilesMap,
+    combinedUserProfilesMap,
+    unresolvedFollows,
+    otherUsers,
+    loginWithFilebase,
+    loginWithKubo,
+    logout,
+    addPost,
+    likePost,
+    dislikePost,
+    followUser,
+    unfollowUser,
+    refreshFeed,
+    isLoadingExplore, // <-- FIX: Added missing property
+    loadMoreExplore,
+    refreshExploreFeed,
+    updateProfile,
+    ensurePostsAreFetched,
   ]);
 
 

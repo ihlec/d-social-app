@@ -8,7 +8,7 @@ import {
     uploadJsonToIpfs,
     publishToIpns,
     updateIpnsRecord
-} from '../api/ipfs';
+} from '../api/ipfsIpns';
 import { uploadJsonToFilebase, uploadFileToFilebase } from '../api/filebase';
 import { createThumbnail } from '../lib/media';
 import { UserProfile, UserState, OptimisticStateCookie, NewPostData, Post } from '../types';

@@ -1,7 +1,7 @@
 // src/hooks/useParentPostFetcher.ts
 import { useCallback, useRef } from 'react';
 import { Post, UserProfile } from '../types';
-import { fetchPost } from '../api/ipfs';
+import { fetchPost } from '../api/ipfsIpns';
 import { fetchUserProfile } from '../state/stateActions';
 
 interface UseParentPostFetcherArgs {

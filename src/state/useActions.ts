@@ -1,4 +1,4 @@
-// src/hooks/useAppActions.ts
+// src/hooks/useActions.ts
 import { useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { NewPostData, Post, UserState, Follow, UserProfile } from '../types';
@@ -142,8 +142,30 @@ export const useAppActions = ({
 		try {
 			setIsProcessing(true);
 
-            // --- FIX: Removed chunking logic ---
-            const stateToPublish: UserState | Partial<UserState> = newUserState;
+            // --- FIX: Re-applied chunking logic ---
+            let stateToPublish: UserState | Partial<UserState> = newUserState;
+
+            // Only chunk if we *added* a like AND the array is over the limit
+            if (!isLiked && (newUserState.likedPostCIDs ?? []).length > ARRAY_CHUNK_LIMIT) {
+                console.log("[likePost] likedPostCIDs limit exceeded, creating chunk.");
+                toast.loading("Chunking state...", { id: "chunking-like" });
+                
+                // Upload the *previous* state (before this like)
+                const previousState = { ...userState, updatedAt: userState.updatedAt || newUserState.updatedAt - 1 };
+                const previousStateCID = await _uploadStateOnly(previousState);
+
+                // This new chunk contains *only* the new like
+                stateToPublish = {
+                    profile: newUserState.profile,
+                    updatedAt: newUserState.updatedAt,
+                    extendedUserState: previousStateCID,
+                    likedPostCIDs: [postId], // Only the new like
+                    dislikedPostCIDs: [], // This action clears dislikes, so empty is correct
+                    postCIDs: [],
+                    follows: [],
+                };
+                toast.dismiss("chunking-like");
+            }
             // --- End Fix ---
 
 			const headCID = await _uploadStateAndPublishToIpns(stateToPublish, myIpnsKey);
@@ -151,6 +173,7 @@ export const useAppActions = ({
 			toast.success(isLiked ? "Unliked" : "Liked");
 
 		} catch (e) {
+            toast.dismiss("chunking-like"); // Ensure toast is dismissed on error
 			setUserState(userState); // Revert UI
 			toast.error(`Action failed: ${e instanceof Error ? e.message : "Unknown"}`);
 		} finally {
@@ -178,8 +201,30 @@ export const useAppActions = ({
 		try {
 			setIsProcessing(true);
 
-            // --- FIX: Removed chunking logic ---
-            const stateToPublish: UserState | Partial<UserState> = newUserState;
+            // --- FIX: Re-applied chunking logic ---
+            let stateToPublish: UserState | Partial<UserState> = newUserState;
+
+            // Only chunk if we *added* a dislike AND the array is over the limit
+            if (!isDisliked && (newUserState.dislikedPostCIDs ?? []).length > ARRAY_CHUNK_LIMIT) {
+                console.log("[dislikePost] dislikedPostCIDs limit exceeded, creating chunk.");
+                toast.loading("Chunking state...", { id: "chunking-dislike" });
+                
+                // Upload the *previous* state (before this dislike)
+                const previousState = { ...userState, updatedAt: userState.updatedAt || newUserState.updatedAt - 1 };
+                const previousStateCID = await _uploadStateOnly(previousState);
+
+                // This new chunk contains *only* the new dislike
+                stateToPublish = {
+                    profile: newUserState.profile,
+                    updatedAt: newUserState.updatedAt,
+                    extendedUserState: previousStateCID,
+                    dislikedPostCIDs: [postId], // Only the new dislike
+                    likedPostCIDs: [], // This action clears likes, so empty is correct
+                    postCIDs: [],
+                    follows: [],
+                };
+                toast.dismiss("chunking-dislike");
+            }
             // --- End Fix ---
 
 			const headCID = await _uploadStateAndPublishToIpns(stateToPublish, myIpnsKey);
@@ -187,6 +232,7 @@ export const useAppActions = ({
 			toast.success(isDisliked ? "Removed dislike" : "Disliked");
 
 		} catch (e) {
+            toast.dismiss("chunking-dislike"); // Ensure toast is dismissed on error
 			setUserState(userState); // Revert UI
 			toast.error(`Action failed: ${e instanceof Error ? e.message : "Unknown"}`);
 		} finally {
@@ -216,15 +262,37 @@ export const useAppActions = ({
 			await toast.promise((async () => {
 				const state = await fetchUserStateByIpns(ipnsKeyToFollow);
 				const name = state?.profile?.name || "Unknown";
-				const cid = state.extendedUserState || '';
+				const cid = state.extendedUserState || ''; // Note: This isn't really 'lastSeenCid', but it's what the code had
 				finalFollow = { ipnsKey: ipnsKeyToFollow, name, lastSeenCid: cid };
 				finalUserState = { ...optimisticUserState, follows: optimisticUserState.follows.map(f => f.ipnsKey === ipnsKeyToFollow ? finalFollow : f), };
                 setUserState(finalUserState);
                 setUserProfilesMap((prev: Map<string, UserProfile>) => new Map(prev).set(ipnsKeyToFollow, { name }));
 			})(), { loading: "Resolving user...", success: "User found!", error: e => `Failed: ${e.message}` });
 
-            // --- FIX: Removed chunking logic ---
-            const stateToPublish: UserState | Partial<UserState> = finalUserState!;
+            // --- FIX: Re-applied chunking logic ---
+            let stateToPublish: UserState | Partial<UserState> = finalUserState!;
+
+            if ((finalUserState!.follows ?? []).length > ARRAY_CHUNK_LIMIT) {
+                console.log("[followUser] follows limit exceeded, creating chunk.");
+                toast.loading("Chunking state...", { id: "chunking-follow" });
+
+                // Upload the *previous* state (before this follow)
+                // Note: We use `userState` (state before *optimistic* update)
+                const previousState = { ...userState, updatedAt: userState.updatedAt || optimisticTimestamp - 1 };
+                const previousStateCID = await _uploadStateOnly(previousState);
+
+                // This new chunk contains *only* the new follow
+                stateToPublish = {
+                    profile: finalUserState!.profile,
+                    updatedAt: finalUserState!.updatedAt,
+                    extendedUserState: previousStateCID,
+                    follows: [finalFollow!], // Only the new follow
+                    postCIDs: [],
+                    likedPostCIDs: [],
+                    dislikedPostCIDs: [],
+                };
+                toast.dismiss("chunking-follow");
+            }
             // --- End Fix ---
 
             const headCID = await _uploadStateAndPublishToIpns(stateToPublish, myIpnsKey);
@@ -233,7 +301,8 @@ export const useAppActions = ({
 			await refreshFeed();
 
 		} catch (e) {
-			setUserState(userState);
+            toast.dismiss("chunking-follow"); // Ensure toast is dismissed on error
+			setUserState(userState); // Revert to original state
 			setUserProfilesMap((prev: Map<string, UserProfile>) => { const map = new Map(prev); map.delete(ipnsKeyToFollow); return map; });
 			console.error("Follow failed:", e);
 		} finally {
@@ -251,12 +320,13 @@ export const useAppActions = ({
 
 		try {
 			setIsProcessing(true);
-            // No chunking logic needed/implemented for unfollow
+            // No chunking logic needed for *removing* an item.
+            // Publishing the full aggregated state is acceptable here.
             const stateToPublish: UserState | Partial<UserState> = newUserState;
 			const headCID = await _uploadStateAndPublishToIpns(stateToPublish, myIpnsKey);
 			setLatestStateCID(headCID);
 			toast.success(`Unfollowed ${toRemove.name || "user"}.`);
-			refreshFeed();
+			refreshFeed(); // Refresh to remove posts
 		} catch (e) {
 			setUserState(userState); // Revert UI
             toast.error(`Unfollow failed: ${e instanceof Error ? e.message : "Unknown"}`);
@@ -276,7 +346,8 @@ export const useAppActions = ({
 		setUserProfilesMap((prev: Map<string, UserProfile>) => new Map(prev).set(myIpnsKey, newUserState.profile));
 		try {
 			setIsProcessing(true);
-            // No chunking needed for profile update
+            // No chunking needed for profile update, as profile is not an indefinitely growing array.
+            // It's metadata that should be in the head chunk.
             const headCID = await _uploadStateAndPublishToIpns(newUserState, myIpnsKey);
 			setLatestStateCID(headCID);
 			toast.success("Profile updated!");

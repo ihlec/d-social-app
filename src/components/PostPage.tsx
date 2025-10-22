@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import PostComponent from '../features/feed/PostItem';
 import LoadingSpinner from './LoadingSpinner';
 import { useAppState } from '../state/useAppStorage';
-import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfs'; // Keep using lib directly
+import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfsIpns'; // Keep using lib directly
 import { Post, UserProfile } from '../types';
 
 // Helper to recursively fetch thread (parents + reconstruct replies)

@@ -2,7 +2,7 @@
 import { useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { Post, UserProfile, UserState, Follow } from '../../types';
-import { fetchPost, invalidateIpnsCache } from '../../api/ipfs';
+import { fetchPost, invalidateIpnsCache } from '../../api/ipfsIpns';
 import { fetchUserStateChunkByIpns } from '../../state/stateActions';
 
 
