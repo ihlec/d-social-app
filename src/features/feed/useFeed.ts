@@ -2,10 +2,15 @@
 import { useState, useCallback } from 'react'; // Removed useEffect, useRef
 import toast from 'react-hot-toast';
 import { Post, UserProfile, Follow, UserState } from '../../types';
-import { fetchPost } from '../../api/ipfsIpns';
+// --- FIX: fetchUserState is now needed for the fallback ---
+import { fetchPost, fetchUserState } from '../../api/ipfsIpns';
+// --- End Fix ---
 import { fetchUserStateByIpns, fetchUserProfile } from './../../state/stateActions';
 
 const MAX_FOLLOWS_PER_STATE = 10;
+// --- FIX: Define a timeout for IPNS resolution ---
+const IPNS_FETCH_TIMEOUT_MS = 5000; // 5 seconds
+// --- End Fix ---
 
 interface UseAppFeedArgs {
 	myIpnsKey: string;
@@ -47,9 +52,40 @@ export const useAppFeed = ({
         const profiles = new Map<string, UserProfile>(); const unresolved: string[] = []; const postFetchPromises: Promise<void>[] = []; const parentCIDsToFetch = new Set<string>();
 		await Promise.all(batch.map(async (f) => {
 			try {
-                // --- FIX: Destructure state from the new return type ---
-				const { state } = await fetchUserStateByIpns(f.ipnsKey); 
+                // --- FIX: Implement timeout and fallback logic ---
+                let state: UserState;
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('IPNS_TIMEOUT')), IPNS_FETCH_TIMEOUT_MS)
+                );
+        
+                const freshFetchPromise = fetchUserStateByIpns(f.ipnsKey);
+
+                try {
+                    // Race the fresh fetch against the timeout
+                    const { state: freshState } = await Promise.race([
+                        freshFetchPromise,
+                        timeoutPromise as Promise<{ state: UserState, cid: string }> // Cast to match type
+                    ]);
+                    state = freshState;
+                } catch (e) {
+                    // Check if it was our timeout
+                    if (e instanceof Error && e.message === 'IPNS_TIMEOUT') {
+                        console.warn(`[processFollowBatch] IPNS resolve for ${f.ipnsKey} timed out. Falling back to lastSeenCid: ${f.lastSeenCid}`);
+                        if (f.lastSeenCid) {
+                            // This is our fallback path
+                            state = await fetchUserState(f.lastSeenCid, f.name); // Pass name hint
+                        } else {
+                            // Timed out *and* no fallback exists. Mark as unresolved.
+                            throw new Error(`IPNS timeout for ${f.ipnsKey} with no fallback CID.`);
+                        }
+                    } else {
+                        // It was a different error (e.g., IPNS 404, network error)
+                        throw e; // Re-throw to be caught by the outer catch block
+                    }
+                }
                 // --- End Fix ---
+                
                 if (state.profile) profiles.set(f.ipnsKey, state.profile);
 				(state.postCIDs || []).filter(pc => pc && !pc.startsWith('temp-')).forEach((pc: string) => {
                     postFetchPromises.push( (async () => { try { if (!localPostsMap.has(pc) && !allPostsMap.has(pc)) { const data = await fetchPost(pc); if (data) { const post: Post = { ...data, authorKey: f.ipnsKey, id: pc }; localPostsMap.set(pc, post); if (post.referenceCID && !localPostsMap.has(post.referenceCID) && !allPostsMap.has(post.referenceCID)) { parentCIDsToFetch.add(post.referenceCID); } } } else if (allPostsMap.has(pc) && !localPostsMap.has(pc)) { localPostsMap.set(pc, allPostsMap.get(pc)!); } } catch (e) { console.warn(`Failed fetch post ${pc} for ${f.ipnsKey}:`, e); } })() );
@@ -69,7 +105,7 @@ export const useAppFeed = ({
 
 	const ensurePostsAreFetched = useCallback(async (postCids: string[]) => {
         // ... (ensurePostsAreFetched remains the same)
-        if (isLoadingFeed || isFetchingMissingPosts) { console.warn("[ensurePostsAreFetched] Feed is already loading, skipping."); return; } if (!myIpnsKey) return; const missingCids = postCids.filter(cid => cid && !cid.startsWith('temp-') && !allPostsMap.has(cid)); if (missingCids.length === 0) return; console.log(`[ensurePostsAreFetched] Found ${missingCids.length} missing posts. Fetching...`, missingCids); setIsFetchingMissingPosts(true); const fetchedPosts: Post[] = []; const fetchedProfiles = new Map<string, UserProfile>(); const fetchPromises = missingCids.map(async (cid: string) => { try { const post = await fetchPost(cid); if (post && post.authorKey) { if (!userProfilesMap.has(post.authorKey)) { try { const profile = await fetchUserProfile(post.authorKey); fetchedProfiles.set(post.authorKey, profile); } catch (profileError) { console.warn(`[ensurePostsAreFetched] Failed to fetch profile for ${post.authorKey}:`, profileError); } } fetchedPosts.push({ ...post, id: cid }); } else { console.warn(`[ensurePostsAreFetched] Invalid data fetched for post ${cid}`); } } catch (error) { console.error(`[ensurePostsAreFetched] Failed to fetch post ${cid}:`, error); toast.error(`Failed to load post ${cid.substring(0, 8)}...`); } }); await Promise.allSettled(fetchPromises); if (fetchedPosts.length > 0 || fetchedProfiles.size > 0) { setAllPostsMap((prev) => { const newMap = new Map(prev); fetchedPosts.forEach(post => newMap.set(post.id, post)); return newMap; }); setUserProfilesMap((prev) => new Map([...prev, ...fetchedProfiles])); } setIsFetchingMissingPosts(false); console.log(`[ensurePostsAreFetched] Finished fetching ${fetchedPosts.length} posts.`);
+        if (isLoadingFeed || isFetchingMissingPosts) { console.warn("[ensurePostsAreFetched] Feed is in a loading state, skipping."); return; } if (!myIpnsKey) return; const missingCids = postCids.filter(cid => cid && !cid.startsWith('temp-') && !allPostsMap.has(cid)); if (missingCids.length === 0) return; console.log(`[ensurePostsAreFetched] Found ${missingCids.length} missing posts. Fetching...`, missingCids); setIsFetchingMissingPosts(true); const fetchedPosts: Post[] = []; const fetchedProfiles = new Map<string, UserProfile>(); const fetchPromises = missingCids.map(async (cid: string) => { try { const post = await fetchPost(cid); if (post && post.authorKey) { if (!userProfilesMap.has(post.authorKey)) { try { const profile = await fetchUserProfile(post.authorKey); fetchedProfiles.set(post.authorKey, profile); } catch (profileError) { console.warn(`[ensurePostsAreFetched] Failed to fetch profile for ${post.authorKey}:`, profileError); } } fetchedPosts.push({ ...post, id: cid }); } else { console.warn(`[ensurePostsAreFetched] Invalid data fetched for post ${cid}`); } } catch (error) { console.error(`[ensurePostsAreFetched] Failed to fetch post ${cid}:`, error); toast.error(`Failed to load post ${cid.substring(0, 8)}...`); } }); await Promise.allSettled(fetchPromises); if (fetchedPosts.length > 0 || fetchedProfiles.size > 0) { setAllPostsMap((prev) => { const newMap = new Map(prev); fetchedPosts.forEach(post => newMap.set(post.id, post)); return newMap; }); setUserProfilesMap((prev) => new Map([...prev, ...fetchedProfiles])); } setIsFetchingMissingPosts(false); console.log(`[ensurePostsAreFetched] Finished fetching ${fetchedPosts.length} posts.`);
 	}, [ allPostsMap, myIpnsKey, userProfilesMap, setUserProfilesMap, setAllPostsMap, isLoadingFeed, isFetchingMissingPosts ]);
 
 
