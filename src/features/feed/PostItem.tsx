@@ -1,5 +1,5 @@
 // src/features/feed/PostItem.tsx
-import React from 'react';
+import React, { useEffect } from 'react'; // Import useEffect
 import { useNavigate } from 'react-router-dom';
 import { Post, UserProfile, UserState } from '../../types';
 import PostMedia from './PostMedia';
@@ -22,6 +22,7 @@ interface PostProps {
   // --- FIX: Removed onFollowPostAuthor ---
   // onFollowPostAuthor?: (ipnsKey: string) => void;
   // --- End Fix ---
+  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>; // <-- ADDED
   isReply?: boolean;
 }
 
@@ -38,10 +39,27 @@ const PostComponent: React.FC<PostProps> = ({
   // --- FIX: Removed onFollowPostAuthor ---
   // onFollowPostAuthor,
   // --- End Fix ---
+  ensurePostsAreFetched, // <-- ADDED
   isReply = false,
 }) => {
   const navigate = useNavigate();
   const post = allPostsMap.get(postId);
+
+  // --- FIX: Add useEffect for on-demand reply fetching ---
+  useEffect(() => {
+    if (post?.replies && post.replies.length > 0 && ensurePostsAreFetched) {
+      const missingReplyCIDs = post.replies.filter(
+        (replyId) => replyId && !replyId.startsWith('temp-') && !allPostsMap.has(replyId)
+      );
+      if (missingReplyCIDs.length > 0) {
+        // We don't await this; let it run in the background
+        ensurePostsAreFetched(missingReplyCIDs);
+      }
+    }
+    // We depend on post.id to ensure this re-runs if the component is recycled by virtuoso
+  }, [post?.id, post?.replies, allPostsMap, ensurePostsAreFetched]);
+  // --- End Fix ---
+
 
   if (!post) {
     console.warn(`Post data missing entirely for ID: ${postId}`);
@@ -193,6 +211,7 @@ const PostComponent: React.FC<PostProps> = ({
               // --- FIX: Removed onFollowPostAuthor ---
               // onFollowPostAuthor={onFollowPostAuthor}
               // --- End Fix ---
+              ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
               isReply={true}
             />
           ))}

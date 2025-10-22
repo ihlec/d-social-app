@@ -19,6 +19,7 @@ interface FeedProps {
   // --- FIX: Removed onFollowPostAuthor ---
   // onFollowPostAuthor?: (ipnsKey: string) => void;
   // --- End Fix ---
+  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>; // <-- ADDED
   footerComponent?: React.ReactNode;
 }
 
@@ -36,6 +37,7 @@ const Feed: React.FC<FeedProps> = ({
   // --- FIX: Removed onFollowPostAuthor ---
   // onFollowPostAuthor,
   // --- End Fix ---
+  ensurePostsAreFetched, // <-- ADDED
   footerComponent,
 }) => {
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
@@ -62,6 +64,7 @@ const Feed: React.FC<FeedProps> = ({
           // --- FIX: Removed onFollowPostAuthor ---
           // onFollowPostAuthor={onFollowPostAuthor}
           // --- End Fix ---
+          ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
         />
       </div>
     );

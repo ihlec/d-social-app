@@ -61,7 +61,7 @@ const fetchThread = async (
                 CIDsToFetch.add(post.referenceCID);
                  console.log(`[fetchThread] Added parent ${post.referenceCID} to fetch queue.`);
             }
-
+            
             // --- FIX: Add replies (children) to the fetch queue ---
             if (post.replies && post.replies.length > 0) {
                 post.replies.forEach(replyCid => {
@@ -137,7 +137,10 @@ const PostPage: React.FC = () => {
     const { cid } = useParams<{ cid: string }>();
     const navigate = useNavigate();
     // --- FIX: Remove global maps from destructuring (they are not needed here anymore) ---
-    const { likePost, dislikePost, userState, myIpnsKey } = useAppState();
+    const {
+        likePost, dislikePost, userState, myIpnsKey,
+        ensurePostsAreFetched // <-- ADDED
+    } = useAppState();
     // --- End Fix ---
     const [threadPosts, setThreadPosts] = useState<Map<string, Post>>(new Map());
     const [threadProfiles, setThreadProfiles] = useState<Map<string, UserProfile>>(new Map());
@@ -182,6 +185,7 @@ const PostPage: React.FC = () => {
                 onDislikePost={dislikePost} 
                 currentUserState={userState} 
                 myIpnsKey={myIpnsKey} 
+                ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
                 // onFollowPostAuthor removed previously
             />
         </div>

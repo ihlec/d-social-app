@@ -39,7 +39,8 @@ const HomePage: React.FC = () => {
         addPost, likePost, dislikePost, followUser, unfollowUser, refreshFeed, logout,
         isLoadingExplore, loadMoreExplore, refreshExploreFeed,
         unresolvedFollows, allPostsMap, exploreAllPostsMap, otherUsers,
-        combinedUserProfilesMap
+        combinedUserProfilesMap,
+        ensurePostsAreFetched, // <-- ADDED
     } = useAppState();
 
     const [loadMoreRef, isLoadMoreVisible] = useIntersectionObserver({ threshold: 0.1 });
@@ -103,7 +104,7 @@ const HomePage: React.FC = () => {
 
     // Determine which posts and profiles to display
     const displayData = useMemo(() => {
-        const dislikedSet = new Set(userState?.dislikedPostCIDs || []); let preliminaryMap: Map<string, Post>; if (selectedFeed === 'explore') { preliminaryMap = exploreAllPostsMap; } else { preliminaryMap = allPostsMap; } const filteredMap = new Map<string, Post>(); preliminaryMap.forEach((post, id) => { if (!dislikedSet.has(id)) { filteredMap.set(id, post); } }); const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(filteredMap); const hasMyCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey === myIpnsKey) return true; if (hasMyCommentRecursive(reply)) return true; } return false; }; const hasOtherCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey !== myIpnsKey) return true; if (hasOtherCommentRecursive(reply)) return true; } return false; }; if (replyingToPost) { let rootPostId = replyingToPost.id; let currentPost: Post | undefined = replyingToPost; const fullCombinedMapForReply: Map<string, Post> = new Map([...allPostsMap, ...exploreAllPostsMap]); while (currentPost?.referenceCID && fullCombinedMapForReply.has(currentPost.referenceCID)) { rootPostId = currentPost.referenceCID; currentPost = fullCombinedMapForReply.get(rootPostId); if (!currentPost) break; } const { postsWithReplies: fullTree } = buildPostTree(fullCombinedMapForReply); return { topLevelPostIds: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap }; } let finalTopLevelIds: string[] = []; switch (selectedFeed) { case 'myPosts': finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; return post.authorKey === myIpnsKey || hasMyCommentRecursive(post); }); break; case 'explore': finalTopLevelIds = allTopLevelIds; break; case 'myFeed': default: finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey); const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post)); return isFollowed || isMyPostWithOtherComment; }); break; } const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies)); return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: combinedUserProfilesMap };
+        const dislikedSet = new Set(userState?.dislikedPostCIDs || []); let preliminaryMap: Map<string, Post>; if (selectedFeed === 'explore') { preliminaryMap = exploreAllPostsMap; } else { preliminaryMap = allPostsMap; } const filteredMap = new Map<string, Post>(); preliminaryMap.forEach((post, id) => { if (!dislikedSet.has(id)) { filteredMap.set(id, post); } }); const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(filteredMap); const hasMyCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey === myIpnsKey) return true; if (hasMyCommentRecursive(reply)) return true; } return false; }; const hasOtherCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey !== myIpnsKey) return true; if (hasOtherCommentRecursive(reply)) return true; } return false; }; if (replyingToPost) { let rootPostId = replyingToPost.id; let currentPost: Post | undefined = replyingToPost; const fullCombinedMapForReply: Map<string, Post> = new Map([...allPostsMap, ...exploreAllPostsMap]); while (currentPost?.referenceCID && fullCombinedMapForReply.has(currentPost.referenceCID)) { rootPostId = currentPost.referenceCID; currentPost = fullCombinedMapForReply.get(rootPostId); if (!currentPost) break; } const { postsWithReplies: fullTree } = buildPostTree(fullCombinedMapForReply); return { topLevelIds: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap }; } let finalTopLevelIds: string[] = []; switch (selectedFeed) { case 'myPosts': finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; return post.authorKey === myIpnsKey || hasMyCommentRecursive(post); }); break; case 'explore': finalTopLevelIds = allTopLevelIds; break; case 'myFeed': default: finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey); const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post)); return isFollowed || isMyPostWithOtherComment; }); break; } const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies)); return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: combinedUserProfilesMap };
     }, [selectedFeed, replyingToPost, allPostsMap, exploreAllPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, combinedUserProfilesMap]); // Removed userProfilesMap, exploreUserProfilesMap
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
@@ -148,7 +149,19 @@ const HomePage: React.FC = () => {
 
                 {/* Feed */}
                 <Feed /* ... props ... */
-                    isLoading={isLoading} topLevelPostIds={displayData.topLevelPostIds} allPostsMap={displayData.allPostsMap} userProfilesMap={displayData.userProfilesMap} onSetReplyingTo={handleSetReplying} onViewProfile={handleViewProfile} onLikePost={likePost} onDislikePost={dislikePost} currentUserState={userState} myIpnsKey={myIpnsKey}
+                    isLoading={isLoading}
+                    // --- FIX: Provide fallback array ---
+                    topLevelPostIds={displayData.topLevelPostIds || []}
+                    // --- End Fix ---
+                    allPostsMap={displayData.allPostsMap}
+                    userProfilesMap={displayData.userProfilesMap}
+                    onSetReplyingTo={handleSetReplying}
+                    onViewProfile={handleViewProfile}
+                    onLikePost={likePost}
+                    onDislikePost={dislikePost}
+                    currentUserState={userState}
+                    myIpnsKey={myIpnsKey}
+                    ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
                     footerComponent={showLoadMore ? <div ref={loadMoreRef} className="load-more-trigger">{isLoadingExplore && <p className="loading">Loading More...</p>}</div> : undefined}
                 />
             </div>
