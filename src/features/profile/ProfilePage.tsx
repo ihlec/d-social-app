@@ -132,8 +132,11 @@ const ProfilePage: React.FC = () => {
     useEffect(() => {
         if (!profileUserState) return;
         const fetchPostsForFeed = async () => {
-            if (replyingToPost) return;
-            setIsPostsLoading(true); setLocalProfilesMap(new Map());
+            if (replyingToPost) return; // Don't fetch list if viewing a thread
+            setIsPostsLoading(true);
+            setLocalProfilesMap(new Map()); // Clear local profiles
+            setProfilePosts(new Map()); // Clear posts
+
             let cidsToFetch: string[] = [];
             switch (selectedFeed) {
                 case 'posts': cidsToFetch = profileUserState.postCIDs || []; break;
@@ -141,38 +144,76 @@ const ProfilePage: React.FC = () => {
                 case 'dislikes': cidsToFetch = profileUserState.dislikedPostCIDs || []; break;
             }
             cidsToFetch = cidsToFetch.filter(cid => cid && !cid.startsWith('temp-'));
+
             if (cidsToFetch.length === 0) {
-                setProfilePosts(new Map()); setIsPostsLoading(false); return;
+                setIsPostsLoading(false);
+                return;
             }
-            const posts = new Map<string, Post>();
-            const newlyFetchedProfilesThisRun = new Map<string, UserProfile>();
+
+            const newPosts = new Map<string, Post>();
+            const missingParentCIDs = new Set<string>();
+
+            // --- Pass 1: Fetch primary posts ---
             await Promise.allSettled(cidsToFetch.map(async (cid) => {
                 try {
+                    // Check combined map first, then fetch
                     let postData = combinedPosts.get(cid) ?? await fetchPost(cid);
                     if (postData && typeof postData === 'object' && postData.authorKey) {
                         const post: Post = { ...(postData as Post), id: cid, replies: [] };
-                        posts.set(cid, post);
-                        if (!combinedUserProfilesMap.has(post.authorKey) && !newlyFetchedProfilesThisRun.has(post.authorKey)) {
-                            try {
-                                const profileCid = await resolveIpns(post.authorKey);
-                                const authorState = await fetchUserState(profileCid);
-                                const fetchedProfile = authorState?.profile || { name: 'Unknown User' };
-                                newlyFetchedProfilesThisRun.set(post.authorKey, fetchedProfile);
-                            } catch (profileError) {
-                                console.warn(`Failed fetch profile for ${post.authorKey} in profile feed`, profileError);
-                                if (!newlyFetchedProfilesThisRun.has(post.authorKey)) {
-                                    newlyFetchedProfilesThisRun.set(post.authorKey, { name: 'Unknown User' });
-                                }
-                            }
+                        newPosts.set(cid, post);
+                        // Check for missing parent
+                        if (post.referenceCID && !combinedPosts.has(post.referenceCID)) {
+                            missingParentCIDs.add(post.referenceCID);
                         }
                     } else { console.warn(`Invalid post data for CID ${cid}`); }
                 } catch (error) { console.error(`Failed fetch post ${cid} for profile feed:`, error); }
             }));
-            if (newlyFetchedProfilesThisRun.size > 0) {
-                 console.log(`[ProfilePage] Fetched ${newlyFetchedProfilesThisRun.size} new profiles locally.`);
-                 setLocalProfilesMap(newlyFetchedProfilesThisRun);
+
+            // --- Pass 2: Fetch missing parent posts ---
+            // Filter out any parents that might have been fetched in Pass 1
+            const parentCIDsToFetch = Array.from(missingParentCIDs).filter(cid => !newPosts.has(cid));
+
+            if (parentCIDsToFetch.length > 0) {
+                 await Promise.allSettled(parentCIDsToFetch.map(async (cid) => {
+                    try {
+                        const postData = await fetchPost(cid); // Don't need to check combinedPosts, we already did
+                        if (postData && typeof postData === 'object' && postData.authorKey) {
+                            const post: Post = { ...(postData as Post), id: cid, replies: [] };
+                            newPosts.set(cid, post);
+                        } else { console.warn(`Invalid parent post data for CID ${cid}`); }
+                    } catch (error) { console.error(`Failed fetch parent post ${cid} for profile feed:`, error); }
+                 }));
             }
-            setProfilePosts(posts);
+
+            // --- Pass 3: Fetch all missing profiles ---
+            const authorKeysToFetch = new Set<string>();
+            newPosts.forEach(post => {
+                if (post.authorKey && !combinedUserProfilesMap.has(post.authorKey)) {
+                    authorKeysToFetch.add(post.authorKey);
+                }
+            });
+
+            const newlyFetchedProfiles = new Map<string, UserProfile>();
+            if (authorKeysToFetch.size > 0) {
+                 await Promise.allSettled(Array.from(authorKeysToFetch).map(async (authorKey) => {
+                    try {
+                        const profileCid = await resolveIpns(authorKey);
+                        const authorState = await fetchUserState(profileCid);
+                        const fetchedProfile = authorState?.profile || { name: 'Unknown User' };
+                        newlyFetchedProfiles.set(authorKey, fetchedProfile);
+                    } catch (profileError) {
+                        console.warn(`Failed fetch profile for ${authorKey} in profile feed`, profileError);
+                        newlyFetchedProfiles.set(authorKey, { name: 'Unknown User' });
+                    }
+                 }));
+            }
+
+            // --- Finalize State ---
+            if (newlyFetchedProfiles.size > 0) {
+                 console.log(`[ProfilePage] Fetched ${newlyFetchedProfiles.size} new profiles locally.`);
+                 setLocalProfilesMap(newlyFetchedProfiles);
+            }
+            setProfilePosts(newPosts);
             setIsPostsLoading(false);
         };
         fetchPostsForFeed();
