@@ -1,9 +1,11 @@
-// src/hooks/useAppExplore.ts
+// src/features/feed/useExploreFeed.ts
 import { useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { Post, UserProfile, UserState, Follow } from '../../types';
 import { fetchPost, invalidateIpnsCache } from '../../api/ipfsIpns';
-import { fetchUserStateChunkByIpns } from '../../state/stateActions';
+// --- FIX: Import the correct (aggregating) fetcher ---
+import { fetchUserStateByIpns, fetchUserStateChunkByIpns } from '../../state/stateActions';
+// --- End Fix ---
 
 
 const EXPLORE_BATCH_SIZE = 3;
@@ -46,10 +48,12 @@ export const useAppExplore = ({
 
 			try {
                 console.log(`[fetchFollowsOfFollows] Processing direct follow: ${directFollowKey}`);
-				const stateChunk = await fetchUserStateChunkByIpns(directFollowKey);
-                console.log(`[fetchFollowsOfFollows] Fetched chunk for ${directFollowKey}:`, stateChunk);
+                // --- FIX: Use the aggregating fetcher to get the *complete* user state ---
+				const fullState = await fetchUserStateByIpns(directFollowKey);
+                console.log(`[fetchFollowsOfFollows] Fetched full state for ${directFollowKey}:`, fullState);
 
-				(stateChunk.follows || []).forEach((followEntry: Follow | string) => {
+				(fullState.follows || []).forEach((followEntry: Follow | string) => {
+                // --- End Fix ---
                     let keyToCheck: string | undefined;
                     let nameHint: string | undefined;
 
