@@ -41,7 +41,7 @@ export const saveOptimisticCookie = (ipnsKey: string, data: OptimisticStateCooki
 };
 
 // --- Data Fetching Helpers ---
-// ... (fetchUserProfile, fetchUserStateByIpns, fetchUserStateChunkByIpns remain the same)
+// ... (fetchUserProfile remains the same)
 export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { // ...
     try {
         const profileCid = await resolveIpns(ipnsKey);
@@ -55,10 +55,15 @@ export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { 
         return { name: 'Unknown User' };
     }
 }
-export async function fetchUserStateByIpns(ipnsKey: string): Promise<UserState> { // ...
+
+// --- FIX: This function now returns the resolved CID as well ---
+export async function fetchUserStateByIpns(ipnsKey: string): Promise<{ state: UserState, cid: string }> {
     const cid = await resolveIpns(ipnsKey);
-    return await fetchUserState(cid);
+    const state = await fetchUserState(cid);
+    return { state, cid };
 }
+// --- End Fix ---
+
 export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> { // ...
     const cid = await resolveIpns(ipnsKey);
     return await fetchUserStateChunk(cid);

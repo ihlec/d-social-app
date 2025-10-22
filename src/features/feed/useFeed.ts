@@ -47,7 +47,10 @@ export const useAppFeed = ({
         const profiles = new Map<string, UserProfile>(); const unresolved: string[] = []; const postFetchPromises: Promise<void>[] = []; const parentCIDsToFetch = new Set<string>();
 		await Promise.all(batch.map(async (f) => {
 			try {
-				const state = await fetchUserStateByIpns(f.ipnsKey); if (state.profile) profiles.set(f.ipnsKey, state.profile);
+                // --- FIX: Destructure state from the new return type ---
+				const { state } = await fetchUserStateByIpns(f.ipnsKey); 
+                // --- End Fix ---
+                if (state.profile) profiles.set(f.ipnsKey, state.profile);
 				(state.postCIDs || []).filter(pc => pc && !pc.startsWith('temp-')).forEach((pc: string) => {
                     postFetchPromises.push( (async () => { try { if (!localPostsMap.has(pc) && !allPostsMap.has(pc)) { const data = await fetchPost(pc); if (data) { const post: Post = { ...data, authorKey: f.ipnsKey, id: pc }; localPostsMap.set(pc, post); if (post.referenceCID && !localPostsMap.has(post.referenceCID) && !allPostsMap.has(post.referenceCID)) { parentCIDsToFetch.add(post.referenceCID); } } } else if (allPostsMap.has(pc) && !localPostsMap.has(pc)) { localPostsMap.set(pc, allPostsMap.get(pc)!); } } catch (e) { console.warn(`Failed fetch post ${pc} for ${f.ipnsKey}:`, e); } })() );
 				});

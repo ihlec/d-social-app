@@ -48,8 +48,8 @@ export const useAppExplore = ({
 
 			try {
                 console.log(`[fetchFollowsOfFollows] Processing direct follow: ${directFollowKey}`);
-                // --- FIX: Use the aggregating fetcher to get the *complete* user state ---
-				const fullState = await fetchUserStateByIpns(directFollowKey);
+                // --- FIX: Use the aggregating fetcher and destructure the 'state' property ---
+				const { state: fullState } = await fetchUserStateByIpns(directFollowKey);
                 console.log(`[fetchFollowsOfFollows] Fetched full state for ${directFollowKey}:`, fullState);
 
 				(fullState.follows || []).forEach((followEntry: Follow | string) => {

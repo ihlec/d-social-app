@@ -260,10 +260,12 @@ export const useAppActions = ({
             let finalUserState: UserState;
 
 			await toast.promise((async () => {
-				const state = await fetchUserStateByIpns(ipnsKeyToFollow);
+                // --- FIX: Destructure state and cid from the new return type ---
+				const { state, cid } = await fetchUserStateByIpns(ipnsKeyToFollow);
 				const name = state?.profile?.name || "Unknown";
-				const cid = state.extendedUserState || ''; // Note: This isn't really 'lastSeenCid', but it's what the code had
+                // --- FIX: Store the correct head CID in lastSeenCid ---
 				finalFollow = { ipnsKey: ipnsKeyToFollow, name, lastSeenCid: cid };
+                // --- End Fix ---
 				finalUserState = { ...optimisticUserState, follows: optimisticUserState.follows.map(f => f.ipnsKey === ipnsKeyToFollow ? finalFollow : f), };
                 setUserState(finalUserState);
                 setUserProfilesMap((prev: Map<string, UserProfile>) => new Map(prev).set(ipnsKeyToFollow, { name }));
