@@ -1,3 +1,4 @@
+// src/features/feed/PostItem.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Post, UserProfile, UserState } from '../../types';
@@ -18,7 +19,9 @@ interface PostProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  onFollowPostAuthor?: (ipnsKey: string) => void;
+  // --- FIX: Removed onFollowPostAuthor ---
+  // onFollowPostAuthor?: (ipnsKey: string) => void;
+  // --- End Fix ---
   isReply?: boolean;
 }
 
@@ -32,7 +35,9 @@ const PostComponent: React.FC<PostProps> = ({
   onDislikePost,
   currentUserState,
   myIpnsKey,
-  onFollowPostAuthor,
+  // --- FIX: Removed onFollowPostAuthor ---
+  // onFollowPostAuthor,
+  // --- End Fix ---
   isReply = false,
 }) => {
   const navigate = useNavigate();
@@ -56,14 +61,32 @@ const PostComponent: React.FC<PostProps> = ({
   const displayAuthorName = authorProfile?.name || `Unknown (${post.authorKey.substring(0, 6)}...)`;
   const isLiked = currentUserState?.likedPostCIDs?.includes(post.id) ?? false;
   const isDisliked = currentUserState?.dislikedPostCIDs?.includes(post.id) ?? false;
-  const isMyPost = post.authorKey === myIpnsKey;
-  const isFollowingAuthor = currentUserState?.follows?.some(f => f.ipnsKey === post.authorKey) ?? false;
-  const canFollow = onFollowPostAuthor && !isMyPost && !isFollowingAuthor;
+  // --- FIX: Removed follow logic ---
+  // const isMyPost = post.authorKey === myIpnsKey;
+  // const isFollowingAuthor = currentUserState?.follows?.some(f => f.ipnsKey === post.authorKey) ?? false;
+  // const canFollow = onFollowPostAuthor && !isMyPost;
+  // --- End Fix ---
   const loadedReplies = post.replies?.filter(replyId => allPostsMap.has(replyId)) ?? [];
   // --- FIX: loadedReplyCount is used ---
   const loadedReplyCount = loadedReplies.length;
   // --- End Fix ---
   const isTemporaryPost = typeof post.id === 'string' && post.id.startsWith('temp-');
+
+  // --- FIX: Generic handler for all interactions ---
+  const handleInteraction = (action?: () => void) => {
+    // Stop propagation so the click doesn't bubble to the post navigation.
+    // e.stopPropagation(); // This must be done in the onClick lambda
+
+    if (currentUserState) {
+      // User is logged in, perform the action
+      if (action) action();
+    } else {
+      // User is logged out, prompt to log in
+      toast("Please log in to interact.", { icon: '🔒' });
+      navigate('/login');
+    }
+  };
+  // --- End Fix ---
 
   const handleShare = () => {
     if (typeof post.id === 'string' && !isTemporaryPost) {
@@ -73,9 +96,12 @@ const PostComponent: React.FC<PostProps> = ({
          toast.error("Cannot share this post (invalid ID).");
     }
   };
-  // --- FIX: handleReplyClick is used ---
-  const handleReplyClick = () => {
-      if (onSetReplyingTo) { onSetReplyingTo(post); }
+  // --- FIX: handleReplyClick now uses interaction guard ---
+  const handleReplyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    handleInteraction(() => {
+        if (onSetReplyingTo) { onSetReplyingTo(post); }
+    });
   }
   // --- End Fix ---
   const handleNavigateToPost = (e: React.MouseEvent) => {
@@ -101,7 +127,9 @@ const PostComponent: React.FC<PostProps> = ({
 
       <div className="post-header">
          <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
-         {canFollow && (<button className="follow-author-button" onClick={(e) => { e.stopPropagation(); onFollowPostAuthor!(post.authorKey); }}>Follow</button>)}
+         {/* --- FIX: Removed Follow Button --- */}
+         {/* {canFollow && !isFollowingAuthor && (...)} */}
+         {/* --- End Fix --- */}
       </div>
 
       {post.content && <p>{post.content}</p>}
@@ -111,38 +139,38 @@ const PostComponent: React.FC<PostProps> = ({
       <div className="post-footer">
          <small title={new Date(post.timestamp).toString()} >{formatTimestamp(post.timestamp)}</small>
         <div className="post-actions" onClick={(e) => e.stopPropagation()}>
-          {onLikePost && (
-            <button
-                onClick={() => post.id && onLikePost(post.id)}
-                className={`action-button ${isLiked ? 'liked' : ''}`}
-                title="Like"
-                disabled={!currentUserState || isTemporaryPost}
-             > <LikeIcon /> </button>
-          )}
-          {onDislikePost && (
-            <button
-                onClick={() => post.id && onDislikePost(post.id)}
-                className={`action-button ${isDisliked ? 'disliked' : ''}`}
-                title="Dislike"
-                disabled={!currentUserState || isTemporaryPost}
-             > <DislikeIcon /> </button>
-          )}
+          {/* --- FIX: Updated Like Button --- */}
+          <button
+              onClick={(e) => { e.stopPropagation(); handleInteraction(onLikePost ? () => onLikePost(post.id) : undefined); }}
+              className={`action-button ${isLiked ? 'liked' : ''}`}
+              title="Like"
+              disabled={isTemporaryPost}
+           > <LikeIcon /> </button>
+          {/* --- End Fix --- */}
+          
+          {/* --- FIX: Updated Dislike Button --- */}
+          <button
+              onClick={(e) => { e.stopPropagation(); handleInteraction(onDislikePost ? () => onDislikePost(post.id) : undefined); }}
+              className={`action-button ${isDisliked ? 'disliked' : ''}`}
+              title="Dislike"
+              disabled={isTemporaryPost}
+           > <DislikeIcon /> </button>
+          {/* --- End Fix --- */}
+
           {/* --- FIX: Corrected Reply button usage --- */}
-          {onSetReplyingTo && (
-             <button
-                className="comment-button"
-                onClick={handleReplyClick} // Use the handler
-                title="Reply"
-                disabled={!currentUserState}
-            >
-                <ReplyIcon /> {/* Use the icon */}
-                {loadedReplyCount > 0 && ( // Use the count
-                    <span style={{ fontSize: '0.8em', marginLeft: '4px', color: 'var(--text-secondary-color)' }}>
-                        {loadedReplyCount}
-                    </span>
-                )}
+           <button
+              className="comment-button"
+              onClick={handleReplyClick} // Use the new handler
+              title="Reply"
+              // Button is no longer disabled when logged out
+          >
+              <ReplyIcon /> {/* Use the icon */}
+              {loadedReplyCount > 0 && ( // Use the count
+                  <span style={{ fontSize: '0.8em', marginLeft: '4px', color: 'var(--text-secondary-color)' }}>
+                      {loadedReplyCount}
+                  </span>
+              )}
             </button>
-          )}
           {/* --- End Fix --- */}
           <button className="action-button" onClick={handleShare} title="Share Post"> <ShareIcon /> </button>
         </div>
@@ -162,7 +190,9 @@ const PostComponent: React.FC<PostProps> = ({
               onDislikePost={onDislikePost}
               currentUserState={currentUserState}
               myIpnsKey={myIpnsKey}
-              onFollowPostAuthor={onFollowPostAuthor}
+              // --- FIX: Removed onFollowPostAuthor ---
+              // onFollowPostAuthor={onFollowPostAuthor}
+              // --- End Fix ---
               isReply={true}
             />
           ))}

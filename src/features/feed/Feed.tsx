@@ -1,3 +1,4 @@
+// src/features/feed/Feed.tsx
 import React from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import PostComponent from './PostItem';
@@ -15,7 +16,9 @@ interface FeedProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  onFollowPostAuthor?: (ipnsKey: string) => void;
+  // --- FIX: Removed onFollowPostAuthor ---
+  // onFollowPostAuthor?: (ipnsKey: string) => void;
+  // --- End Fix ---
   footerComponent?: React.ReactNode;
 }
 
@@ -30,7 +33,9 @@ const Feed: React.FC<FeedProps> = ({
   onDislikePost,
   currentUserState,
   myIpnsKey,
-  onFollowPostAuthor,
+  // --- FIX: Removed onFollowPostAuthor ---
+  // onFollowPostAuthor,
+  // --- End Fix ---
   footerComponent,
 }) => {
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
@@ -54,7 +59,9 @@ const Feed: React.FC<FeedProps> = ({
           onDislikePost={onDislikePost}
           currentUserState={currentUserState}
           myIpnsKey={myIpnsKey}
-          onFollowPostAuthor={onFollowPostAuthor}
+          // --- FIX: Removed onFollowPostAuthor ---
+          // onFollowPostAuthor={onFollowPostAuthor}
+          // --- End Fix ---
         />
       </div>
     );

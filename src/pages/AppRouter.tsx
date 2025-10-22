@@ -1,13 +1,11 @@
-// Removed unused React import
+// src/router/AppRouter.tsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './HomePage';
 import ProfilePage from 'src/features/profile/ProfilePage';
 import PostPage from 'src/components/PostPage';
 import Login from 'src/features/auth/Login';
 import { useAppState } from '@/state/useAppStorage'; // Import the context hook
-// --- FIX: Import loading spinner ---
 import LoadingSpinner from 'src/components/LoadingSpinner';
-// --- End Fix ---
 
 function AppRouter() {
   const { isLoggedIn, loginWithFilebase, loginWithKubo } = useAppState();
@@ -24,37 +22,53 @@ function AppRouter() {
   }
   // --- End Fix ---
 
-  // Show login page if not logged in
-  if (!isLoggedIn) {
-    return (
-      <Routes>
-        <Route
-          path="/login"
-          element={
+  // --- FIX: Restructured routing for public pages ---
+  // The router no longer has a single "logged in" or "logged out" block.
+  // We define all routes and protect them individually.
+  return (
+    <Routes>
+      {/* PUBLIC ROUTES:
+        These routes are accessible to everyone, logged in or not.
+      */}
+      <Route path="/post/:cid" element={<PostPage />} />
+      <Route path="/profile/:key" element={<ProfilePage />} />
+      
+      {/* LOGIN ROUTE:
+        If logged out, shows the Login page.
+        If logged in, redirects to the main feed.
+      */}
+      <Route
+        path="/login"
+        element={
+          !isLoggedIn ? (
             <Login
               onLoginFilebase={loginWithFilebase}
               onLoginKubo={loginWithKubo}
             />
-          }
-        />
-        {/* Redirect any other path to login */}
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    );
-  }
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
 
-  // Logged-in routes
-  return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/post/:cid" element={<PostPage />} />
-      <Route path="/profile/:key" element={<ProfilePage />} />
-      {/* Redirect login path to home if already logged in */}
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      {/* Optional: Handle unknown routes */}
+      {/* PROTECTED ROUTES:
+        These routes require a user to be logged in.
+      */}
+      <Route
+        path="/"
+        element={
+          isLoggedIn ? <HomePage /> : <Navigate to="/login" replace />
+        }
+      />
+
+      {/* CATCH-ALL:
+        Redirects any other path to the main feed,
+        which will then handle the auth redirect if necessary.
+      */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+  // --- END FIX ---
 }
 
 export default AppRouter;

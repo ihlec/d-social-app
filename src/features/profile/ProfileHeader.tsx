@@ -1,5 +1,7 @@
+// src/features/profile/ProfileHeader.tsx
 import React, { useState } from 'react';
-import { UserProfile } from '../../types';
+import { useNavigate } from 'react-router-dom';
+import { UserProfile, Follow } from '../../types';
 import { useAppState } from '../../state/useAppStorage';
 import { ShareIcon } from '../../components/Icons'; 
 import toast from 'react-hot-toast';
@@ -11,13 +13,26 @@ interface ProfileHeaderProps {
 }
 
 const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMyProfile }) => {
-  const { updateProfile, isProcessing } = useAppState();
+  const { userState, followUser, unfollowUser, isProcessing, updateProfile } = useAppState();
+  const navigate = useNavigate();
+
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [bioInput, setBioInput] = useState(profile?.bio || '');
 
   if (!profile) {
     return <div className="profile-header"><h2>Loading Profile...</h2></div>;
   }
+
+  const isFollowing = userState?.follows?.some((f: Follow) => f.ipnsKey === profileKey) ?? false;
+
+  const handleFollowClick = () => {
+    if (!userState) {
+      toast("Please log in to follow.", { icon: '🔒' });
+      navigate('/login');
+    } else {
+      isFollowing ? unfollowUser(profileKey) : followUser(profileKey);
+    }
+  };
 
   const handleSaveBio = async () => {
     try {
@@ -37,7 +52,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
 
   return (
     <div className="profile-header">
-      <h2>{profile.name}</h2>
+      <h2>
+        {profile.name}
+        {/* --- FIX: Button moved from here --- */}
+      </h2>
+
       {isEditingBio ? (
         <div className="bio-editor">
           <textarea
@@ -59,6 +78,8 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
       ) : (
         <p>
           {profile.bio || (isMyProfile ? <i>No bio provided. Click edit to add one.</i> : 'No bio provided.')}
+          
+          {/* Edit button (only for my profile) */}
           {isMyProfile && !isEditingBio && (
             <button
               className="edit-bio-button"
@@ -70,6 +91,18 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
               Edit
             </button>
           )}
+
+          {/* --- FIX: Follow/Unfollow Button moved here --- */}
+          {!isMyProfile && (
+            <button
+              className="edit-bio-button" // Use same class as Edit for positioning
+              onClick={handleFollowClick}
+              disabled={isProcessing}
+            >
+              {isProcessing ? '...' : (isFollowing ? 'Unfollow' : 'Follow')}
+            </button>
+          )}
+          {/* --- End Fix --- */}
         </p>
       )}
        <button onClick={handleShareProfile} className="share-profile-button" title="Share Profile">

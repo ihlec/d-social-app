@@ -51,7 +51,7 @@ const ProfilePage: React.FC = () => {
         myIpnsKey, userState: currentUserState,
         allPostsMap: globalPostsMap, exploreAllPostsMap,
         userProfilesMap: globalProfilesMap, exploreUserProfilesMap,
-        likePost, dislikePost, followUser // Interaction functions
+        likePost, dislikePost, // --- FIX: Removed followUser ---
     } = useAppState();
 
     const [profileUserState, setProfileUserState] = useState<UserState | null>(null);
@@ -128,6 +128,7 @@ const ProfilePage: React.FC = () => {
                     cidsToFetch = profileUserState.likedPostCIDs || [];
                     break;
                 case 'dislikes':
+                    // --- FIX: Removed stray 'T' ---
                     cidsToFetch = profileUserState.dislikedPostCIDs || [];
                     break;
             }
@@ -257,7 +258,9 @@ const ProfilePage: React.FC = () => {
                     myIpnsKey={myIpnsKey}
                     onLikePost={currentUserState ? likePost : undefined}
                     onDislikePost={currentUserState ? dislikePost : undefined}
-                    onFollowPostAuthor={currentUserState ? followUser : undefined}
+                    // --- FIX: Removed onFollowPostAuthor ---
+                    // onFollowPostAuthor={currentUserState ? followUser : undefined}
+                    // --- End Fix ---
                 />
             </div>
         </div>
