@@ -62,6 +62,17 @@ const fetchThread = async (
                  console.log(`[fetchThread] Added parent ${post.referenceCID} to fetch queue.`);
             }
 
+            // --- FIX: Add replies (children) to the fetch queue ---
+            if (post.replies && post.replies.length > 0) {
+                post.replies.forEach(replyCid => {
+                    if (replyCid && !processedCIDs.has(replyCid)) {
+                        CIDsToFetch.add(replyCid);
+                        console.log(`[fetchThread] Added reply ${replyCid} to fetch queue.`);
+                    }
+                });
+            }
+            // --- End Fix ---
+
         } catch (error) {
             // --- FIX: Re-throw error if it's the start CID, otherwise log and set placeholder ---
              if (currentCid === startCid && error instanceof Error) {
