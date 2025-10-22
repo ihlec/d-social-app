@@ -32,7 +32,7 @@ body {
 
 #root {
     width: 100%;
-    max-width: 1100px;
+    max-width: 1100px; /* --- User Change --- */
     margin: 0 auto;
     text-align: center;
     height: 100%;
@@ -320,15 +320,42 @@ button:disabled {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
-    min-height: 0
 }
+
+.feed-row-two-column,
+.feed-row-three-column {
+    display: flex;
+    flex-direction: row;
+    gap: 1rem;
+    align-items: stretch; /* Ensure columns stretch vertically */
+}
+
+.feed-column-item {
+    min-width: 0; /* Prevents flex overflow */
+    display: flex; /* Make column a flex container */
+    flex-direction: column; /* Allow post inside to stretch */
+}
+
+/* Specific column widths */
+.feed-row-two-column > .feed-column-item {
+    flex: 1 1 50%; /* Grow, shrink, basis 50% */
+}
+
+.feed-row-three-column > .feed-column-item {
+    flex: 1 1 33.33%; /* Grow, shrink, basis 33.33% */
+}
+/* End multi-column styles */
+
 
 .post {
     background-color: var(--surface-color);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
-    text-align: left
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Stretch post card */
 }
 
 .post-header {
@@ -360,7 +387,8 @@ button:disabled {
 .post p {
     margin: .5rem 0;
     white-space: pre-wrap;
-    word-wrap: break-word
+    word-wrap: break-word;
+    flex-grow: 1; /* Allow content to push footer down */
 }
 
 .post small {
@@ -432,25 +460,48 @@ button:disabled {
     cursor: pointer
 }
 
+/* Adjust Post Media styles for full width */
+.post-media-container {
+    margin-top: 1rem;
+    width: 100%;
+}
+
 .post-media {
     display: block;
-    max-width: 300px;
-    margin-top: 1rem;
+    width: 100%;
+    margin-top: 0;
     border-radius: 8px;
     cursor: pointer;
-    border: 1px solid var(--border-color)
+    border: 1px solid var(--border-color);
+    object-fit: cover;
+    max-height: 500px; /* Default max height */
 }
+
+/* --- FIX: Add specific max-height for 3-column layout --- */
+.feed-row-three-column .post-media,
+.feed-row-three-column .video-thumbnail-container img.post-media {
+    max-height: 300px; /* Reduced height for smaller columns */
+}
+/* --- End Fix --- */
+
 
 .post-media.full-width {
   max-width: 100%;
+  max-height: none;
 }
 
 .video-thumbnail-container {
     position: relative;
     cursor: pointer;
-    display: inline-block;
+    display: block;
+    width: 100%;
     line-height: 0
 }
+
+.video-thumbnail-container img.post-media {
+     max-height: 500px; /* Default max height for thumbnails */
+}
+
 
 .play-icon-overlay {
     position: absolute;
@@ -634,7 +685,7 @@ button:disabled {
 .comment-button:hover,
 .share-profile-button:hover {
     background-color: #646cff1a;
-    color: var(--primary-color); 
+    color: var(--primary-color);
 }
 
 /* Specific overrides */
@@ -780,6 +831,12 @@ button:disabled {
     .main-content.sidebar-open {
         transform: translate(var(--sidebar-width))
     }
+
+    /* Force single column on tablet */
+    .feed-row-two-column,
+    .feed-row-three-column {
+        flex-direction: column;
+    }
 }
 
 @media(max-width:480px) {
@@ -794,4 +851,6 @@ button:disabled {
     .main-content.sidebar-open {
         transform: translate(var(--sidebar-width))
     }
+
+    /* Styles already handled by tablet breakpoint */
 }

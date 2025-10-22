@@ -20,15 +20,17 @@ const profileFeedOptions: { label: string; value: ProfileFeedType }[] = [
     { label: 'Dislikes', value: 'dislikes' },
 ];
 
-// --- FIX: Moved helper functions outside the component ---
-// Helper to get latest activity timestamp for sorting (simplified for profile view)
+// --- Type for the row structure ---
+type FeedRowItem = string | string[];
+
+
+// --- Helper functions ---
 const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
     const post = postsMap.get(postId);
     if (!post) return 0;
-    return post.timestamp; // Directly return timestamp for profile view sorting
+    return post.timestamp;
 };
 
-// Helper to build post tree (simplified for profile view)
 const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => {
     const postsWithReplies = new Map<string, Post>();
     postMap.forEach((post, id) => {
@@ -37,7 +39,6 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
     // Connect replies if they exist within the fetched set
     postsWithReplies.forEach(post => {
         if (post.referenceCID && postsWithReplies.has(post.referenceCID)) {
-            // Ensure replies array exists (though initialized above, belt-and-suspenders)
             const parent = postsWithReplies.get(post.referenceCID);
             if (parent) {
                 if (!parent.replies) parent.replies = [];
@@ -45,11 +46,14 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
             }
         }
     });
-    // All fetched posts are considered top-level for the profile feed presentation
-    const topLevelIds = Array.from(postMap.keys());
+    // Filter out posts that ended up being replies within the fetched set
+    const topLevelIds = Array.from(postsWithReplies.keys()).filter(id => {
+        const post = postsWithReplies.get(id);
+        return !post?.referenceCID || !postsWithReplies.has(post.referenceCID);
+    });
+
     return { topLevelIds, postsWithReplies };
 };
-// --- End Fix ---
 
 
 const ProfilePage: React.FC = () => {
@@ -60,7 +64,8 @@ const ProfilePage: React.FC = () => {
         allPostsMap: globalPostsMap, exploreAllPostsMap,
         likePost, dislikePost,
         addPost, isProcessing, isCoolingDown, countdown,
-        combinedUserProfilesMap
+        combinedUserProfilesMap,
+        ensurePostsAreFetched,
     } = useAppState();
 
     const [profileUserState, setProfileUserState] = useState<UserState | null>(null);
@@ -231,9 +236,9 @@ const ProfilePage: React.FC = () => {
                  currentPost = mapForWalk.get(rootPostId); if (!currentPost) break;
              }
              const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
-             return { topLevelPostIds: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
+             return { feedRowItems: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
         }
-        if (!profileUserState) return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
+        if (!profileUserState) return { feedRowItems: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
 
         let finalPostsMap = profilePosts;
         if (selectedFeed !== 'dislikes' && currentUserState?.dislikedPostCIDs) {
@@ -244,19 +249,51 @@ const ProfilePage: React.FC = () => {
 
         const { topLevelIds, postsWithReplies } = buildPostTree(finalPostsMap);
 
-        // --- FIX: Add explicit return to sort function ---
         const sortedTopLevelIds = topLevelIds.sort((a, b) => {
             const latestA = getLatestActivityTimestamp(a, postsWithReplies);
             const latestB = getLatestActivityTimestamp(b, postsWithReplies);
-            return latestB - latestA; // Ensure this difference is returned
+            return latestB - latestA;
         });
+
+        // --- FIX: Implement 3-column row chunking logic ---
+        const feedRowItems: FeedRowItem[] = [];
+        const shortPostBuffer: string[] = []; // Can hold up to 2 items
+
+        const flushBuffer = () => {
+            if (shortPostBuffer.length > 0) {
+                feedRowItems.push([...shortPostBuffer]); // Push a copy
+                shortPostBuffer.length = 0; // Clear the buffer
+            }
+        };
+
+        for (const postId of sortedTopLevelIds) {
+            const post = postsWithReplies.get(postId);
+            // A post is "long" (full-width) if it has replies.
+            const isLongPost = (post?.replies?.length ?? 0) > 0;
+
+            if (isLongPost) {
+                // Flush any existing short posts before adding the long one.
+                flushBuffer();
+                // Add the long post as its own full-width row.
+                feedRowItems.push(postId);
+            } else {
+                // This is a "short" post. Add it to the buffer.
+                shortPostBuffer.push(postId);
+                // If the buffer is full (3 items), flush it.
+                if (shortPostBuffer.length === 3) {
+                    flushBuffer();
+                }
+            }
+        }
+        // After the loop, flush any remaining posts in the buffer.
+        flushBuffer();
         // --- End Fix ---
 
         const finalProfiles: Map<string, UserProfile> = new Map(profileMapToUse);
         if (profileKey && !finalProfiles.has(profileKey) && profileUserState.profile) {
             finalProfiles.set(profileKey, profileUserState.profile);
         }
-        return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: finalProfiles };
+        return { feedRowItems, postsWithReplies, userProfilesMap: finalProfiles };
     }, [profileUserState, profilePosts, combinedUserProfilesMap, localProfilesMap, profileKey, replyingToPost, combinedPosts, selectedFeed, currentUserState?.dislikedPostCIDs]);
 
 
@@ -291,11 +328,13 @@ const ProfilePage: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-                        <Feed isLoading={isPostsLoading} topLevelPostIds={displayData.topLevelPostIds}
+                        <Feed isLoading={isPostsLoading}
+                            feedRowItems={displayData.feedRowItems || []}
                             allPostsMap={displayData.postsWithReplies} userProfilesMap={displayData.userProfilesMap}
                             onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}
                             myIpnsKey={myIpnsKey} onLikePost={currentUserState ? likePost : undefined}
                             onDislikePost={currentUserState ? dislikePost : undefined} onSetReplyingTo={handleSetReplying}
+                            ensurePostsAreFetched={ensurePostsAreFetched}
                         />
                     </>
                 )}

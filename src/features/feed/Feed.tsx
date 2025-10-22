@@ -5,9 +5,13 @@ import PostComponent from './PostItem';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
 
+// Type for the row structure
+type FeedRowItem = string | string[];
+
+
 interface FeedProps {
   isLoading: boolean;
-  topLevelPostIds: string[];
+  feedRowItems: FeedRowItem[];
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
   onSetReplyingTo?: (post: Post | null) => void;
@@ -16,16 +20,13 @@ interface FeedProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  // --- FIX: Removed onFollowPostAuthor ---
-  // onFollowPostAuthor?: (ipnsKey: string) => void;
-  // --- End Fix ---
-  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>; // <-- ADDED
+  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>;
   footerComponent?: React.ReactNode;
 }
 
 const Feed: React.FC<FeedProps> = ({
   isLoading,
-  topLevelPostIds,
+  feedRowItems,
   allPostsMap,
   userProfilesMap,
   onSetReplyingTo,
@@ -34,10 +35,7 @@ const Feed: React.FC<FeedProps> = ({
   onDislikePost,
   currentUserState,
   myIpnsKey,
-  // --- FIX: Removed onFollowPostAuthor ---
-  // onFollowPostAuthor,
-  // --- End Fix ---
-  ensurePostsAreFetched, // <-- ADDED
+  ensurePostsAreFetched,
   footerComponent,
 }) => {
   const virtuosoRef = React.useRef<VirtuosoHandle>(null);
@@ -46,48 +44,86 @@ const Feed: React.FC<FeedProps> = ({
     return <LoadingSpinner />;
   }
 
-  const renderItem = (_index: number, postId: string) => {
-    if (!allPostsMap.has(postId)) return null;
-
-    return (
-      <div style={{ paddingBottom: '1rem' }}>
-        <PostComponent
-          postId={postId}
-          allPostsMap={allPostsMap}
-          userProfilesMap={userProfilesMap}
-          onSetReplyingTo={onSetReplyingTo}
-          onViewProfile={onViewProfile}
-          onLikePost={onLikePost}
-          onDislikePost={onDislikePost}
-          currentUserState={currentUserState}
-          myIpnsKey={myIpnsKey}
-          // --- FIX: Removed onFollowPostAuthor ---
-          // onFollowPostAuthor={onFollowPostAuthor}
-          // --- End Fix ---
-          ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
-        />
-      </div>
-    );
-  };
-
   const EmptyPlaceholder = () => (
        <p style={{ color: 'var(--text-secondary-color)', padding: '2rem', textAlign: 'center' }}>
          {'Your feed is empty. Follow users or explore to see posts!'}
        </p>
   );
 
+  // --- FIX: Handle rendering for single, double, and triple post rows ---
+  const renderItem = (_index: number, rowItem: FeedRowItem) => {
+
+    // Case 1: Full-width row (single post ID)
+    if (typeof rowItem === 'string') {
+        const postId = rowItem;
+        if (!allPostsMap.has(postId)) return null;
+        return (
+          // Apply padding directly here, removing the outer div
+          <div style={{ paddingBottom: '1rem', paddingTop: '1rem' }}>
+            <PostComponent
+              postId={postId}
+              allPostsMap={allPostsMap}
+              userProfilesMap={userProfilesMap}
+              onSetReplyingTo={onSetReplyingTo}
+              onViewProfile={onViewProfile}
+              onLikePost={onLikePost}
+              onDislikePost={onDislikePost}
+              currentUserState={currentUserState}
+              myIpnsKey={myIpnsKey}
+              ensurePostsAreFetched={ensurePostsAreFetched}
+            />
+          </div>
+        );
+    }
+
+    // Case 2: Multi-column row (array of post IDs)
+    if (Array.isArray(rowItem)) {
+        const postIds = rowItem;
+        // Determine class based on number of posts in the row
+        const rowClass = postIds.length === 3 ? 'feed-row-three-column' :
+                         postIds.length === 2 ? 'feed-row-two-column' :
+                         ''; // Default or handle single item array if needed
+
+        return (
+            <div className={`feed-row-item ${rowClass}`} style={{ paddingBottom: '1rem', paddingTop: '1rem' }}>
+                {postIds.map(postId => {
+                    if (!allPostsMap.has(postId)) return null;
+                    return (
+                        <div key={postId} className="feed-column-item">
+                            <PostComponent
+                                postId={postId}
+                                allPostsMap={allPostsMap}
+                                userProfilesMap={userProfilesMap}
+                                onSetReplyingTo={onSetReplyingTo}
+                                onViewProfile={onViewProfile}
+                                onLikePost={onLikePost}
+                                onDislikePost={onDislikePost}
+                                currentUserState={currentUserState}
+                                myIpnsKey={myIpnsKey}
+                                ensurePostsAreFetched={ensurePostsAreFetched}
+                            />
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    return null; // Fallback for invalid row items
+  };
+  // --- End Fix ---
+
+
   return (
-       <div className="feed-container" style={{ flexGrow: 1, minHeight: 0 }}>
+       <div className="feed-container">
          <Virtuoso
             ref={virtuosoRef}
-            useWindowScroll // 
-            style={{ height: '100%' }}
-            data={topLevelPostIds}
+            useWindowScroll
+            data={feedRowItems}
             itemContent={renderItem}
             components={{
               Footer: footerComponent ? () => <>{footerComponent}</> : undefined,
-              // Virtuoso rerender
-              EmptyPlaceholder: topLevelPostIds.length === 0 ? EmptyPlaceholder : undefined,
+              EmptyPlaceholder: feedRowItems.length === 0 ? EmptyPlaceholder : undefined,
             }}
           />
         </div>
