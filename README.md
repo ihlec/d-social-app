@@ -46,13 +46,6 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- shorter timeouts
-- Explore would be much faster if UserStateCIDs were part of the follows (who is going to update the CID to an IPNS and when?) If I follow someone it is my obligation to cache and update that CID. Exploring users will benefit from that. But also, users without online followers will have outdated state CIDs.
-- aggresive timeouts paired with a who has check might do the job already. 
-
-- IPNS resolving can take long and might not succeed. In the Follow type, we store the lastSeenCID. How would it be to have strict and tight timeouts and fall back to these lastSeenCid fields from the follow object? 
-shorter IPNS timeouts with fall back to Follow.lastSeenCid
-
 - comment thread not shown reliably
 
 - full screen video not working for vertical video
