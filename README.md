@@ -46,14 +46,10 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-
-- fix multi-user per browser currupted session cookie
-- expose shared pages to not-logged-in users
 - replying to test shows IPNS instead of label
-- keep like red - directly after clicking not just on refresh 
+- cannot reply to my own comment on profile view
 
 - shorter timeouts
-
 - Explore would be much faster if UserStateCIDs where part of the follows (who is going to update the CID to an IPNS and when?) If I follow someone it is my obligation to cache and update that CID. Exploring users will benefit from that. But also, users without online followers will have outdated state CIDs.
 - aggresive timeouts paired with a who has check might do the job already. 
 
