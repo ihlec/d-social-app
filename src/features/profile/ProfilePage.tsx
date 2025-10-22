@@ -7,7 +7,10 @@ import Feed from '../../features/feed/Feed';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useAppState } from '../../state/useAppStorage';
 import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfsIpns';
-import { UserState, Post, UserProfile } from '../../types';
+// --- FIX: UserProfile needed for newlyFetchedProfiles ---
+import { UserState, Post, UserProfile, NewPostData } from '../../types';
+// --- End Fix ---
+import NewPostForm from '../../features/feed/NewPostForm';
 
 // Define the specific feed types for the profile page
 type ProfileFeedType = 'posts' | 'likes' | 'dislikes';
@@ -50,8 +53,12 @@ const ProfilePage: React.FC = () => {
     const {
         myIpnsKey, userState: currentUserState,
         allPostsMap: globalPostsMap, exploreAllPostsMap,
-        userProfilesMap: globalProfilesMap, exploreUserProfilesMap,
-        likePost, dislikePost, // --- FIX: Removed followUser ---
+        // --- FIX: Remove unused profile maps ---
+        // userProfilesMap: globalProfilesMap, exploreUserProfilesMap,
+        // --- End Fix ---
+        likePost, dislikePost,
+        addPost, isProcessing, isCoolingDown, countdown,
+        combinedUserProfilesMap
     } = useAppState();
 
     const [profileUserState, setProfileUserState] = useState<UserState | null>(null);
@@ -64,14 +71,37 @@ const ProfilePage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedFeed, setSelectedFeed] = useState<ProfileFeedType>('posts');
 
-    // --- FIX: Use sessionStorage ---
+    const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
+    const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
+
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
-    // --- End Fix ---
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
 
     // Combine global maps for initial/fallback data lookup
     const combinedPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
-    const combinedProfiles: Map<string, UserProfile> = useMemo(() => new Map([...globalProfilesMap, ...exploreUserProfilesMap]), [globalProfilesMap, exploreUserProfilesMap]);
+
+    const handleSetReplying = (post: Post | null) => {
+        if (!currentUserState) {
+          toast("Please log in to reply.", { icon: '🔒' });
+          navigate('/login');
+          return;
+        }
+        setReplyingToPost(post);
+        if (post) {
+            // Find the author's name from the combined map provided by the context
+            const authorProfile = combinedUserProfilesMap.get(post.authorKey);
+            setReplyingToAuthorName(authorProfile?.name || null);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+             setReplyingToAuthorName(null);
+        }
+    };
+
+    const handleAddPost = (postData: NewPostData) => {
+        addPost(postData);
+        setReplyingToPost(null); // Clear reply state after submitting
+        setReplyingToAuthorName(null); // Also clear name
+    };
 
 
     useEffect(() => {
@@ -86,6 +116,8 @@ const ProfilePage: React.FC = () => {
             setIsProfileLoading(true);
             setError(null);
             setProfilePosts(new Map()); // Clear posts on profile change
+            setReplyingToPost(null); // Clear reply state when profile changes
+            setReplyingToAuthorName(null); // Also clear name
 
             try {
                 let userStateToSet: UserState | null = null;
@@ -93,6 +125,7 @@ const ProfilePage: React.FC = () => {
                     userStateToSet = currentUserState; // Use live state if it's my profile
                 } else {
                     const profileStateCid = await resolveIpns(profileKey);
+                    // Fetch state but provide no name hint, as it might be someone else's profile
                     userStateToSet = await fetchUserState(profileStateCid);
                 }
 
@@ -117,6 +150,9 @@ const ProfilePage: React.FC = () => {
         if (!profileUserState) return; // Wait for profile to be loaded
 
         const fetchPostsForFeed = async () => {
+            // Don't refetch posts if we are just replying
+            if (replyingToPost) return;
+
             setIsPostsLoading(true);
             let cidsToFetch: string[] = [];
 
@@ -128,7 +164,6 @@ const ProfilePage: React.FC = () => {
                     cidsToFetch = profileUserState.likedPostCIDs || [];
                     break;
                 case 'dislikes':
-                    // --- FIX: Removed stray 'T' ---
                     cidsToFetch = profileUserState.dislikedPostCIDs || [];
                     break;
             }
@@ -142,6 +177,7 @@ const ProfilePage: React.FC = () => {
             }
 
             const posts = new Map<string, Post>();
+            const profilesToEnsure = new Map(combinedUserProfilesMap);
             const newlyFetchedProfiles = new Map<string, UserProfile>();
 
 
@@ -156,20 +192,23 @@ const ProfilePage: React.FC = () => {
                     if (postData && typeof postData === 'object' && postData.authorKey) {
                         const post: Post = { ...(postData as Post), id: cid, replies: [] };
                         posts.set(cid, post);
-                        // Check if author profile is known
-                        if (!combinedProfiles.has(post.authorKey) && !newlyFetchedProfiles.has(post.authorKey)) {
+                        if (!profilesToEnsure.has(post.authorKey) && !newlyFetchedProfiles.has(post.authorKey)) {
                             // Fetch missing author profile
                             try {
                                 const profileCid = await resolveIpns(post.authorKey);
+                                // Fetch state but provide no name hint
                                 const authorState = await fetchUserState(profileCid);
                                 if (authorState?.profile) {
                                     newlyFetchedProfiles.set(post.authorKey, authorState.profile);
+                                    profilesToEnsure.set(post.authorKey, authorState.profile); // Add to ensure map
                                 } else {
                                     newlyFetchedProfiles.set(post.authorKey, { name: 'Unknown User' }); // Placeholder
+                                    profilesToEnsure.set(post.authorKey, { name: 'Unknown User' }); // Add placeholder
                                 }
                             } catch (profileError) {
                                 console.warn(`Failed to fetch profile for author ${post.authorKey} in profile feed`, profileError);
                                 newlyFetchedProfiles.set(post.authorKey, { name: 'Unknown User' }); // Placeholder
+                                profilesToEnsure.set(post.authorKey, { name: 'Unknown User' }); // Add placeholder
                             }
 
                         }
@@ -181,8 +220,6 @@ const ProfilePage: React.FC = () => {
                 }
             }));
 
-            // Add newly fetched profiles to the combined map for the final render
-            newlyFetchedProfiles.forEach((profile, key) => combinedProfiles.set(key, profile));
 
             setProfilePosts(posts);
             setIsPostsLoading(false);
@@ -191,31 +228,52 @@ const ProfilePage: React.FC = () => {
         fetchPostsForFeed();
 
         // Effect runs when the profile data or the selected feed tab changes
-    }, [profileUserState, selectedFeed, combinedPosts, combinedProfiles]);
+    }, [profileUserState, selectedFeed, combinedPosts, combinedUserProfilesMap, replyingToPost]);
+
 
     // Memoize display data to optimize sorting and filtering
     const displayData = useMemo(() => {
-        if (!profileUserState) return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: combinedProfiles };
+        const profileMapToUse = combinedUserProfilesMap;
+
+        // When replying, show only the relevant thread
+        if (replyingToPost) {
+            let rootPostId = replyingToPost.id;
+            let currentPost: Post | undefined = replyingToPost;
+            const mapForWalk = new Map([...combinedPosts, ...profilePosts]);
+
+            while (currentPost?.referenceCID && mapForWalk.has(currentPost.referenceCID)) {
+                rootPostId = currentPost.referenceCID;
+                currentPost = mapForWalk.get(rootPostId);
+                if (!currentPost) break;
+            }
+             const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
+
+            return {
+                topLevelPostIds: [rootPostId],
+                postsWithReplies: threadMap,
+                userProfilesMap: profileMapToUse // Use context map
+            };
+        }
+
+        if (!profileUserState) return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
 
         const { topLevelIds, postsWithReplies } = buildPostTree(profilePosts);
 
-        // Sort posts by timestamp (descending)
         const sortedTopLevelIds = topLevelIds.sort((a, b) => {
             const latestA = getLatestActivityTimestamp(a, postsWithReplies);
             const latestB = getLatestActivityTimestamp(b, postsWithReplies);
             return latestB - latestA;
         });
 
-        // Ensure the profile being viewed is in the profile map passed to the Feed
-        const finalProfiles: Map<string, UserProfile> = new Map(combinedProfiles);
+        // Ensure the profile being viewed is in the profile map
+        const finalProfiles: Map<string, UserProfile> = new Map(profileMapToUse);
         if (profileKey && !finalProfiles.has(profileKey) && profileUserState.profile) {
             finalProfiles.set(profileKey, profileUserState.profile);
         }
 
-
         return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: finalProfiles };
 
-    }, [profileUserState, profilePosts, combinedProfiles, profileKey]);
+    }, [profileUserState, profilePosts, combinedUserProfilesMap, profileKey, replyingToPost, combinedPosts]);
 
 
     if (!profileKey) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: No profile key provided.</p></div>;
@@ -229,39 +287,57 @@ const ProfilePage: React.FC = () => {
     return (
         <div className="app-container">
             <div className="main-content">
-                <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
+                {replyingToPost ? (
+                    <button className="back-to-feed-button" onClick={() => handleSetReplying(null)}> ← Back to Profile </button>
+                ) : (
+                    <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
+                )}
+
                 <ProfileHeader
                     profileKey={profileKey}
                     profile={profileUserState.profile}
                     isMyProfile={isMyProfile}
                 />
 
-                <div className="feed-selector">
-                    {profileFeedOptions.map(option => (
-                        <button
-                            key={option.value}
-                            className={selectedFeed === option.value ? 'active' : ''}
-                            onClick={() => setSelectedFeed(option.value)}
-                        >
-                            {option.label}
-                        </button>
-                    ))}
-                </div>
+                {replyingToPost && currentUserState && (
+                     <NewPostForm
+                        replyingToPost={replyingToPost}
+                        replyingToAuthorName={replyingToAuthorName}
+                        onAddPost={handleAddPost}
+                        isProcessing={isProcessing}
+                        isCoolingDown={isCoolingDown}
+                        countdown={countdown}
+                     />
+                )}
 
-                <Feed
-                    isLoading={isPostsLoading}
-                    topLevelPostIds={displayData.topLevelPostIds}
-                    allPostsMap={displayData.postsWithReplies}
-                    userProfilesMap={displayData.userProfilesMap}
-                    onViewProfile={(key) => navigate(`/profile/${key}`)}
-                    currentUserState={currentUserState}
-                    myIpnsKey={myIpnsKey}
-                    onLikePost={currentUserState ? likePost : undefined}
-                    onDislikePost={currentUserState ? dislikePost : undefined}
-                    // --- FIX: Removed onFollowPostAuthor ---
-                    // onFollowPostAuthor={currentUserState ? followUser : undefined}
-                    // --- End Fix ---
-                />
+                {!replyingToPost && (
+                    <>
+                        <div className="feed-selector">
+                            {profileFeedOptions.map(option => (
+                                <button
+                                    key={option.value}
+                                    className={selectedFeed === option.value ? 'active' : ''}
+                                    onClick={() => setSelectedFeed(option.value)}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <Feed
+                            isLoading={isPostsLoading}
+                            topLevelPostIds={displayData.topLevelPostIds}
+                            allPostsMap={displayData.postsWithReplies}
+                            userProfilesMap={displayData.userProfilesMap}
+                            onViewProfile={(key) => navigate(`/profile/${key}`)}
+                            currentUserState={currentUserState}
+                            myIpnsKey={myIpnsKey}
+                            onLikePost={currentUserState ? likePost : undefined}
+                            onDislikePost={currentUserState ? dislikePost : undefined}
+                            onSetReplyingTo={handleSetReplying}
+                        />
+                    </>
+                )}
             </div>
         </div>
     );

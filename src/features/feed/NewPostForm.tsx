@@ -1,3 +1,4 @@
+// src/features/feed/NewPostForm.tsx
 import React, { useState, useRef } from 'react';
 import { Post } from '../../types';
 import { AddMediaIcon } from '../../components/Icons';
@@ -8,6 +9,9 @@ interface NewPostFormProps {
   isCoolingDown: boolean;
   countdown: number;
   replyingToPost: Post | null;
+  // --- FIX: Add prop for author name ---
+  replyingToAuthorName?: string | null;
+  // --- End Fix ---
 }
 
 const NewPostForm: React.FC<NewPostFormProps> = ({
@@ -16,6 +20,9 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
   isCoolingDown, // Still needed for display text
   countdown, // Still needed for display text
   replyingToPost,
+  // --- FIX: Destructure author name ---
+  replyingToAuthorName,
+  // --- End Fix ---
 }) => {
   const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -78,9 +85,15 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
     ? (isProcessing ? "Replying..." : "Reply")
     : (isProcessing ? "Publishing..." : (isCoolingDown ? `Wait ${countdown}s` : "Create Post"));
 
+  // --- FIX: Use author name if available, fallback to key ---
+  const replyTargetDisplay = replyingToAuthorName || replyingToPost?.authorKey.substring(0, 8) || 'user';
+  // --- End Fix ---
+
   return (
     <form onSubmit={handleSubmit} className="new-post-form">
-      {replyingToPost && <p style={{ fontSize: '0.9em', color: 'var(--text-secondary-color)', marginBottom: '0.5rem' }}>Replying to {replyingToPost.authorKey.substring(0, 8)}...</p>}
+      {/* --- FIX: Use replyTargetDisplay --- */}
+      {replyingToPost && <p style={{ fontSize: '0.9em', color: 'var(--text-secondary-color)', marginBottom: '0.5rem' }}>Replying to {replyTargetDisplay}...</p>}
+      {/* --- End Fix --- */}
       <textarea
         className="new-post-textarea"
         value={content}

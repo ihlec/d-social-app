@@ -48,6 +48,7 @@ I will share with you most of my project files. Please do not react until I am d
 ## TODO
 - replying to test shows IPNS instead of label
 - cannot reply to my own comment on profile view
+- posts are shown, even if disliked. 
 
 - shorter timeouts
 - Explore would be much faster if UserStateCIDs where part of the follows (who is going to update the CID to an IPNS and when?) If I follow someone it is my obligation to cache and update that CID. Exploring users will benefit from that. But also, users without online followers will have outdated state CIDs.
