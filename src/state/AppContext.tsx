@@ -1,110 +1,56 @@
-// src/context/AppContext.tsx
+// fileName: src/context/AppContext.tsx
 import React, { createContext, useMemo, ReactNode } from 'react';
-// --- FIX: Corrected import path ---
+// --- FIX: Revert import type ---
 import { useAppStateInternal, UseAppStateReturn } from '../state/useAppStorage';
+// --- END FIX ---
 
+// --- FIX: Revert context type ---
 const AppStateContext = createContext<UseAppStateReturn | null>(null);
+// --- END FIX ---
 
 interface AppStateProviderProps {
   children: ReactNode;
 }
 
 export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) => {
-  // --- Destructure all values from the hook ---
-  const {
-    isLoggedIn, // This is now boolean | null
-    userState,
-    myIpnsKey,
-    latestStateCID,
-    isLoadingFeed,
-    isProcessing,
-    isCoolingDown,
-    countdown,
-    allPostsMap,
-    userProfilesMap,
-    exploreAllPostsMap,
-    exploreUserProfilesMap,
-    combinedUserProfilesMap,
-    unresolvedFollows,
-    otherUsers,
-    loginWithFilebase,
-    loginWithKubo,
-    logout,
-    addPost,
-    likePost,
-    dislikePost,
-    followUser,
-    unfollowUser,
-    refreshFeed,
-    isLoadingExplore, 
-    loadMoreExplore,
-    refreshExploreFeed,
-    updateProfile,
-    ensurePostsAreFetched,
-  } = useAppStateInternal(); // The hook containing the actual logic
+  // Use the internal hook which now returns the reverted type
+  const appState = useAppStateInternal();
 
-  // --- Memoize the *creation* of the context value object ---
+  // Memoize the context value object based on the properties returned by the hook
   const contextValue = useMemo(() => ({
-    isLoggedIn,
-    userState,
-    myIpnsKey,
-    latestStateCID,
-    isLoadingFeed,
-    isProcessing,
-    isCoolingDown,
-    countdown,
-    allPostsMap,
-    userProfilesMap,
-    exploreAllPostsMap,
-    exploreUserProfilesMap,
-    combinedUserProfilesMap,
-    unresolvedFollows,
-    otherUsers,
-    loginWithFilebase,
-    loginWithKubo,
-    logout,
-    addPost,
-    likePost,
-    dislikePost,
-    followUser,
-    unfollowUser,
-    refreshFeed,
-    isLoadingExplore, 
-    loadMoreExplore,
-    refreshExploreFeed,
-    updateProfile,
-    ensurePostsAreFetched,
+    ...appState, // Spread all properties from the reverted hook return value
   }), [
-    // Add all states and functions to the dependency array
-    isLoggedIn, // This dependency is now correct
-    userState,
-    myIpnsKey,
-    latestStateCID,
-    isLoadingFeed,
-    isProcessing,
-    isCoolingDown,
-    countdown,
-    allPostsMap,
-    userProfilesMap,
-    exploreAllPostsMap,
-    exploreUserProfilesMap,
-    combinedUserProfilesMap,
-    unresolvedFollows,
-    otherUsers,
-    loginWithFilebase,
-    loginWithKubo,
-    logout,
-    addPost,
-    likePost,
-    dislikePost,
-    followUser,
-    unfollowUser,
-    refreshFeed,
-    isLoadingExplore, 
-    loadMoreExplore,
-    refreshExploreFeed,
-    updateProfile,
-    ensurePostsAreFetched,
+      // Add all properties from the reverted UseAppStateReturn type
+      appState.isLoggedIn,
+      appState.userState,
+      appState.myIpnsKey,
+      appState.latestStateCID,
+      appState.isLoadingFeed,
+      appState.isProcessing,
+      appState.isCoolingDown,
+      appState.countdown,
+      appState.allPostsMap,
+      appState.userProfilesMap,
+      appState.exploreAllPostsMap,
+      appState.exploreUserProfilesMap,
+      appState.combinedUserProfilesMap,
+      appState.unresolvedFollows,
+      appState.otherUsers,
+      appState.loginWithFilebase,
+      appState.loginWithKubo,
+      appState.logout,
+      appState.addPost,
+      appState.likePost,
+      appState.dislikePost,
+      appState.followUser,
+      appState.unfollowUser,
+      appState.refreshFeed,
+      appState.isLoadingExplore,
+      appState.loadMoreExplore,
+      appState.refreshExploreFeed,
+      appState.updateProfile,
+      appState.ensurePostsAreFetched,
+      // Modal properties removed from dependency array
   ]);
 
 

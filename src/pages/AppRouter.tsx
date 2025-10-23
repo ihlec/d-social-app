@@ -1,5 +1,6 @@
+// fileName: src/pages/AppRouter.tsx
 // src/router/AppRouter.tsx
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import HomePage from './HomePage';
 import ProfilePage from 'src/features/profile/ProfilePage';
 import PostPage from 'src/components/PostPage';
@@ -9,66 +10,63 @@ import LoadingSpinner from 'src/components/LoadingSpinner';
 
 function AppRouter() {
   const { isLoggedIn, loginWithFilebase, loginWithKubo } = useAppState();
+  const location = useLocation();
+  // Check for the background location state passed by PostItem
+  const backgroundLocation = location.state?.backgroundLocation;
 
-  // --- FIX: Add loading state ---
   if (isLoggedIn === null) {
-    // We are still checking the session.
-    // Display a full-page spinner or a minimal layout.
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <LoadingSpinner />
       </div>
     );
   }
-  // --- End Fix ---
 
-  // --- FIX: Restructured routing for public pages ---
-  // The router no longer has a single "logged in" or "logged out" block.
-  // We define all routes and protect them individually.
   return (
-    <Routes>
-      {/* PUBLIC ROUTES:
-        These routes are accessible to everyone, logged in or not.
-      */}
-      <Route path="/post/:cid" element={<PostPage />} />
-      <Route path="/profile/:key" element={<ProfilePage />} />
-      
-      {/* LOGIN ROUTE:
-        If logged out, shows the Login page.
-        If logged in, redirects to the main feed.
-      */}
-      <Route
-        path="/login"
-        element={
-          !isLoggedIn ? (
-            <Login
-              onLoginFilebase={loginWithFilebase}
-              onLoginKubo={loginWithKubo}
-            />
-          ) : (
-            <Navigate to="/" replace />
-          )
-        }
-      />
+    <>
+      {/* Render the main routes using the background location if it exists, otherwise the current location */}
+      <Routes location={backgroundLocation || location}>
+        {/* PUBLIC ROUTES: Render normally */}
+        <Route path="/post/:cid" element={<PostPage />} />
+        <Route path="/profile/:key" element={<ProfilePage />} />
 
-      {/* PROTECTED ROUTES:
-        These routes require a user to be logged in.
-      */}
-      <Route
-        path="/"
-        element={
-          isLoggedIn ? <HomePage /> : <Navigate to="/login" replace />
-        }
-      />
+        {/* LOGIN ROUTE: */}
+        <Route
+          path="/login"
+          element={
+            !isLoggedIn ? (
+              <Login
+                onLoginFilebase={loginWithFilebase}
+                onLoginKubo={loginWithKubo}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
 
-      {/* CATCH-ALL:
-        Redirects any other path to the main feed,
-        which will then handle the auth redirect if necessary.
-      */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* PROTECTED ROUTES: */}
+        <Route
+          path="/"
+          element={
+            isLoggedIn ? <HomePage /> : <Navigate to="/login" replace />
+          }
+        />
+
+        {/* CATCH-ALL: Redirects any other path */}
+        {/* Adjusted catch-all to redirect based on login status */}
+         <Route path="*" element={<Navigate to={isLoggedIn ? "/" : "/login"} replace />} />
+      </Routes>
+
+      {/* Render the modal route *only* if backgroundLocation exists */}
+      {backgroundLocation && (
+        <Routes>
+          <Route path="/post/:cid" element={<PostPage isModal={true} />} />
+          {/* Add other modal routes here if needed */}
+        </Routes>
+      )}
+    </>
   );
-  // --- END FIX ---
 }
 
 export default AppRouter;

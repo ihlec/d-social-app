@@ -1,17 +1,22 @@
-// src/features/feed/Feed.tsx
+// fileName: src/features/feed/Feed.tsx
 import React from 'react';
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
+// --- FIX: Import Masonry components ---
+import Masonry, { ResponsiveMasonry } from 'react-responsive-masonry';
+// --- END FIX ---
 import PostComponent from './PostItem';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
 
-// Type for the row structure
-type FeedRowItem = string | string[];
+// --- FIX: This type is no longer needed ---
+// type FeedRowItem = string | string[];
+// --- END FIX ---
 
 
 interface FeedProps {
   isLoading: boolean;
-  feedRowItems: FeedRowItem[];
+  // --- FIX: Prop changed from feedRowItems to topLevelPostIds ---
+  topLevelPostIds: string[];
+  // --- END FIX ---
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
   onSetReplyingTo?: (post: Post | null) => void;
@@ -26,7 +31,9 @@ interface FeedProps {
 
 const Feed: React.FC<FeedProps> = ({
   isLoading,
-  feedRowItems,
+  // --- FIX: Prop changed ---
+  topLevelPostIds,
+  // --- END FIX ---
   allPostsMap,
   userProfilesMap,
   onSetReplyingTo,
@@ -38,7 +45,9 @@ const Feed: React.FC<FeedProps> = ({
   ensurePostsAreFetched,
   footerComponent,
 }) => {
-  const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  // --- FIX: Virtuoso ref removed ---
+  // const virtuosoRef = React.useRef<VirtuosoHandle>(null);
+  // --- END FIX ---
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -50,82 +59,40 @@ const Feed: React.FC<FeedProps> = ({
        </p>
   );
 
-  // --- FIX: Handle rendering for single, double, and triple post rows ---
-  const renderItem = (_index: number, rowItem: FeedRowItem) => {
-
-    // Case 1: Full-width row (single post ID)
-    if (typeof rowItem === 'string') {
-        const postId = rowItem;
-        if (!allPostsMap.has(postId)) return null;
-        return (
-          // Apply padding directly here, removing the outer div
-          <div style={{ paddingBottom: '1rem', paddingTop: '1rem' }}>
-            <PostComponent
-              postId={postId}
-              allPostsMap={allPostsMap}
-              userProfilesMap={userProfilesMap}
-              onSetReplyingTo={onSetReplyingTo}
-              onViewProfile={onViewProfile}
-              onLikePost={onLikePost}
-              onDislikePost={onDislikePost}
-              currentUserState={currentUserState}
-              myIpnsKey={myIpnsKey}
-              ensurePostsAreFetched={ensurePostsAreFetched}
-            />
-          </div>
-        );
-    }
-
-    // Case 2: Multi-column row (array of post IDs)
-    if (Array.isArray(rowItem)) {
-        const postIds = rowItem;
-        // Determine class based on number of posts in the row
-        const rowClass = postIds.length === 3 ? 'feed-row-three-column' :
-                         postIds.length === 2 ? 'feed-row-two-column' :
-                         ''; // Default or handle single item array if needed
-
-        return (
-            <div className={`feed-row-item ${rowClass}`} style={{ paddingBottom: '1rem', paddingTop: '1rem' }}>
-                {postIds.map(postId => {
-                    if (!allPostsMap.has(postId)) return null;
-                    return (
-                        <div key={postId} className="feed-column-item">
-                            <PostComponent
-                                postId={postId}
-                                allPostsMap={allPostsMap}
-                                userProfilesMap={userProfilesMap}
-                                onSetReplyingTo={onSetReplyingTo}
-                                onViewProfile={onViewProfile}
-                                onLikePost={onLikePost}
-                                onDislikePost={onDislikePost}
-                                currentUserState={currentUserState}
-                                myIpnsKey={myIpnsKey}
-                                ensurePostsAreFetched={ensurePostsAreFetched}
-                            />
-                        </div>
-                    );
-                })}
-            </div>
-        );
-    }
-
-    return null; // Fallback for invalid row items
-  };
-  // --- End Fix ---
-
+  // --- FIX: Remove Virtuoso renderItem logic ---
+  // --- END FIX ---
 
   return (
        <div className="feed-container">
-         <Virtuoso
-            ref={virtuosoRef}
-            useWindowScroll
-            data={feedRowItems}
-            itemContent={renderItem}
-            components={{
-              Footer: footerComponent ? () => <>{footerComponent}</> : undefined,
-              EmptyPlaceholder: feedRowItems.length === 0 ? EmptyPlaceholder : undefined,
-            }}
-          />
+         {/* --- FIX: Replace Virtuoso with Masonry --- */}
+         {topLevelPostIds.length === 0 && !isLoading && <EmptyPlaceholder />}
+
+         <ResponsiveMasonry
+            // This aligns with the 1100px max-width of the #root container
+            columnsCountBreakPoints={{ 350: 1, 750: 2, 1100: 3 }}
+         >
+            <Masonry gutter="1rem">
+                {topLevelPostIds.map(postId => (
+                     <PostComponent
+                        key={postId}
+                        postId={postId}
+                        allPostsMap={allPostsMap}
+                        userProfilesMap={userProfilesMap}
+                        onSetReplyingTo={onSetReplyingTo}
+                        onViewProfile={onViewProfile}
+                        onLikePost={onLikePost}
+                        onDislikePost={onDislikePost}
+                        currentUserState={currentUserState}
+                        myIpnsKey={myIpnsKey}
+                        ensurePostsAreFetched={ensurePostsAreFetched}
+                    />
+                ))}
+            </Masonry>
+         </ResponsiveMasonry>
+
+         {/* Render the footer component (for intersection observer) outside the masonry layout */}
+         {footerComponent && footerComponent}
+         {/* --- END FIX --- */}
         </div>
   );
 };

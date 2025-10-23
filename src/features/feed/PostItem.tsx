@@ -1,12 +1,13 @@
+// fileName: src/features/feed/PostItem.tsx
 // src/features/feed/PostItem.tsx
-import React, { useEffect } from 'react'; // Import useEffect
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+// --- FIX: Add useLocation import ---
+import { useNavigate, useLocation } from 'react-router-dom';
+// --- END FIX ---
 import { Post, UserProfile, UserState } from '../../types';
 import PostMedia from './PostMedia';
 import { formatTimestamp } from '../../lib/utils';
-// --- FIX: Restore imports ---
 import { LikeIcon, DislikeIcon, ReplyIcon, ShareIcon } from '../../components/Icons';
-// --- End Fix ---
 import toast from 'react-hot-toast';
 
 interface PostProps {
@@ -19,11 +20,10 @@ interface PostProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  // --- FIX: Removed onFollowPostAuthor ---
-  // onFollowPostAuthor?: (ipnsKey: string) => void;
-  // --- End Fix ---
-  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>; // <-- ADDED
+  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>;
   isReply?: boolean;
+  renderReplies?: boolean;
+  isExpandedView?: boolean; // Keep prop to disable its own onClick
 }
 
 const PostComponent: React.FC<PostProps> = ({
@@ -36,29 +36,27 @@ const PostComponent: React.FC<PostProps> = ({
   onDislikePost,
   currentUserState,
   myIpnsKey,
-  // --- FIX: Removed onFollowPostAuthor ---
-  // onFollowPostAuthor,
-  // --- End Fix ---
-  ensurePostsAreFetched, // <-- ADDED
+  ensurePostsAreFetched,
   isReply = false,
+  renderReplies = false,
+  isExpandedView = false, // Default to false
 }) => {
   const navigate = useNavigate();
+  // --- FIX: Get location ---
+  const location = useLocation();
+  // --- END FIX ---
   const post = allPostsMap.get(postId);
 
-  // --- FIX: Add useEffect for on-demand reply fetching ---
   useEffect(() => {
     if (post?.replies && post.replies.length > 0 && ensurePostsAreFetched) {
       const missingReplyCIDs = post.replies.filter(
         (replyId) => replyId && !replyId.startsWith('temp-') && !allPostsMap.has(replyId)
       );
       if (missingReplyCIDs.length > 0) {
-        // We don't await this; let it run in the background
         ensurePostsAreFetched(missingReplyCIDs);
       }
     }
-    // We depend on post.id to ensure this re-runs if the component is recycled by virtuoso
   }, [post?.id, post?.replies, allPostsMap, ensurePostsAreFetched]);
-  // --- End Fix ---
 
 
   if (!post) {
@@ -73,38 +71,22 @@ const PostComponent: React.FC<PostProps> = ({
 
   const authorProfile = userProfilesMap.get(post.authorKey);
   const parentPost = post.referenceCID ? allPostsMap.get(post.referenceCID) : null;
-  // --- FIX: parentAuthorProfile is used ---
   const parentAuthorProfile = parentPost ? userProfilesMap.get(parentPost.authorKey) : null;
-  // --- End Fix ---
   const displayAuthorName = authorProfile?.name || `Unknown (${post.authorKey.substring(0, 6)}...)`;
   const isLiked = currentUserState?.likedPostCIDs?.includes(post.id) ?? false;
   const isDisliked = currentUserState?.dislikedPostCIDs?.includes(post.id) ?? false;
-  // --- FIX: Removed follow logic ---
-  // const isMyPost = post.authorKey === myIpnsKey;
-  // const isFollowingAuthor = currentUserState?.follows?.some(f => f.ipnsKey === post.authorKey) ?? false;
-  // const canFollow = onFollowPostAuthor && !isMyPost;
-  // --- End Fix ---
   const loadedReplies = post.replies?.filter(replyId => allPostsMap.has(replyId)) ?? [];
-  // --- FIX: loadedReplyCount is used ---
   const loadedReplyCount = loadedReplies.length;
-  // --- End Fix ---
   const isTemporaryPost = typeof post.id === 'string' && post.id.startsWith('temp-');
 
-  // --- FIX: Generic handler for all interactions ---
   const handleInteraction = (action?: () => void) => {
-    // Stop propagation so the click doesn't bubble to the post navigation.
-    // e.stopPropagation(); // This must be done in the onClick lambda
-
     if (currentUserState) {
-      // User is logged in, perform the action
       if (action) action();
     } else {
-      // User is logged out, prompt to log in
       toast("Please log in to interact.", { icon: '🔒' });
       navigate('/login');
     }
   };
-  // --- End Fix ---
 
   const handleShare = () => {
     if (typeof post.id === 'string' && !isTemporaryPost) {
@@ -114,87 +96,91 @@ const PostComponent: React.FC<PostProps> = ({
          toast.error("Cannot share this post (invalid ID).");
     }
   };
-  // --- FIX: handleReplyClick now uses interaction guard ---
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     handleInteraction(() => {
         if (onSetReplyingTo) { onSetReplyingTo(post); }
     });
   }
-  // --- End Fix ---
+
+  // --- FIX: Revert to using navigate with backgroundLocation state ---
   const handleNavigateToPost = (e: React.MouseEvent) => {
+      // Prevent click action if clicking on buttons/links
       if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a')) { return; }
+
       if (typeof post.id === 'string' && !isTemporaryPost) {
-          navigate(`/post/${post.id}`);
+          // Navigate to post page, passing current location as background
+          navigate(`/post/${post.id}`, {
+            state: { backgroundLocation: location }
+          });
       }
   }
+  // --- END FIX ---
 
   return (
-    <div className={`post ${isReply ? 'reply-post' : ''}`} onClick={handleNavigateToPost} style={{ cursor: isTemporaryPost ? 'default' : 'pointer' }}>
+    <div
+      className={`post ${isReply ? 'reply-post' : ''}`}
+      // Disable onClick if it's the expanded view to prevent re-triggering
+      onClick={isExpandedView ? undefined : handleNavigateToPost}
+      style={{ cursor: isTemporaryPost || isExpandedView ? 'default' : 'pointer' }}
+    >
 
        {parentPost && (
            <div className="reply-context" style={{ fontSize: '0.85em', color: 'var(--text-secondary-color)', marginBottom: '0.5rem' }}>
                Replying to{' '}
-               {/* --- FIX: Corrected syntax and usage of parentAuthorProfile --- */}
                <button onClick={(e) => { e.stopPropagation(); onViewProfile(parentPost.authorKey); }} className="author-name-button" style={{ fontSize: 'inherit', display: 'inline' }} title={parentPost.authorKey}>
                     <strong>@{parentAuthorProfile?.name || `Unknown (${parentPost.authorKey.substring(0,6)}...)`}</strong>
                </button>
-               {/* --- End Fix --- */}
            </div>
        )}
 
       <div className="post-header">
          <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
-         {/* --- FIX: Removed Follow Button --- */}
-         {/* {canFollow && !isFollowingAuthor && (...)} */}
-         {/* --- End Fix --- */}
       </div>
 
       {post.content && <p>{post.content}</p>}
 
-      <div onClick={(e) => e.stopPropagation()}><PostMedia post={post} /></div>
+      {/* Disable media onClick if it's the expanded view */}
+      <div onClick={isExpandedView ? undefined : handleNavigateToPost}>
+        {/* Pass isExpandedView to PostMedia */}
+        <PostMedia post={post} isExpandedView={isExpandedView} />
+      </div>
 
       <div className="post-footer">
          <small title={new Date(post.timestamp).toString()} >{formatTimestamp(post.timestamp)}</small>
         <div className="post-actions" onClick={(e) => e.stopPropagation()}>
-          {/* --- FIX: Updated Like Button --- */}
           <button
               onClick={(e) => { e.stopPropagation(); handleInteraction(onLikePost ? () => onLikePost(post.id) : undefined); }}
               className={`action-button ${isLiked ? 'liked' : ''}`}
               title="Like"
               disabled={isTemporaryPost}
            > <LikeIcon /> </button>
-          {/* --- End Fix --- */}
-          
-          {/* --- FIX: Updated Dislike Button --- */}
+
           <button
               onClick={(e) => { e.stopPropagation(); handleInteraction(onDislikePost ? () => onDislikePost(post.id) : undefined); }}
               className={`action-button ${isDisliked ? 'disliked' : ''}`}
               title="Dislike"
               disabled={isTemporaryPost}
            > <DislikeIcon /> </button>
-          {/* --- End Fix --- */}
 
-          {/* --- FIX: Corrected Reply button usage --- */}
            <button
               className="comment-button"
-              onClick={handleReplyClick} // Use the new handler
+              onClick={handleReplyClick}
               title="Reply"
-              // Button is no longer disabled when logged out
           >
-              <ReplyIcon /> {/* Use the icon */}
-              {loadedReplyCount > 0 && ( // Use the count
+              <ReplyIcon />
+              {loadedReplyCount > 0 && (
                   <span style={{ fontSize: '0.8em', marginLeft: '4px', color: 'var(--text-secondary-color)' }}>
                       {loadedReplyCount}
                   </span>
               )}
             </button>
-          {/* --- End Fix --- */}
           <button className="action-button" onClick={handleShare} title="Share Post"> <ShareIcon /> </button>
         </div>
       </div>
 
-      {loadedReplies.length > 0 && (
+      {/* Conditionally render replies based on prop */}
+      {renderReplies && loadedReplies.length > 0 && (
         <div className="replies-container">
           {loadedReplies.map((replyId) => (
             <PostComponent
@@ -208,10 +194,9 @@ const PostComponent: React.FC<PostProps> = ({
               onDislikePost={onDislikePost}
               currentUserState={currentUserState}
               myIpnsKey={myIpnsKey}
-              // --- FIX: Removed onFollowPostAuthor ---
-              // onFollowPostAuthor={onFollowPostAuthor}
-              // --- End Fix ---
-              ensurePostsAreFetched={ensurePostsAreFetched} // <-- ADDED
+              ensurePostsAreFetched={ensurePostsAreFetched}
+              renderReplies={renderReplies} // Pass down
+              isExpandedView={isExpandedView} // Pass down
               isReply={true}
             />
           ))}

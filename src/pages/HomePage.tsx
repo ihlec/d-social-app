@@ -1,4 +1,4 @@
-// src/pages/HomePage.tsx
+// fileName: src/pages/HomePage.tsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../state/useAppStorage';
@@ -22,8 +22,9 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
 
 
 type FeedType = 'myPosts' | 'myFeed' | 'explore';
-// --- Type for the row structure ---
-type FeedRowItem = string | string[];
+// --- FIX: This type is no longer needed ---
+// type FeedRowItem = string | string[];
+// --- END FIX ---
 
 
 const HomePage: React.FC = () => {
@@ -104,44 +105,18 @@ const HomePage: React.FC = () => {
     // Determine which posts and profiles to display
     const displayData = useMemo(() => {
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []); let preliminaryMap: Map<string, Post>; if (selectedFeed === 'explore') { preliminaryMap = exploreAllPostsMap; } else { preliminaryMap = allPostsMap; } const filteredMap = new Map<string, Post>(); preliminaryMap.forEach((post, id) => { if (!dislikedSet.has(id)) { filteredMap.set(id, post); } }); const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(filteredMap); const hasMyCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey === myIpnsKey) return true; if (hasMyCommentRecursive(reply)) return true; } return false; }; const hasOtherCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey !== myIpnsKey) return true; if (hasOtherCommentRecursive(reply)) return true; } return false; }; if (replyingToPost) { let rootPostId = replyingToPost.id; let currentPost: Post | undefined = replyingToPost; const fullCombinedMapForReply: Map<string, Post> = new Map([...allPostsMap, ...exploreAllPostsMap]); while (currentPost?.referenceCID && fullCombinedMapForReply.has(currentPost.referenceCID)) { rootPostId = currentPost.referenceCID; currentPost = fullCombinedMapForReply.get(rootPostId); if (!currentPost) break; } const { postsWithReplies: fullTree } = buildPostTree(fullCombinedMapForReply);
-            return { feedRowItems: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap };
+            // --- FIX: Return topLevelPostIds as a flat array ---
+            return { topLevelPostIds: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap };
+            // --- END FIX ---
         } let finalTopLevelIds: string[] = []; switch (selectedFeed) { case 'myPosts': finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; return post.authorKey === myIpnsKey || hasMyCommentRecursive(post); }); break; case 'explore': finalTopLevelIds = allTopLevelIds; break; case 'myFeed': default: finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey); const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post)); return isFollowed || isMyPostWithOtherComment; }); break; } const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
 
-        // --- FIX: Implement 3-column row chunking logic ---
-        const feedRowItems: FeedRowItem[] = [];
-        const shortPostBuffer: string[] = []; // Can hold up to 2 items
+        // --- FIX: Remove all chunking logic ---
+        // The masonry component will handle the layout.
+        // --- END FIX ---
 
-        const flushBuffer = () => {
-            if (shortPostBuffer.length > 0) {
-                feedRowItems.push([...shortPostBuffer]); // Push a copy
-                shortPostBuffer.length = 0; // Clear the buffer
-            }
-        };
-
-        for (const postId of sortedTopLevelIds) {
-            const post = postsWithReplies.get(postId);
-            // A post is "long" (full-width) if it has replies.
-            const isLongPost = (post?.replies?.length ?? 0) > 0;
-
-            if (isLongPost) {
-                // Flush any existing short posts before adding the long one.
-                flushBuffer();
-                // Add the long post as its own full-width row.
-                feedRowItems.push(postId);
-            } else {
-                // This is a "short" post. Add it to the buffer.
-                shortPostBuffer.push(postId);
-                // If the buffer is full (3 items), flush it.
-                if (shortPostBuffer.length === 3) {
-                    flushBuffer();
-                }
-            }
-        }
-        // After the loop, flush any remaining posts in the buffer.
-        flushBuffer();
-        // --- End Fix ---
-
-        return { feedRowItems: feedRowItems, allPostsMap: postsWithReplies, userProfilesMap: combinedUserProfilesMap };
+        // --- FIX: Return the flat, sorted array of IDs ---
+        return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: combinedUserProfilesMap };
+        // --- END FIX ---
     }, [selectedFeed, replyingToPost, allPostsMap, exploreAllPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, combinedUserProfilesMap]);
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
@@ -187,7 +162,9 @@ const HomePage: React.FC = () => {
                 {/* Feed */}
                 <Feed /* ... props ... */
                     isLoading={isLoading}
-                    feedRowItems={displayData.feedRowItems || []}
+                    // --- FIX: Pass topLevelPostIds prop ---
+                    topLevelPostIds={displayData.topLevelPostIds || []}
+                    // --- END FIX ---
                     allPostsMap={displayData.allPostsMap}
                     userProfilesMap={displayData.userProfilesMap}
                     onSetReplyingTo={handleSetReplying}

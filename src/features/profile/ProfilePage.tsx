@@ -1,14 +1,14 @@
-// src/pages/ProfilePage.tsx
+// fileName: src/features/profile/ProfilePage.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import ProfileHeader from '../../features/profile/ProfileHeader';
-import Feed from '../../features/feed/Feed';
+import ProfileHeader from './ProfileHeader'; // Corrected path
+import Feed from '../feed/Feed'; // Corrected path
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { useAppState } from '../../state/useAppStorage';
 import { resolveIpns, fetchUserState, fetchPost } from '../../api/ipfsIpns';
 import { UserState, Post, UserProfile, NewPostData } from '../../types';
-import NewPostForm from '../../features/feed/NewPostForm';
+import NewPostForm from '../feed/NewPostForm'; // Corrected path
 
 // Define the specific feed types for the profile page
 type ProfileFeedType = 'posts' | 'likes' | 'dislikes';
@@ -19,10 +19,6 @@ const profileFeedOptions: { label: string; value: ProfileFeedType }[] = [
     { label: 'Likes', value: 'likes' },
     { label: 'Dislikes', value: 'dislikes' },
 ];
-
-// --- Type for the row structure ---
-type FeedRowItem = string | string[];
-
 
 // --- Helper functions ---
 const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
@@ -55,6 +51,11 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
     return { topLevelIds, postsWithReplies };
 };
 
+interface DisplayData {
+    topLevelPostIds: string[];
+    postsWithReplies: Map<string, Post>;
+    userProfilesMap: Map<string, UserProfile>;
+}
 
 const ProfilePage: React.FC = () => {
     const { key: profileKey } = useParams<{ key: string }>();
@@ -66,6 +67,7 @@ const ProfilePage: React.FC = () => {
         addPost, isProcessing, isCoolingDown, countdown,
         combinedUserProfilesMap,
         ensurePostsAreFetched,
+        // openModal is not used here
     } = useAppState();
 
     const [profileUserState, setProfileUserState] = useState<UserState | null>(null);
@@ -81,7 +83,10 @@ const ProfilePage: React.FC = () => {
 
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
-    const combinedPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
+    // --- FIX: Explicitly type combinedPosts ---
+    const combinedPosts: Map<string, Post> = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
+    // --- END FIX ---
+
 
     const handleSetReplying = (post: Post | null) => {
         if (!currentUserState) {
@@ -120,10 +125,14 @@ const ProfilePage: React.FC = () => {
                      userStateToSet = currentUserState;
                  } else {
                      const profileStateCid = await resolveIpns(profileKey);
-                     userStateToSet = await fetchUserState(profileStateCid);
+                     userStateToSet = await fetchUserState(profileStateCid, profileKey);
                  }
                  if (!userStateToSet) throw new Error("Could not load user state.");
                  setProfileUserState(userStateToSet);
+                 if (userStateToSet.profile) {
+                     setLocalProfilesMap(prev => new Map(prev).set(profileKey, userStateToSet!.profile));
+                 }
+
              } catch (err) {
                  console.error("Error loading profile page:", err);
                  setError(err instanceof Error ? err.message : "Failed to load profile.");
@@ -137,10 +146,11 @@ const ProfilePage: React.FC = () => {
     useEffect(() => {
         if (!profileUserState) return;
         const fetchPostsForFeed = async () => {
-            if (replyingToPost) return; // Don't fetch list if viewing a thread
+            if (replyingToPost) return;
             setIsPostsLoading(true);
-            setLocalProfilesMap(new Map()); // Clear local profiles
-            setProfilePosts(new Map()); // Clear posts
+            const initialLocalProfiles = profileUserState?.profile && profileKey ? new Map([[profileKey, profileUserState.profile]]) : new Map<string, UserProfile>();
+            setLocalProfilesMap(initialLocalProfiles);
+            setProfilePosts(new Map());
 
             let cidsToFetch: string[] = [];
             switch (selectedFeed) {
@@ -157,16 +167,22 @@ const ProfilePage: React.FC = () => {
 
             const newPosts = new Map<string, Post>();
             const missingParentCIDs = new Set<string>();
+            const authorKeysToFetch = new Set<string>(initialLocalProfiles.keys());
 
-            // --- Pass 1: Fetch primary posts ---
+
+            // Pass 1: Fetch primary posts
             await Promise.allSettled(cidsToFetch.map(async (cid) => {
                 try {
-                    // Check combined map first, then fetch
-                    let postData = combinedPosts.get(cid) ?? await fetchPost(cid);
-                    if (postData && typeof postData === 'object' && postData.authorKey) {
-                        const post: Post = { ...(postData as Post), id: cid, replies: [] };
+                    let postData = combinedPosts.get(cid);
+                    if (!postData) {
+                         postData = await fetchPost(cid);
+                    }
+                    if (postData && typeof postData === 'object' && 'authorKey' in postData && typeof postData.authorKey === 'string') {
+                        const post: Post = { ...(postData as Post), id: cid, replies: (postData as Post).replies || [] };
                         newPosts.set(cid, post);
-                        // Check for missing parent
+                        if (!authorKeysToFetch.has(post.authorKey) && !combinedUserProfilesMap.has(post.authorKey)) {
+                            authorKeysToFetch.add(post.authorKey);
+                        }
                         if (post.referenceCID && !combinedPosts.has(post.referenceCID)) {
                             missingParentCIDs.add(post.referenceCID);
                         }
@@ -174,71 +190,71 @@ const ProfilePage: React.FC = () => {
                 } catch (error) { console.error(`Failed fetch post ${cid} for profile feed:`, error); }
             }));
 
-            // --- Pass 2: Fetch missing parent posts ---
-            // Filter out any parents that might have been fetched in Pass 1
+            // Pass 2: Fetch missing parent posts
             const parentCIDsToFetch = Array.from(missingParentCIDs).filter(cid => !newPosts.has(cid));
-
             if (parentCIDsToFetch.length > 0) {
                  await Promise.allSettled(parentCIDsToFetch.map(async (cid) => {
                     try {
-                        const postData = await fetchPost(cid); // Don't need to check combinedPosts, we already did
-                        if (postData && typeof postData === 'object' && postData.authorKey) {
-                            const post: Post = { ...(postData as Post), id: cid, replies: [] };
+                        const postData = await fetchPost(cid);
+                        if (postData && typeof postData === 'object' && 'authorKey' in postData && typeof postData.authorKey === 'string') {
+                            const post: Post = { ...(postData as Post), id: cid, replies: (postData as Post).replies || [] };
                             newPosts.set(cid, post);
+                            if (!authorKeysToFetch.has(post.authorKey) && !combinedUserProfilesMap.has(post.authorKey)) {
+                                authorKeysToFetch.add(post.authorKey);
+                            }
                         } else { console.warn(`Invalid parent post data for CID ${cid}`); }
                     } catch (error) { console.error(`Failed fetch parent post ${cid} for profile feed:`, error); }
                  }));
             }
 
-            // --- Pass 3: Fetch all missing profiles ---
-            const authorKeysToFetch = new Set<string>();
-            newPosts.forEach(post => {
-                if (post.authorKey && !combinedUserProfilesMap.has(post.authorKey)) {
-                    authorKeysToFetch.add(post.authorKey);
-                }
-            });
-
+            // Pass 3: Fetch all missing profiles
             const newlyFetchedProfiles = new Map<string, UserProfile>();
-            if (authorKeysToFetch.size > 0) {
-                 await Promise.allSettled(Array.from(authorKeysToFetch).map(async (authorKey) => {
+            const keysToActuallyFetch = Array.from(authorKeysToFetch)
+                .filter(key => !combinedUserProfilesMap.has(key) && !initialLocalProfiles.has(key));
+
+            if (keysToActuallyFetch.length > 0) {
+                 await Promise.allSettled(keysToActuallyFetch.map(async (authorKey) => {
                     try {
                         const profileCid = await resolveIpns(authorKey);
-                        const authorState = await fetchUserState(profileCid);
-                        const fetchedProfile = authorState?.profile || { name: 'Unknown User' };
+                        const authorState = await fetchUserState(profileCid, authorKey);
+                        const fetchedProfile = authorState?.profile || { name: `Unknown (${authorKey.substring(0,6)}...)` };
                         newlyFetchedProfiles.set(authorKey, fetchedProfile);
                     } catch (profileError) {
                         console.warn(`Failed fetch profile for ${authorKey} in profile feed`, profileError);
-                        newlyFetchedProfiles.set(authorKey, { name: 'Unknown User' });
+                        newlyFetchedProfiles.set(authorKey, { name: `Unknown (${authorKey.substring(0,6)}...)` });
                     }
                  }));
             }
 
-            // --- Finalize State ---
+            // Finalize State
             if (newlyFetchedProfiles.size > 0) {
                  console.log(`[ProfilePage] Fetched ${newlyFetchedProfiles.size} new profiles locally.`);
-                 setLocalProfilesMap(newlyFetchedProfiles);
+                  setLocalProfilesMap(prev => new Map([...prev, ...newlyFetchedProfiles]));
             }
             setProfilePosts(newPosts);
             setIsPostsLoading(false);
         };
         fetchPostsForFeed();
-    }, [profileUserState, selectedFeed, combinedPosts, combinedUserProfilesMap, replyingToPost]);
+    }, [profileUserState, selectedFeed, replyingToPost, profileKey, combinedPosts, combinedUserProfilesMap]);
 
 
-    const displayData = useMemo(() => {
-        const profileMapToUse = new Map([...combinedUserProfilesMap, ...localProfilesMap]);
+    const displayData = useMemo((): DisplayData => {
+        const profileMapToUse: Map<string, UserProfile> = new Map([...combinedUserProfilesMap, ...localProfilesMap]);
+
         if (replyingToPost) {
              let rootPostId = replyingToPost.id;
              let currentPost: Post | undefined = replyingToPost;
-             const mapForWalk = new Map([...combinedPosts, ...profilePosts]);
+             // --- FIX: Explicitly type mapForWalk ---
+             const mapForWalk: Map<string, Post> = new Map([...combinedPosts, ...profilePosts]);
+             // --- END FIX ---
              while (currentPost?.referenceCID && mapForWalk.has(currentPost.referenceCID)) {
                  rootPostId = currentPost.referenceCID;
                  currentPost = mapForWalk.get(rootPostId); if (!currentPost) break;
              }
              const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
-             return { feedRowItems: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
+             return { topLevelPostIds: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
         }
-        if (!profileUserState) return { feedRowItems: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
+        if (!profileUserState) return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
 
         let finalPostsMap = profilePosts;
         if (selectedFeed !== 'dislikes' && currentUserState?.dislikedPostCIDs) {
@@ -255,45 +271,12 @@ const ProfilePage: React.FC = () => {
             return latestB - latestA;
         });
 
-        // --- FIX: Implement 3-column row chunking logic ---
-        const feedRowItems: FeedRowItem[] = [];
-        const shortPostBuffer: string[] = []; // Can hold up to 2 items
-
-        const flushBuffer = () => {
-            if (shortPostBuffer.length > 0) {
-                feedRowItems.push([...shortPostBuffer]); // Push a copy
-                shortPostBuffer.length = 0; // Clear the buffer
-            }
-        };
-
-        for (const postId of sortedTopLevelIds) {
-            const post = postsWithReplies.get(postId);
-            // A post is "long" (full-width) if it has replies.
-            const isLongPost = (post?.replies?.length ?? 0) > 0;
-
-            if (isLongPost) {
-                // Flush any existing short posts before adding the long one.
-                flushBuffer();
-                // Add the long post as its own full-width row.
-                feedRowItems.push(postId);
-            } else {
-                // This is a "short" post. Add it to the buffer.
-                shortPostBuffer.push(postId);
-                // If the buffer is full (3 items), flush it.
-                if (shortPostBuffer.length === 3) {
-                    flushBuffer();
-                }
-            }
+        // Add profile user's own profile if somehow missing
+        if (profileKey && !profileMapToUse.has(profileKey) && profileUserState.profile) {
+            profileMapToUse.set(profileKey, profileUserState.profile);
         }
-        // After the loop, flush any remaining posts in the buffer.
-        flushBuffer();
-        // --- End Fix ---
 
-        const finalProfiles: Map<string, UserProfile> = new Map(profileMapToUse);
-        if (profileKey && !finalProfiles.has(profileKey) && profileUserState.profile) {
-            finalProfiles.set(profileKey, profileUserState.profile);
-        }
-        return { feedRowItems, postsWithReplies, userProfilesMap: finalProfiles };
+        return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: profileMapToUse };
     }, [profileUserState, profilePosts, combinedUserProfilesMap, localProfilesMap, profileKey, replyingToPost, combinedPosts, selectedFeed, currentUserState?.dislikedPostCIDs]);
 
 
@@ -329,8 +312,9 @@ const ProfilePage: React.FC = () => {
                             ))}
                         </div>
                         <Feed isLoading={isPostsLoading}
-                            feedRowItems={displayData.feedRowItems || []}
-                            allPostsMap={displayData.postsWithReplies} userProfilesMap={displayData.userProfilesMap}
+                            topLevelPostIds={displayData.topLevelPostIds || []}
+                            allPostsMap={displayData.postsWithReplies}
+                            userProfilesMap={displayData.userProfilesMap}
                             onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}
                             myIpnsKey={myIpnsKey} onLikePost={currentUserState ? likePost : undefined}
                             onDislikePost={currentUserState ? dislikePost : undefined} onSetReplyingTo={handleSetReplying}
