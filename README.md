@@ -49,7 +49,5 @@ I will share with you most of my project files. Please do not react until I am d
 - Comment button should always open the overlay with comment functionality
 - Get rid of post-page
 
-- login IPNS Label Tooltip missing
-
 - double use of edit bio button edit-follow-button (rename)
 

@@ -49,7 +49,7 @@ a:hover {
     color: var(--primary-color-hover)
 }
 
-h2, code {
+h2, code, p {
     color: var(--text-color);
 }
 
@@ -659,6 +659,7 @@ content: "";
 /* Only apply footer padding in media posts */
 .post-no-media .post-footer {
     padding: 0;
+    padding-left: 1rem;
 }
 
 
