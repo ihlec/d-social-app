@@ -39,11 +39,10 @@ const Login: React.FC<LoginProps> = ({ onLoginFilebase, onLoginKubo }) => {
 
             {loginMethod === 'filebase' ? (
                 <>
-                    <p>Enter your Filebase IPNS Name and S3 Credentials.</p>
                     <form onSubmit={handleSubmit}>
                         <div className="input-with-tooltip-container">
                             <input type="text" name="nameLabel" placeholder="Your IPNS Name Label" required disabled={isLoading} />
-                            <Tooltip text={<span> {/* ... name label tooltip ... */} </span>}>
+                            <Tooltip text={<span> Enter your Filebase IPNS Name and S3 Credentials. </span>}>
                                 <InfoIcon />
                             </Tooltip>
                         </div>
@@ -67,11 +66,10 @@ const Login: React.FC<LoginProps> = ({ onLoginFilebase, onLoginKubo }) => {
                 </>
             ) : (
                 <>
-                    <p>Enter your local Kubo RPC API details.</p>
                     <form onSubmit={handleSubmit}>
                         <div className="input-with-tooltip-container">
                             <input type="text" name="apiUrl" defaultValue="http://127.0.0.1:5001" placeholder="Kubo RPC API URL" required disabled={isLoading} />
-                            <Tooltip text={<span> <h3>Local node API.</h3> Typically <b>http://127.0.0.1:5001</b>. </span>}>
+                            <Tooltip text={<span> <h3>Local node API.</h3> Enter your local Kubo RPC API details. Typically <b>http://127.0.0.1:5001</b>. </span>}>
                                 <InfoIcon />
                             </Tooltip>
                         </div>
