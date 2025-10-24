@@ -29,7 +29,7 @@ const InfoItem: React.FC<InfoItemProps> = ({ label, value }) => {
 interface SidebarProps {
   isOpen: boolean;
   userState: UserState | null;
-  ipnsKey: string; 
+  ipnsKey: string;
   latestCid: string;
   unresolvedFollows: string[];
    otherUsers: OnlinePeer[];
@@ -42,7 +42,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   userState,
-  ipnsKey, 
+  ipnsKey,
   latestCid,
   unresolvedFollows,
   otherUsers,
@@ -69,10 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         setTimeout(() => setCopiedKey(null), 2000);
     };
 
-    // --- FIX: Use sessionStorage ---
-    // Get the display name/label (might be Kubo key name or Filebase label)
     const displayName = userState?.profile?.name || sessionStorage.getItem("currentUserLabel") || 'Loading...';
-    // --- End Fix ---
 
   return (
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>
@@ -101,7 +98,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <h2>Following ({userState?.follows?.length || 0})</h2>
         <ul className="followed-users-list">
           {userState?.follows?.map((follow: Follow, index: number) => {
-              if (!follow?.ipnsKey) return null; 
+              if (!follow?.ipnsKey) return null;
               const isUnresolved = unresolvedFollows.includes(follow.ipnsKey);
               return (
                  <li key={follow.ipnsKey || `follow-${index}`} className={isUnresolved ? 'unresolved' : ''}>
@@ -109,12 +106,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                          <span className="user-name" onClick={() => onViewProfile(follow.ipnsKey)} title={isUnresolved ? "Unresolved" : `View ${follow.name || 'user'}'s profile`}>
                             {follow.name || 'Unknown User'} {isUnresolved ? '(?)': ''}
                          </span>
+                         {/* --- FIX: Render full key --- */}
                          <span className="user-key" title={follow.ipnsKey} onClick={() => handleCopyKey(follow.ipnsKey)}>
-                            {`${follow.ipnsKey.substring(0, 8)}...`}
+                            {follow.ipnsKey}
                              {copiedKey === follow.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
                         </span>
+                        {/* --- END FIX --- */}
+                        <button className="unfollow-button" onClick={() => onUnfollow(follow.ipnsKey)}>Unfollow</button>
                      </div>
-                    <button className="unfollow-button" onClick={() => onUnfollow(follow.ipnsKey)}>Unfollow</button>
                  </li>
               );
             })}
@@ -127,10 +126,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                  <li key={user.ipnsKey}>
                       <div className="user-details">
                          <span className="user-name" onClick={() => user.ipnsKey && onViewProfile(user.ipnsKey)} title={`View ${user.name}'s profile`}>{user.name}</span>
+                         {/* --- FIX: Render full key --- */}
                          <span className="user-key" title={user.ipnsKey} onClick={() => handleCopyKey(user.ipnsKey)}>
-                             {`${user.ipnsKey.substring(0, 8)}...`}
+                             {user.ipnsKey}
                              {copiedKey === user.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
                          </span>
+                         {/* --- END FIX --- */}
                       </div>
                  </li>
              ))}
