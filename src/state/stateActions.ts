@@ -1,4 +1,4 @@
-// src/hooks/libHelpers.ts
+// src/hooks/stateActions.ts
 import { getCookie, setCookie } from '../lib/utils';
 import {
     getSession,
@@ -56,13 +56,13 @@ export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { 
     }
 }
 
-// --- FIX: This function now returns the resolved CID as well ---
 export async function fetchUserStateByIpns(ipnsKey: string): Promise<{ state: UserState, cid: string }> {
     const cid = await resolveIpns(ipnsKey);
-    const state = await fetchUserState(cid);
+    // --- FIX: Pass ipnsKey as profile hint ---
+    const state = await fetchUserState(cid, ipnsKey);
+    // --- END FIX ---
     return { state, cid };
 }
-// --- End Fix ---
 
 export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> { // ...
     const cid = await resolveIpns(ipnsKey);
@@ -122,34 +122,61 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
     return { finalPost, finalPostCID };
 }
 
-// --- FIX: Renamed function, handles upload & IPNS publish only ---
+
 /**
  * Uploads a given state object and publishes its CID to IPNS. Updates cookie.
- * Does NOT handle chunking logic.
- * @param stateToPublish The UserState object to upload.
+ * Ensures `extendedUserState` link is maintained if not already set by chunking logic.
+ * @param stateToPublish The UserState object (or partial chunk) to upload.
  * @param myIpnsKey The user's IPNS key for cookie saving.
+ * @param currentHeadCID The CID of the state *before* this update (used for linking if not chunking).
  * @returns The CID of the uploaded state.
  */
-export async function _uploadStateAndPublishToIpns(stateToPublish: UserState | Partial<UserState>, myIpnsKey: string): Promise<string> {
+export async function _uploadStateAndPublishToIpns(
+    // --- FIX: Type juggling to handle potentially missing extendedUserState ---
+    stateToPublish: UserState | Partial<UserState>,
+    myIpnsKey: string,
+    currentHeadCID?: string // CID before this update
+    // --- END FIX ---
+): Promise<string> {
     const session = getSession();
     if (!session.sessionType) throw new Error("No active session.");
 
-    // --- FIX: Use sessionStorage ---
-    // Determine profile name for cookie
     const profileName = ('profile' in stateToPublish && stateToPublish.profile?.name) || sessionStorage.getItem("currentUserLabel") || '';
-    // --- End Fix ---
-    const timestamp = ('updatedAt' in stateToPublish && stateToPublish.updatedAt) || Date.now(); // Get timestamp
+    const timestamp = ('updatedAt' in stateToPublish && stateToPublish.updatedAt) || Date.now();
+
+    // --- FIX: Ensure the chain link is maintained for non-chunked updates ---
+    // Create a mutable copy to potentially modify
+    const finalStateToUpload = { ...stateToPublish };
+
+    // Check if extendedUserState is already set (meaning it's a chunk from useActions)
+    const isChunk = 'extendedUserState' in finalStateToUpload && finalStateToUpload.extendedUserState;
+
+    if (!isChunk && currentHeadCID) {
+        console.log(`[_uploadStateAndPublishToIpns] Not a chunk, linking to previous head: ${currentHeadCID}`);
+        // Ensure the property exists even if partial, and set it
+        (finalStateToUpload as Partial<UserState>).extendedUserState = currentHeadCID;
+    } else if (!isChunk && !currentHeadCID) {
+        // This case should ideally only happen for the very first state save for a user.
+        console.log("[_uploadStateAndPublishToIpns] Not a chunk and no previous head CID provided. Creating initial state.");
+         (finalStateToUpload as Partial<UserState>).extendedUserState = null; // Explicitly null for clarity
+    } else {
+         console.log("[_uploadStateAndPublishToIpns] Is a chunk, using existing extendedUserState link:", finalStateToUpload.extendedUserState);
+    }
+    // --- END FIX ---
+
 
     let headCID: string;
 
-    // Upload the state object
+    // Upload the potentially modified state object
     if (session.sessionType === 'filebase' && session.s3Client && session.bucketName && session.ipnsNameLabel) {
-        headCID = await uploadJsonToFilebase(session.s3Client, session.bucketName, stateToPublish);
-        // Publish the resulting CID to IPNS
+        // --- FIX: Upload the modified object ---
+        headCID = await uploadJsonToFilebase(session.s3Client, session.bucketName, finalStateToUpload);
+        // --- END FIX ---
         await updateIpnsRecord(session.ipnsNameLabel, headCID);
     } else if (session.sessionType === 'kubo' && session.rpcApiUrl && session.ipnsKeyName) {
-        headCID = await uploadJsonToIpfs(session.rpcApiUrl, stateToPublish);
-        // Publish the resulting CID to IPNS
+        // --- FIX: Upload the modified object ---
+        headCID = await uploadJsonToIpfs(session.rpcApiUrl, finalStateToUpload);
+        // --- END FIX ---
         await publishToIpns(session.rpcApiUrl, headCID, session.ipnsKeyName);
     } else {
         throw new Error("Session is misconfigured for publishing state.");
@@ -162,7 +189,6 @@ export async function _uploadStateAndPublishToIpns(stateToPublish: UserState | P
     return headCID;
 }
 
-// --- NEW Helper: Uploads *only* (for getting previous state CID) ---
 /**
  * Uploads a state object without publishing to IPNS or updating the cookie.
  * Used internally for creating chunks.
