@@ -1,5 +1,5 @@
 // fileName: src/components/PostPage.tsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import PostComponent from '../features/feed/PostItem';

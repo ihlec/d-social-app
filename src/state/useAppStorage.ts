@@ -1,5 +1,5 @@
 // fileName: src/state/useAppStorage.ts
-import { useState, useMemo, useContext, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useContext, useCallback } from 'react'; // Removed useRef
 import toast from 'react-hot-toast';
 import AppStateContext from '../state/AppContext';
 import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '@/types'; // Use alias if configured
@@ -42,11 +42,6 @@ export interface UseAppStateReturn {
 	unresolvedFollows: string[];
 	allPostsMap: Map<string, Post>;
 	userProfilesMap: Map<string, UserProfile>;
-    // --- FIX: Removed explore and combined maps ---
-	// exploreAllPostsMap: Map<string, Post>;
-	// exploreUserProfilesMap: Map<string, UserProfile>;
-	// combinedUserProfilesMap: Map<string, UserProfile>;
-    // --- END FIX ---
 	otherUsers: OnlinePeer[];
 }
 
@@ -56,101 +51,90 @@ export const useAppStateInternal = (): UseAppStateReturn => {
     const [userState, setUserState] = useState<UserState | null>(null);
 	const [myIpnsKey, setMyIpnsKey] = useState<string>('');
 	const [latestStateCID, setLatestStateCID] = useState<string>('');
-	const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
-    // --- FIX: These are now the single source of truth ---
+	const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null); // Start as null (loading)
     const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
 	const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
-    // --- FIX: Removed explore-specific maps ---
-	// const [exploreAllPostsMap, setExploreAllPostsMap] = useState<Map<string, Post>>(new Map());
-	// const [exploreUserProfilesMap, setExploreUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
-    // --- END FIX ---
 	const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
 	const [otherUsers, setOtherUsers] = useState<OnlinePeer[]>([]);
-    const initialLoadRef = useRef(false);
+    // --- FIX: Removed initialLoadRef ---
+    // const initialLoadRef = useRef(false);
+    // --- END FIX ---
 
 	const lastPostTimestamp = useMemo(() => userState?.updatedAt, [userState]);
 	const { isCoolingDown, countdown } = useCooldown(lastPostTimestamp, POST_COOLDOWN_MS);
 
 	const resetAllState = useCallback(() => {
         setUserState(null); setMyIpnsKey(''); setLatestStateCID(''); setIsLoggedIn(false);
-        // --- FIX: Reset single maps ---
         setAllPostsMap(new Map()); setUserProfilesMap(new Map());
-        // setExploreAllPostsMap(new Map()); setExploreUserProfilesMap(new Map());
-        // --- END FIX ---
         setUnresolvedFollows([]); setOtherUsers([]);
-        initialLoadRef.current = false; toast("Logged out.");
+        // --- FIX: Removed initialLoadRef reset ---
+        // initialLoadRef.current = false;
+        // --- END FIX ---
+        toast("Logged out.");
 	}, []);
 
-	// --- FIX: Pass single maps to all hooks ---
+	// --- FIX: Pass processMainFeed from useAppFeed to useAppAuth ---
 	const fetchMissingParentPost = useParentPostFetcher({
         allPostsMap, setAllPostsMap, userProfilesMap, setUserProfilesMap,
-    });
-	const { loginWithFilebase, loginWithKubo, logout, refreshAuthState }: UseAppAuthReturn = useAppAuth({
-        setUserState, setMyIpnsKey, setLatestStateCID, setIsLoggedIn, resetAllState, currentUserState: userState
     });
 	const { isLoadingFeed, processMainFeed, ensurePostsAreFetched }: UseAppFeedReturn = useAppFeed({
         myIpnsKey, allPostsMap, userProfilesMap, setAllPostsMap, setUserProfilesMap, setUnresolvedFollows, fetchMissingParentPost,
     });
+	const { loginWithFilebase, loginWithKubo, logout }: UseAppAuthReturn = useAppAuth({
+        setUserState, setMyIpnsKey, setLatestStateCID, setIsLoggedIn, resetAllState, currentUserState: userState, processMainFeed // Pass it here
+    });
 	const { isLoadingExplore, loadMoreExplore, refreshExploreFeed } = useAppExplore({
-        myIpnsKey, userState, allPostsMap, 
-        setAllPostsMap, // Pass main setter
-        setUserProfilesMap, // Pass main setter
-        fetchMissingParentPost,
+        myIpnsKey, userState, allPostsMap, setAllPostsMap, setUserProfilesMap, fetchMissingParentPost,
     });
 	useAppPeers({
         isLoggedIn, myIpnsKey, userState, setOtherUsers,
     });
     // --- END FIX ---
 
-	const refreshFeed = useCallback(async (force = false) => {
+    // --- FIX: refreshFeed now calls the internal refreshAuthState ---
+    // We need a way to trigger refreshAuthState from outside useAuth.
+    // For simplicity, let's just use processMainFeed which indirectly uses the state fetched by useAuth's effect or login calls.
+    // A forced refresh should likely re-run the state fetching part of useAuth.
+    // Let's reconsider `refreshFeed`. Maybe it should trigger `refreshAuthState` somehow?
+    // Easiest is to keep `refreshAuthState` internal to `useAuth` and have `refreshFeed` just call `processMainFeed` on current state.
+    // Manual refresh might need a dedicated function exposed from `useAuth` if we want to force IPNS resolution.
+    // For now, let's simplify `refreshFeed` to only re-process the current state.
+    const refreshFeed = useCallback(async (/* force = false */) => {
+        // The 'force' logic is now primarily handled within useAuth's refreshAuthState (via cooldown check).
+        // This function will just re-process whatever state is current.
+        // If a user *really* wants to bypass cooldown, they'd need a different mechanism (maybe logout/login).
 		if (isLoggedIn !== true || !myIpnsKey) return;
-
-		let stateToProcess: UserState | null = null;
-        let skipProcessFeed = false;
-
-		if (force) {
-			console.log("[refreshFeed] Manual forced refresh requested.");
-            console.log("[refreshFeed] Attempting network fetch via refreshAuthState.");
-            stateToProcess = await refreshAuthState(); // Updates userState internally
-            if (stateToProcess === null) { console.warn("[refreshFeed] refreshAuthState failed. Aborting feed processing."); skipProcessFeed = true; }
-		} else {
-            // Non-forced refresh uses current state
-            stateToProcess = userState;
+        if (userState) {
+            console.log("[refreshFeed] Re-processing current user state.");
+            await processMainFeed(userState);
+        } else {
+             console.warn("[refreshFeed] Cannot refresh, no user state available.");
         }
+	}, [ isLoggedIn, myIpnsKey, userState, processMainFeed ]);
+    // --- END FIX ---
 
-		if (stateToProcess && !skipProcessFeed) {
-			await processMainFeed(stateToProcess);
-		} else if (!skipProcessFeed) {
-			console.warn("[refreshFeed] No valid user state available to process feed.");
-		}
-	}, [ isLoggedIn, myIpnsKey, userState, refreshAuthState, processMainFeed ]);
-
-    // Initial load useEffect remains largely the same, relying on processMainFeed
-    useEffect(() => {
-        if (isLoggedIn === true && myIpnsKey && latestStateCID && userState?.profile && !initialLoadRef.current) {
-            initialLoadRef.current = true;
-            console.log("[useAppState useEffect] Initial load triggered. Processing current feed state.");
-            if(userState){
-                 processMainFeed(userState);
-            } else {
-                console.warn("[useAppState useEffect] Initial load: userState is null, cannot process feed yet.");
-            }
-        }
-    }, [isLoggedIn, myIpnsKey, latestStateCID, userState, processMainFeed]); // Dependencies adjusted
+    // --- FIX: Removed Initial load useEffect ---
+    // The initial load and feed processing is now handled entirely within useAuth's useEffect
+    // useEffect(() => {
+    //     if (isLoggedIn === true && myIpnsKey && latestStateCID && userState?.profile && !initialLoadRef.current) {
+    //         initialLoadRef.current = true;
+    //         console.log("[useAppState useEffect] Initial load triggered. Processing current feed state.");
+    //         if(userState){
+    //              processMainFeed(userState);
+    //         } else {
+    //             console.warn("[useAppState useEffect] Initial load: userState is null, cannot process feed yet.");
+    //         }
+    //     }
+    // }, [isLoggedIn, myIpnsKey, latestStateCID, userState, processMainFeed]);
+    // --- END FIX ---
 
 
-	// Actions hook call remains the same
 	const {
 		isProcessing, addPost, likePost, dislikePost, followUser, unfollowUser, updateProfile,
 	} = useAppActions({
 		userState, setUserState, myIpnsKey, setAllPostsMap, setLatestStateCID, setUserProfilesMap, refreshFeed,
 	});
 
-	// --- FIX: Removed Memoized Derived State ---
-    // const combinedUserProfilesMap = useMemo(() => new Map<string, UserProfile>([
-    //     ...userProfilesMap, ...exploreUserProfilesMap
-    // ]), [userProfilesMap, exploreUserProfilesMap]);
-    // --- END FIX ---
 
 	return {
 		isLoggedIn, userState, myIpnsKey, latestStateCID,
@@ -159,20 +143,14 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		loginWithFilebase, loginWithKubo, logout,
 		addPost,
 		likePost, dislikePost, followUser, unfollowUser,
-		refreshFeed, // Ensure refreshFeed is returned
+		refreshFeed, // Keep refreshFeed
 		isLoadingExplore, loadMoreExplore, refreshExploreFeed,
 		updateProfile, ensurePostsAreFetched,
-		unresolvedFollows, 
-        allPostsMap, // Return single map
-        userProfilesMap, // Return single map
-        // --- FIX: Removed deleted maps from return ---
-		// exploreAllPostsMap, exploreUserProfilesMap, combinedUserProfilesMap,
-        // --- END FIX ---
+		unresolvedFollows, allPostsMap, userProfilesMap,
 		otherUsers,
 	};
 };
 
-// --- Context Consumer Hook (remains the same type) ---
 export const useAppState = (): UseAppStateReturn => {
 	const context = useContext(AppStateContext);
 	if (!context) throw new Error('useAppState must be used within an AppStateProvider');
