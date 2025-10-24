@@ -21,7 +21,10 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
 };
 
 
-type FeedType = 'myPosts' | 'myFeed' | 'explore';
+// --- FIX: Remove 'myPosts' type ---
+type FeedType = 'myFeed' | 'explore';
+// --- END FIX ---
+
 // --- FIX: This type is no longer needed ---
 // type FeedRowItem = string | string[];
 // --- END FIX ---
@@ -30,7 +33,9 @@ type FeedType = 'myPosts' | 'myFeed' | 'explore';
 const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    // --- FIX: Default state to 'myFeed' ---
     const [selectedFeed, setSelectedFeed] = useState<FeedType>('myFeed');
+    // --- END FIX ---
     const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
     const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
 
@@ -59,8 +64,10 @@ const HomePage: React.FC = () => {
 
         if (selectedFeed !== 'explore') {
             exploreInitialized.current = false;
-            // Only run refresh if feed *changed* to myFeed/myPosts
-            if (selectedFeed !== prevSelectedFeed && (selectedFeed === 'myFeed' || selectedFeed === 'myPosts')) {
+            // --- FIX: Remove 'myPosts' check ---
+            // Only run refresh if feed *changed* to myFeed
+            if (selectedFeed !== prevSelectedFeed && selectedFeed === 'myFeed') {
+            // --- END FIX ---
                 console.log(`[HomePage useEffect] Switched to ${selectedFeed}, triggering non-forced refresh...`);
                 if (userState) {
                     refreshFeed();
@@ -108,7 +115,34 @@ const HomePage: React.FC = () => {
             // --- FIX: Return topLevelPostIds as a flat array ---
             return { topLevelPostIds: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap };
             // --- END FIX ---
-        } let finalTopLevelIds: string[] = []; switch (selectedFeed) { case 'myPosts': finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; return post.authorKey === myIpnsKey || hasMyCommentRecursive(post); }); break; case 'explore': finalTopLevelIds = allTopLevelIds; break; case 'myFeed': default: finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey); const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post)); return isFollowed || isMyPostWithOtherComment; }); break; } const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
+        } let finalTopLevelIds: string[] = [];
+        // --- FIX: Remove 'myPosts' case ---
+        switch (selectedFeed) {
+            /*
+            case 'myPosts':
+                finalTopLevelIds = allTopLevelIds.filter(id => {
+                    const post = postsWithReplies.get(id);
+                    if (!post) return false;
+                    return post.authorKey === myIpnsKey || hasMyCommentRecursive(post);
+                });
+                break;
+            */
+            case 'explore':
+                finalTopLevelIds = allTopLevelIds;
+                break;
+            case 'myFeed':
+            default:
+                finalTopLevelIds = allTopLevelIds.filter(id => {
+                    const post = postsWithReplies.get(id);
+                    if (!post) return false;
+                    const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey);
+                    const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post));
+                    return isFollowed || isMyPostWithOtherComment;
+                });
+                break;
+        }
+        // --- END FIX ---
+        const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
 
         // --- FIX: Remove all chunking logic ---
         // The masonry component will handle the layout.
@@ -147,8 +181,9 @@ const HomePage: React.FC = () => {
                      </>
                  )}
 
-                 {/* New Post Form */}
-                 {(selectedFeed === 'myPosts' || selectedFeed === 'myFeed' || replyingToPost) && userState && (
+                 {/* --- FIX: Remove 'myPosts' check for showing form --- */}
+                 {(selectedFeed === 'myFeed' || replyingToPost) && userState && (
+                 // --- END FIX ---
                      <NewPostForm
                         replyingToPost={replyingToPost}
                         replyingToAuthorName={replyingToAuthorName}

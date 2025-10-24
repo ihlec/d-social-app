@@ -46,30 +46,16 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- use 
-- missing text for text+media posts
-- only show comments on full width single column posts.
-- introduce a comments icon that leads to the post page
-- allow creating posts from post page
-
+- use only My Feed and Explore + profile page
+- Make UserName hover over media post
+- only show comments on full width single column on pop-out
 - comment thread not shown reliably
-
-- full screen video not working for vertical video
-
-- tiles for media posts
-
+- fix comment icon in pop-out and on comment page
+- show comments on post page
 - login IPNS Label Tooltip missing
-
 - fix user key span to show more of the actual ipns key
-
 - public view container for post not centerd and no comments possible. For logged in users comment button should lead to reply to page
-
 - double use of edit bio button edit-follow-button
 
-- p text of post not overlaying .post-content-overlay
-
-- show comments exclusively on post page
-
-- Videos not autoplaying in overlay
 
 
