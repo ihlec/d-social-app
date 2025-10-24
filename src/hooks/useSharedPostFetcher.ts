@@ -1,4 +1,4 @@
-// src/hooks/useParentPostFetcher.ts
+// src/hooks/useSharedPostFetcher.ts
 import { useCallback, useRef } from 'react';
 import { Post, UserProfile } from '../types';
 import { fetchPost } from '../api/ipfsIpns';
@@ -7,12 +7,16 @@ import { fetchUserProfile } from '../state/stateActions';
 interface UseParentPostFetcherArgs {
 	allPostsMap: Map<string, Post>;
 	setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
-	exploreAllPostsMap: Map<string, Post>;
-	setExploreAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
+    // --- FIX: Removed explore maps ---
+	// exploreAllPostsMap: Map<string, Post>;
+	// setExploreAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
+    // --- END FIX ---
 	userProfilesMap: Map<string, UserProfile>;
 	setUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
-	exploreUserProfilesMap: Map<string, UserProfile>;
-	setExploreUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
+    // --- FIX: Removed explore maps ---
+	// exploreUserProfilesMap: Map<string, UserProfile>;
+	// setExploreUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
+    // --- END FIX ---
 }
 
 /**
@@ -21,10 +25,8 @@ interface UseParentPostFetcherArgs {
  */
 export const useParentPostFetcher = ({
 	allPostsMap, setAllPostsMap,
-	exploreAllPostsMap, setExploreAllPostsMap,
 	userProfilesMap, setUserProfilesMap,
-	exploreUserProfilesMap, setExploreUserProfilesMap,
-}: UseParentPostFetcherArgs) => { // <-- FIX: Corrected type name
+}: UseParentPostFetcherArgs) => {
 
 	const fetchingParentPosts = useRef<Set<string>>(new Set());
 
@@ -32,8 +34,9 @@ export const useParentPostFetcher = ({
 		if (fetchingParentPosts.current.has(parentCID)) return;
 		fetchingParentPosts.current.add(parentCID);
 
-		// Check if post exists in *either* map
-		let postData: Post | null = allPostsMap.get(parentCID) || exploreAllPostsMap.get(parentCID) || null;
+		// --- FIX: Check only single allPostsMap ---
+		let postData: Post | null = allPostsMap.get(parentCID) || null;
+        // --- END FIX ---
 		let profileData: UserProfile | null = null;
 		let fetchError = null;
 
@@ -51,14 +54,16 @@ export const useParentPostFetcher = ({
 
 			if (!postData) throw new Error("Critical error: Post data is null after fetch/check.");
 
-			// Update both maps
+			// --- FIX: Update only single allPostsMap ---
 			setAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, postData!));
-			setExploreAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, postData!));
+			// setExploreAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, postData!));
+            // --- END FIX ---
 
 			const authorKey = postData.authorKey;
 			if (authorKey !== 'unknown') {
-				// Check if profile exists in *either* map
-				profileData = userProfilesMap.get(authorKey) || exploreUserProfilesMap.get(authorKey) || null;
+				// --- FIX: Check only single userProfilesMap ---
+				profileData = userProfilesMap.get(authorKey) || null;
+                // --- END FIX ---
 
 				if (!profileData) {
 					try {
@@ -70,8 +75,10 @@ export const useParentPostFetcher = ({
 					}
 
 					if (profileData) {
+						// --- FIX: Update only single userProfilesMap ---
 						setUserProfilesMap((prevMap: Map<string, UserProfile>) => prevMap.has(authorKey) ? prevMap : new Map(prevMap).set(authorKey, profileData!));
-						setExploreUserProfilesMap((prevMap: Map<string, UserProfile>) => prevMap.has(authorKey) ? prevMap : new Map(prevMap).set(authorKey, profileData!));
+						// setExploreUserProfilesMap((prevMap: Map<string, UserProfile>) => prevMap.has(authorKey) ? prevMap : new Map(prevMap).set(authorKey, profileData!));
+                        // --- END FIX ---
 					}
 				}
 			}
@@ -80,17 +87,19 @@ export const useParentPostFetcher = ({
 			if (!fetchError) fetchError = e;
 			if (!postData) {
 				const placeholderPost: Post = { id: parentCID, authorKey: 'unknown', content: '[Processing Error]', timestamp: 0, replies: [] };
+				// --- FIX: Update only single allPostsMap ---
 				setAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, placeholderPost));
-				setExploreAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, placeholderPost));
+				// setExploreAllPostsMap((prevMap: Map<string, Post>) => prevMap.has(parentCID) ? prevMap : new Map(prevMap).set(parentCID, placeholderPost));
+                // --- END FIX ---
 			}
 		} finally {
 			fetchingParentPosts.current.delete(parentCID);
 		}
 	}, [
+        // --- FIX: Updated dependencies ---
 		allPostsMap, setAllPostsMap,
-		exploreAllPostsMap, setExploreAllPostsMap,
-		userProfilesMap, setUserProfilesMap,
-		exploreUserProfilesMap, setExploreUserProfilesMap
+		userProfilesMap, setUserProfilesMap
+        // --- END FIX ---
 	]);
 
 	return fetchMissingParentPost;

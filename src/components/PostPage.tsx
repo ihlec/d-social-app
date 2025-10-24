@@ -138,9 +138,10 @@ const PostPage: React.FC<PostPageProps> = () => {
         likePost, dislikePost, userState, myIpnsKey,
         ensurePostsAreFetched,
         addPost, isProcessing, isCoolingDown, countdown,
+        // --- FIX: Use single, consolidated maps ---
         allPostsMap: globalPostsMap,
-        exploreAllPostsMap,
         userProfilesMap
+        // --- END FIX ---
     } = useAppState();
     const [threadPosts, setThreadPosts] = useState<Map<string, Post>>(new Map());
     const [threadProfiles, setThreadProfiles] = useState<Map<string, UserProfile>>(new Map());
@@ -153,48 +154,44 @@ const PostPage: React.FC<PostPageProps> = () => {
 
     const modalContainerRef = useRef<HTMLDivElement>(null);
 
-    const combinedGlobalPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
+    // --- FIX: No longer need to combine maps ---
+    // const combinedGlobalPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
+    // --- END FIX ---
 
     useEffect(() => {
         // Fetch based on URL CID always
         if (!cid) { setError("No post ID provided."); setIsLoading(false); navigate("/"); return; }
         const loadThread = async () => { setIsLoading(true); setError(null); console.log(`[PostPage] Loading thread for CID: ${cid}`); try {
-            const { postMap, profileMap } = await fetchThread(cid, combinedGlobalPosts, userProfilesMap);
+            // --- FIX: Pass globalPostsMap directly ---
+            const { postMap, profileMap } = await fetchThread(cid, globalPostsMap, userProfilesMap);
+            // --- END FIX ---
             console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`);
             setThreadPosts(postMap);
             setThreadProfiles(new Map([...userProfilesMap, ...profileMap]));
             if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); }
 
-            // --- FIX: Check for the 'isReplying' flag from navigation state ---
             const autoReply = location.state?.isReplying === true;
             const rootPost = postMap.get(cid); // Get the main post
 
             if (autoReply && rootPost) {
                 console.log("[PostPage] Auto-replying enabled by navigation state.");
-                // Get the author profile from the newly fetched map OR the global map
                 const authorProfile = profileMap.get(rootPost.authorKey) || userProfilesMap.get(rootPost.authorKey);
                 setReplyingToPost(rootPost);
                 setReplyingToAuthorName(authorProfile?.name || null);
-                // Scroll modal to top
                 if (modalContainerRef.current) {
                     modalContainerRef.current.scrollTo({ top: 0, behavior: 'auto' }); // 'auto' is fine for initial load
                 }
             } else {
-                // Default behavior
                 setReplyingToPost(null);
                 setReplyingToAuthorName(null);
             }
-            // --- END FIX ---
 
             } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); }
-            // --- FIX: Removed manual state resets (now handled in the logic above) ---
-            // setReplyingToPost(null);
-            // setReplyingToAuthorName(null);
-            // --- END FIX ---
         };
         loadThread();
-    // --- FIX: Add location.state?.isReplying to dependency array ---
-    }, [cid, navigate, combinedGlobalPosts, userProfilesMap, location.state?.isReplying]);
+    // --- FIX: Updated dependencies ---
+    }, [cid, navigate, globalPostsMap, userProfilesMap, location.state?.isReplying]);
+    // --- END FIX ---
 
     // Shows the inline reply form and scrolls modal to top
     const handleSetReplying = (post: Post | null) => {

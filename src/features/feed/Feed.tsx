@@ -1,25 +1,16 @@
 // fileName: src/features/feed/Feed.tsx
 import React from 'react';
-// --- FIX: Import Masonry components ---
 import Masonry, { ResponsiveMasonry } from 'react-responsive-masonry';
-// --- END FIX ---
 import PostComponent from './PostItem';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
 
-// --- FIX: This type is no longer needed ---
-// type FeedRowItem = string | string[];
-// --- END FIX ---
-
 
 interface FeedProps {
   isLoading: boolean;
-  // --- FIX: Prop changed from feedRowItems to topLevelPostIds ---
   topLevelPostIds: string[];
-  // --- END FIX ---
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
-  onSetReplyingTo?: (post: Post | null) => void;
   onViewProfile: (ipnsKey: string) => void;
   onLikePost?: (postId: string) => void;
   onDislikePost?: (postId: string) => void;
@@ -31,12 +22,9 @@ interface FeedProps {
 
 const Feed: React.FC<FeedProps> = ({
   isLoading,
-  // --- FIX: Prop changed ---
   topLevelPostIds,
-  // --- END FIX ---
   allPostsMap,
   userProfilesMap,
-  onSetReplyingTo,
   onViewProfile,
   onLikePost,
   onDislikePost,
@@ -45,9 +33,6 @@ const Feed: React.FC<FeedProps> = ({
   ensurePostsAreFetched,
   footerComponent,
 }) => {
-  // --- FIX: Virtuoso ref removed ---
-  // const virtuosoRef = React.useRef<VirtuosoHandle>(null);
-  // --- END FIX ---
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -59,12 +44,8 @@ const Feed: React.FC<FeedProps> = ({
        </p>
   );
 
-  // --- FIX: Remove Virtuoso renderItem logic ---
-  // --- END FIX ---
-
   return (
        <div className="feed-container">
-         {/* --- FIX: Replace Virtuoso with Masonry --- */}
          {topLevelPostIds.length === 0 && !isLoading && <EmptyPlaceholder />}
 
          <ResponsiveMasonry
@@ -78,13 +59,15 @@ const Feed: React.FC<FeedProps> = ({
                         postId={postId}
                         allPostsMap={allPostsMap}
                         userProfilesMap={userProfilesMap}
-                        onSetReplyingTo={onSetReplyingTo}
                         onViewProfile={onViewProfile}
                         onLikePost={onLikePost}
                         onDislikePost={onDislikePost}
                         currentUserState={currentUserState}
                         myIpnsKey={myIpnsKey}
                         ensurePostsAreFetched={ensurePostsAreFetched}
+                        // --- FIX: Explicitly set isExpandedView to false ---
+                        isExpandedView={false}
+                        // --- END FIX ---
                     />
                 ))}
             </Masonry>
@@ -92,7 +75,6 @@ const Feed: React.FC<FeedProps> = ({
 
          {/* Render the footer component (for intersection observer) outside the masonry layout */}
          {footerComponent && footerComponent}
-         {/* --- END FIX --- */}
         </div>
   );
 };
