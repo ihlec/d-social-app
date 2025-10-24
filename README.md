@@ -48,12 +48,8 @@ I will share with you most of my project files. Please do not react until I am d
 ## TODO
 - Make UserName hover over media post
 
-- only show comments in a thread on full width single column on pop-out (when post or post media is clicked the pop-out opens)
-- fix comment icon in pop-out it should lead to reply view. 
-
 
 - fix user key span to show more of the actual ipns key
-- public view container -> no comments possible. For logged in users comment button should lead to reply to page for non Users to login page
 
 - login IPNS Label Tooltip missing
 

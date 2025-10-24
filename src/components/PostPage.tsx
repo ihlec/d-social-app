@@ -1,6 +1,6 @@
 // fileName: src/components/PostPage.tsx
 // src/components/PostPage.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import PostComponent from '../features/feed/PostItem';
@@ -10,10 +10,13 @@ import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfsIpns'; // Kee
 import { Post, UserProfile, NewPostData } from '../types';
 import NewPostForm from '../features/feed/NewPostForm';
 
-// ... fetchThread (remains unchanged) ...
+// --- FIX: Update fetchThread signature ---
 const fetchThread = async (
-    startCid: string
+    startCid: string,
+    globalPostsMap: Map<string, Post>, // Pass in the globally available posts
+    globalProfilesMap: Map<string, UserProfile> // Pass in global profiles
 ): Promise<{ postMap: Map<string, Post>, profileMap: Map<string, UserProfile> }> => {
+// --- END FIX ---
     const postMap = new Map<string, Post>();
     const profileMap = new Map<string, UserProfile>();
     const CIDsToFetch = new Set<string>();
@@ -21,14 +24,24 @@ const fetchThread = async (
     CIDsToFetch.add(startCid);
     const processedCIDs = new Set<string>();
     console.log(`[fetchThread] Starting thread fetch for ${startCid}. Initial queue size: ${CIDsToFetch.size}`);
+    
     while (CIDsToFetch.size > 0) {
         const currentCid = CIDsToFetch.values().next().value as string;
         CIDsToFetch.delete(currentCid);
+        
         if (processedCIDs.has(currentCid)) continue;
         processedCIDs.add(currentCid);
+        
         console.log(`[fetchThread] Processing CID: ${currentCid}`);
         try {
-            const postData = await fetchPost(currentCid);
+            let postData = globalPostsMap.get(currentCid);
+            if (!postData) {
+                console.log(`[fetchThread] Post ${currentCid} not in global map, fetching...`);
+                postData = await fetchPost(currentCid);
+            } else {
+                 console.log(`[fetchThread] Post ${currentCid} found in global map.`);
+            }
+
             if (!postData || typeof postData !== 'object' || !postData.authorKey) {
                 if (currentCid === startCid) {
                     console.error(`[fetchThread] Failed to fetch the root post of the thread: ${startCid}`);
@@ -51,10 +64,18 @@ const fetchThread = async (
                 post.replies.forEach(replyCid => {
                     if (replyCid && !processedCIDs.has(replyCid)) {
                         CIDsToFetch.add(replyCid);
-                        console.log(`[fetchThread] Added reply ${replyCid} to fetch queue.`);
+                        console.log(`[fetchThread] Added reply ${replyCid} (from replies array) to fetch queue.`);
                     }
                 });
             }
+
+            globalPostsMap.forEach((globalPost, globalPostId) => {
+                if (globalPost.referenceCID === currentCid && !processedCIDs.has(globalPostId)) {
+                    CIDsToFetch.add(globalPostId);
+                    console.log(`[fetchThread] Found reply ${globalPostId} for ${currentCid} from global map scan.`);
+                }
+            });
+
         } catch (error) {
              if (currentCid === startCid && error instanceof Error) {
                  throw error; // Propagate error up if the root fails
@@ -72,9 +93,15 @@ const fetchThread = async (
         await Promise.allSettled(Array.from(authorsToFetch).map(async (authorKey) => {
             if (profileMap.has(authorKey)) return;
             try {
-                const profileCid = await resolveIpns(authorKey);
-                const authorState = await fetchUserState(profileCid); // Assuming fetchUserState exists and works
-                if (authorState?.profile) { profileMap.set(authorKey, authorState.profile); }
+                // --- FIX: Check global profiles map first ---
+                let profile = globalProfilesMap.get(authorKey);
+                // --- END FIX ---
+                if (!profile) {
+                    const profileCid = await resolveIpns(authorKey);
+                    const authorState = await fetchUserState(profileCid); 
+                    profile = authorState?.profile;
+                }
+                if (profile) { profileMap.set(authorKey, profile); }
                 else { profileMap.set(authorKey, { name: `Unknown (${authorKey.substring(0,6)}...)` }); }
             } catch (error) { console.warn(`[fetchThread] Failed to fetch profile for author ${authorKey}`, error); profileMap.set(authorKey, { name: `Unknown (${authorKey.substring(0,6)}...)` }); }
         }));
@@ -82,13 +109,10 @@ const fetchThread = async (
     } else {
          console.log(`[fetchThread] No new author profiles to fetch.`);
     }
-    // --- FIX: Robust thread reconstruction ---
     const finalPostMap = new Map<string, Post>();
-    // Pass 1: Initialize final map, *keeping* the original replies array
     postMap.forEach((post, id) => {
         finalPostMap.set(id, { ...post, replies: post.replies || [] });
     });
-    // Pass 2: Reconstruct tree using referenceCID, adding to the replies array
     finalPostMap.forEach(post => {
          if (post.referenceCID) {
              const parentPost = finalPostMap.get(post.referenceCID);
@@ -96,16 +120,14 @@ const fetchThread = async (
                  if (!parentPost.replies) {
                      parentPost.replies = [];
                  }
-                 // Add this post's ID to parent's replies, only if not already present
                  if (!parentPost.replies.includes(post.id)) {
                      parentPost.replies.push(post.id);
                  }
              }
          }
      });
-    // --- END FIX ---
     console.log(`[fetchThread] Reply reconstruction complete.`);
-    return { postMap: finalPostMap, profileMap };
+    return { postMap: finalPostMap, profileMap: profileMap };
 };
 
 interface PostPageProps {
@@ -119,6 +141,9 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
         likePost, dislikePost, userState, myIpnsKey,
         ensurePostsAreFetched,
         addPost, isProcessing, isCoolingDown, countdown,
+        allPostsMap: globalPostsMap,
+        exploreAllPostsMap,
+        userProfilesMap
     } = useAppState();
     const [threadPosts, setThreadPosts] = useState<Map<string, Post>>(new Map());
     const [threadProfiles, setThreadProfiles] = useState<Map<string, UserProfile>>(new Map());
@@ -126,24 +151,30 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const [error, setError] = useState<string | null>(null);
     const location = useLocation();
     const canGoBack = location.key !== "default";
-    // --- FIX: Get backgroundLocation from state ---
     const backgroundLocation = location.state?.backgroundLocation;
-    // --- END FIX ---
     const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
     const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
 
+    // --- FIX: Add ref for modal container ---
+    const modalContainerRef = useRef<HTMLDivElement>(null);
+    // --- END FIX ---
+
+    const combinedGlobalPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
 
     useEffect(() => {
         // Fetch based on URL CID always
         if (!cid) { setError("No post ID provided."); setIsLoading(false); navigate("/"); return; }
         const loadThread = async () => { setIsLoading(true); setError(null); console.log(`[PostPage] Loading thread for CID: ${cid}`); try {
-            const { postMap, profileMap } = await fetchThread(cid);
-            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`); setThreadPosts(postMap); setThreadProfiles(profileMap); if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); } 
+            const { postMap, profileMap } = await fetchThread(cid, combinedGlobalPosts, userProfilesMap);
+            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`); 
+            setThreadPosts(postMap); 
+            setThreadProfiles(new Map([...userProfilesMap, ...profileMap])); 
+            if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); } 
             setReplyingToPost(null);
             setReplyingToAuthorName(null);
         };
         loadThread();
-    }, [cid, navigate]); // Depend only on URL CID
+    }, [cid, navigate, combinedGlobalPosts, userProfilesMap]); 
  
     const handleSetReplying = (post: Post | null) => {
         if (!userState) {
@@ -155,6 +186,12 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
         if (post) {
             const authorProfile = threadProfiles.get(post.authorKey);
             setReplyingToAuthorName(authorProfile?.name || null);
+            
+            // --- FIX: Scroll modal to top ---
+            if (isModal && modalContainerRef.current) {
+                modalContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            // --- END FIX ---
         } else {
              setReplyingToAuthorName(null);
         }
@@ -166,21 +203,15 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
         setReplyingToAuthorName(null);
     };
 
-    // --- FIX: Update close handler to break navigation loop ---
     const handleClose = () => {
         if (backgroundLocation) {
-            // If we are in a modal, navigate to the background location's *pathname*.
-            // This strips the query params and state, preventing the loop.
             navigate(backgroundLocation.pathname);
         } else if (canGoBack) {
-            // Standard page behavior
             navigate(-1);
         } else {
-            // Standard page behavior fallback
             navigate('/');
         }
     };
-    // --- END FIX ---
  
      const renderContent = () => {
          if (isLoading) return <LoadingSpinner />;
@@ -204,7 +235,7 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                  currentPost = threadPosts.get(displayCid);
                  if (!currentPost) break;
              }
-         } else { return <div className="public-view-container"><p>Post not found ({cid?.substring(0,8)}...).</p></div>; }
+         } else { return <div className="public-view-container"><p>Post not. found ({cid?.substring(0,8)}...).</p></div>; }
          console.log(`[PostPage] Rendering thread starting from root CID: ${displayCid}`);
  
          return (
@@ -222,7 +253,7 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                 <PostComponent
                     postId={displayCid}
                     allPostsMap={threadPosts}
-                    userProfilesMap={threadProfiles}
+                    userProfilesMap={threadProfiles} // Pass the combined profile map
                     onViewProfile={(key) => navigate(`/profile/${key}`)}
                     onLikePost={likePost}
                     onDislikePost={dislikePost}
@@ -242,15 +273,18 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
             <div
                 className="expanded-post-backdrop"
                 onClick={(e) => {
-                    // Only close if the click is directly on the backdrop
                     if (e.target === e.currentTarget) {
                         handleClose();
                     }
                 }}
             >
-                {/* Container stops propagation */}
-                <div className="expanded-post-container" onClick={(e) => e.stopPropagation()}>
-                    {/* No close button */}
+                {/* --- FIX: Attach ref --- */}
+                <div 
+                    ref={modalContainerRef}
+                    className="expanded-post-container" 
+                    onClick={(e) => e.stopPropagation()}
+                >
+                {/* --- END FIX --- */}
                     {renderContent()}
                 </div>
             </div>
