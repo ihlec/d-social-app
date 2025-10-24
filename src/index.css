@@ -234,20 +234,16 @@ button:disabled {
     gap: 2px
 }
 
-.users-list {
-    max-height: 140px;
-    overflow-y: auto
-}
 
-/* --- FIX: Remove list bullets --- */
 .followed-users-list {
     list-style-type: none; /* Remove bullet points */
     padding-left: 0; /* Remove default padding */
+    max-height: 140px;
+    overflow-y: scroll;
 }
-/* --- END FIX --- */
 
 
-.users-list li {
+.followed-users-list li {
     display: flex;
     align-items: center;
     text-align: left;
@@ -256,7 +252,7 @@ button:disabled {
     padding: 4px 5px 4px 10px
 }
 
-.users-list li.unresolved {
+.followed-users-list li.unresolved {
     background-color: #4d4d00;
     border-left: 3px solid #ffc107 /* Mark yellow if unresolved IPNS-Key */
 }
@@ -264,7 +260,7 @@ button:disabled {
 .unfollow-button {
     background-color: #c44;
     padding: .2em .8em;
-    font-size: .9em;
+    font-size: .8em;
     /* Prevent button from shrinking */
     flex-shrink: 0;
 }

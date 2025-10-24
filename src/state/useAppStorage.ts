@@ -1,19 +1,17 @@
 // fileName: src/state/useAppStorage.ts
-import { useState, useMemo, useContext, useCallback } from 'react'; // Removed useEffect
+import { useState, useMemo, useContext, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import AppStateContext from '../state/AppContext';
-import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '@/types'; // Use alias if configured
-import { useCooldown } from '@/hooks/useCooldown'; // Use alias if configured
+import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '@/types';
+import { useCooldown } from '@/hooks/useCooldown';
 
 // Import new modular hooks
-import { useParentPostFetcher } from '@/hooks/useSharedPostFetcher'; // Use alias if configured
-import { useAppAuth, UseAppAuthReturn } from '@/features/auth/useAuth'; // Use alias if configured
-import { useAppFeed, UseAppFeedReturn } from '@/features/feed/useFeed';   // Use alias if configured
-// --- FIX: Import correct return type ---
-import { useAppExplore, UseAppExploreReturn } from '@/features/feed/useExploreFeed'; // Use alias if configured
-// --- END FIX ---
-import { useAppPeers } from '@/features/feed/useOnlinePeers'; // Use alias if configured
-import { useAppActions } from './useActions'; // Keep relative if in the same folder
+import { useParentPostFetcher } from '@/hooks/useSharedPostFetcher';
+import { useAppAuth, UseAppAuthReturn } from '@/features/auth/useAuth';
+import { useAppFeed, UseAppFeedReturn } from '@/features/feed/useFeed';
+import { useAppExplore, UseAppExploreReturn } from '@/features/feed/useExploreFeed';
+import { useAppPeers } from '@/features/feed/useOnlinePeers';
+import { useAppActions } from './useActions';
 
 const POST_COOLDOWN_MS = 300 * 1000;
 
@@ -39,9 +37,7 @@ export interface UseAppStateReturn {
 	isLoadingExplore: boolean;
 	loadMoreExplore: () => Promise<void>;
 	refreshExploreFeed: () => Promise<void>;
-    // --- FIX: Add canLoadMoreExplore ---
     canLoadMoreExplore: boolean;
-    // --- END FIX ---
 	updateProfile: (profileData: Partial<UserProfile>) => Promise<void>;
 	ensurePostsAreFetched: (postCids: string[]) => Promise<void>;
 	unresolvedFollows: string[];
@@ -55,7 +51,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
     const [userState, setUserState] = useState<UserState | null>(null);
 	const [myIpnsKey, setMyIpnsKey] = useState<string>('');
 	const [latestStateCID, setLatestStateCID] = useState<string>('');
-	const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+	const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null); // Start as null (loading)
     const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
 	const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
 	const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
@@ -80,11 +76,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const { loginWithFilebase, loginWithKubo, logout }: UseAppAuthReturn = useAppAuth({
         setUserState, setMyIpnsKey, setLatestStateCID, setIsLoggedIn, resetAllState, currentUserState: userState, processMainFeed
     });
-    // --- FIX: Destructure canLoadMoreExplore ---
 	const { isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore }: UseAppExploreReturn = useAppExplore({
         myIpnsKey, userState, allPostsMap, setAllPostsMap, setUserProfilesMap, fetchMissingParentPost,
     });
-    // --- END FIX ---
 	useAppPeers({
         isLoggedIn, myIpnsKey, userState, setOtherUsers,
     });
@@ -103,7 +97,16 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const {
 		isProcessing, addPost, likePost, dislikePost, followUser, unfollowUser, updateProfile,
 	} = useAppActions({
-		userState, setUserState, myIpnsKey, setAllPostsMap, setLatestStateCID, setUserProfilesMap, refreshFeed,
+		userState,
+        setUserState,
+        myIpnsKey,
+        // --- FIX: Pass latestStateCID value ---
+        latestStateCID,
+        // --- END FIX ---
+        setAllPostsMap,
+        setLatestStateCID, // Pass setter as well
+        setUserProfilesMap,
+        refreshFeed,
 	});
 
 
@@ -116,9 +119,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		likePost, dislikePost, followUser, unfollowUser,
 		refreshFeed,
 		isLoadingExplore, loadMoreExplore, refreshExploreFeed,
-        // --- FIX: Return canLoadMoreExplore ---
         canLoadMoreExplore,
-        // --- END FIX ---
 		updateProfile, ensurePostsAreFetched,
 		unresolvedFollows, allPostsMap, userProfilesMap,
 		otherUsers,
