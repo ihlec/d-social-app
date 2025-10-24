@@ -7,7 +7,8 @@ import PostComponent from '../features/feed/PostItem';
 import LoadingSpinner from './LoadingSpinner';
 import { useAppState } from '../state/useAppStorage';
 import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfsIpns'; // Keep using lib directly
-import { Post, UserProfile } from '../types';
+import { Post, UserProfile, NewPostData } from '../types';
+import NewPostForm from '../features/feed/NewPostForm';
 
 // ... fetchThread (remains unchanged) ...
 const fetchThread = async (
@@ -81,10 +82,13 @@ const fetchThread = async (
     } else {
          console.log(`[fetchThread] No new author profiles to fetch.`);
     }
+    // --- FIX: Robust thread reconstruction ---
     const finalPostMap = new Map<string, Post>();
+    // Pass 1: Initialize final map, *keeping* the original replies array
     postMap.forEach((post, id) => {
-        finalPostMap.set(id, { ...post, replies: [] }); // Initialize replies array
+        finalPostMap.set(id, { ...post, replies: post.replies || [] });
     });
+    // Pass 2: Reconstruct tree using referenceCID, adding to the replies array
     finalPostMap.forEach(post => {
          if (post.referenceCID) {
              const parentPost = finalPostMap.get(post.referenceCID);
@@ -92,10 +96,14 @@ const fetchThread = async (
                  if (!parentPost.replies) {
                      parentPost.replies = [];
                  }
-                 parentPost.replies.push(post.id);
+                 // Add this post's ID to parent's replies, only if not already present
+                 if (!parentPost.replies.includes(post.id)) {
+                     parentPost.replies.push(post.id);
+                 }
              }
          }
      });
+    // --- END FIX ---
     console.log(`[fetchThread] Reply reconstruction complete.`);
     return { postMap: finalPostMap, profileMap };
 };
@@ -109,7 +117,8 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const navigate = useNavigate();
     const {
         likePost, dislikePost, userState, myIpnsKey,
-        ensurePostsAreFetched
+        ensurePostsAreFetched,
+        addPost, isProcessing, isCoolingDown, countdown,
     } = useAppState();
     const [threadPosts, setThreadPosts] = useState<Map<string, Post>>(new Map());
     const [threadProfiles, setThreadProfiles] = useState<Map<string, UserProfile>>(new Map());
@@ -117,57 +126,116 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const [error, setError] = useState<string | null>(null);
     const location = useLocation();
     const canGoBack = location.key !== "default";
+    // --- FIX: Get backgroundLocation from state ---
+    const backgroundLocation = location.state?.backgroundLocation;
+    // --- END FIX ---
+    const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
+    const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
+
 
     useEffect(() => {
         // Fetch based on URL CID always
         if (!cid) { setError("No post ID provided."); setIsLoading(false); navigate("/"); return; }
         const loadThread = async () => { setIsLoading(true); setError(null); console.log(`[PostPage] Loading thread for CID: ${cid}`); try {
             const { postMap, profileMap } = await fetchThread(cid);
-            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`); setThreadPosts(postMap); setThreadProfiles(profileMap); if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); } };
+            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`); setThreadPosts(postMap); setThreadProfiles(profileMap); if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); } 
+            setReplyingToPost(null);
+            setReplyingToAuthorName(null);
+        };
         loadThread();
     }, [cid, navigate]); // Depend only on URL CID
-
-    // Simple close handler using navigate(-1) or '/'
-    const handleClose = () => {
-        if (canGoBack) {
-            navigate(-1);
+ 
+    const handleSetReplying = (post: Post | null) => {
+        if (!userState) {
+          toast("Please log in to reply.", { icon: '🔒' });
+          navigate('/login');
+          return;
+        }
+        setReplyingToPost(post);
+        if (post) {
+            const authorProfile = threadProfiles.get(post.authorKey);
+            setReplyingToAuthorName(authorProfile?.name || null);
         } else {
-            navigate('/');
+             setReplyingToAuthorName(null);
         }
     };
 
-    const renderContent = () => {
-        if (isLoading) return <LoadingSpinner />;
-        if (error) return <div className="public-view-container"><p>Error: {error}</p></div>;
-
-        let displayCid = cid; // Start with URL CID
-        if (displayCid && threadPosts.has(displayCid)) {
-            let currentPost = threadPosts.get(displayCid);
-            // Walk up the thread using the fetched data
-            while (currentPost?.referenceCID && threadPosts.has(currentPost.referenceCID)) {
-                displayCid = currentPost.referenceCID;
-                currentPost = threadPosts.get(displayCid);
-                if (!currentPost) break;
-            }
-        } else { return <div className="public-view-container"><p>Post not found ({cid?.substring(0,8)}...).</p></div>; }
-        console.log(`[PostPage] Rendering thread starting from root CID: ${displayCid}`);
-
-        return (
-            <PostComponent
-                postId={displayCid}
-                allPostsMap={threadPosts}
-                userProfilesMap={threadProfiles}
-                onViewProfile={(key) => navigate(`/profile/${key}`)}
-                onLikePost={likePost}
-                onDislikePost={dislikePost}
-                currentUserState={userState}
-                myIpnsKey={myIpnsKey}
-                ensurePostsAreFetched={ensurePostsAreFetched}
-                renderReplies={true} // Always render replies in modal/page view
-                isExpandedView={true} // Mark as expanded
-            />
-        );
+    const handleAddPost = (postData: NewPostData) => {
+        addPost(postData);
+        setReplyingToPost(null);
+        setReplyingToAuthorName(null);
     };
+
+    // --- FIX: Update close handler to break navigation loop ---
+    const handleClose = () => {
+        if (backgroundLocation) {
+            // If we are in a modal, navigate to the background location's *pathname*.
+            // This strips the query params and state, preventing the loop.
+            navigate(backgroundLocation.pathname);
+        } else if (canGoBack) {
+            // Standard page behavior
+            navigate(-1);
+        } else {
+            // Standard page behavior fallback
+            navigate('/');
+        }
+    };
+    // --- END FIX ---
+ 
+     const renderContent = () => {
+         if (isLoading) return <LoadingSpinner />;
+         if (error) return <div className="public-view-container"><p>Error: {error}</p></div>;
+ 
+         let displayCid = cid; // Start with URL CID
+        
+        if (replyingToPost) {
+            let rootPostId = replyingToPost.id;
+            let currentPost: Post | undefined = replyingToPost;
+             while (currentPost?.referenceCID && threadPosts.has(currentPost.referenceCID)) {
+                 rootPostId = currentPost.referenceCID;
+                 currentPost = threadPosts.get(rootPostId); if (!currentPost) break;
+             }
+             displayCid = rootPostId;
+        } 
+        else if (displayCid && threadPosts.has(displayCid)) {
+             let currentPost = threadPosts.get(displayCid);
+             while (currentPost?.referenceCID && threadPosts.has(currentPost.referenceCID)) {
+                 displayCid = currentPost.referenceCID;
+                 currentPost = threadPosts.get(displayCid);
+                 if (!currentPost) break;
+             }
+         } else { return <div className="public-view-container"><p>Post not found ({cid?.substring(0,8)}...).</p></div>; }
+         console.log(`[PostPage] Rendering thread starting from root CID: ${displayCid}`);
+ 
+         return (
+            <>
+                {replyingToPost && userState && (
+                     <NewPostForm
+                        replyingToPost={replyingToPost}
+                        replyingToAuthorName={replyingToAuthorName}
+                        onAddPost={handleAddPost}
+                        isProcessing={isProcessing}
+                        isCoolingDown={isCoolingDown}
+                        countdown={countdown}
+                     />
+                )}
+                <PostComponent
+                    postId={displayCid}
+                    allPostsMap={threadPosts}
+                    userProfilesMap={threadProfiles}
+                    onViewProfile={(key) => navigate(`/profile/${key}`)}
+                    onLikePost={likePost}
+                    onDislikePost={dislikePost}
+                    currentUserState={userState}
+                    myIpnsKey={myIpnsKey}
+                    ensurePostsAreFetched={ensurePostsAreFetched}
+                    onSetReplyingTo={handleSetReplying} 
+                    renderReplies={true} 
+                    isExpandedView={true} 
+                />
+            </>
+         );
+     };
 
     if (isModal) {
         return (

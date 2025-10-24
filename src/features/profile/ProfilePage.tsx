@@ -1,6 +1,8 @@
 // fileName: src/features/profile/ProfilePage.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+// --- FIX: Add useSearchParams and useLocation ---
+import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
+// --- END FIX ---
 import toast from 'react-hot-toast';
 import ProfileHeader from './ProfileHeader'; // Corrected path
 import Feed from '../feed/Feed'; // Corrected path
@@ -60,6 +62,10 @@ interface DisplayData {
 const ProfilePage: React.FC = () => {
     const { key: profileKey } = useParams<{ key: string }>();
     const navigate = useNavigate();
+    // --- FIX: Add searchParams and location ---
+    const [searchParams] = useSearchParams();
+    const location = useLocation();
+    // --- END FIX ---
     const {
         myIpnsKey, userState: currentUserState,
         allPostsMap: globalPostsMap, exploreAllPostsMap,
@@ -109,6 +115,29 @@ const ProfilePage: React.FC = () => {
         setReplyingToPost(null);
         setReplyingToAuthorName(null);
     };
+
+    // --- FIX: Add useEffect to handle modal_post query param ---
+    useEffect(() => {
+        const modalPostId = searchParams.get('modal_post');
+        if (modalPostId) {
+            // --- FIX: Create a new location object for the background ---
+            // This new object *omits* the `search` param to prevent the loop.
+            const backgroundLoc = {
+                ...location,
+                search: '', // Remove the query param
+            };
+            // --- END FIX ---
+            
+            navigate(`/post/${modalPostId}`, {
+                state: { backgroundLocation: backgroundLoc }, // Pass the "clean" location
+                replace: true // Replace history entry
+            });
+        }
+    // --- FIX: Update dependencies ---
+    // The effect should re-run if searchParams or navigate changes.
+    // `location` is used inside the `if` block, so it's also a dependency.
+    }, [searchParams, navigate, location]);
+    // --- END FIX ---
 
 
     useEffect(() => {
@@ -249,7 +278,9 @@ const ProfilePage: React.FC = () => {
              // --- END FIX ---
              while (currentPost?.referenceCID && mapForWalk.has(currentPost.referenceCID)) {
                  rootPostId = currentPost.referenceCID;
+                 // --- FIX: Correct typo mapForWAlk -> mapForWalk ---
                  currentPost = mapForWalk.get(rootPostId); if (!currentPost) break;
+                 // --- END FIX ---
              }
              const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
              return { topLevelPostIds: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };

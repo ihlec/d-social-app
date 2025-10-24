@@ -90,7 +90,10 @@ const PostComponent: React.FC<PostProps> = ({
 
   const handleShare = () => {
     if (typeof post.id === 'string' && !isTemporaryPost) {
-        const postUrl = `${window.location.origin}${window.location.pathname}#/post/${post.id}`;
+        // --- FIX: Change the shared URL format ---
+        // New URL points to the author's profile with a query param
+        const postUrl = `${window.location.origin}${window.location.pathname}#/profile/${post.authorKey}?modal_post=${post.id}`;
+        // --- END FIX ---
         navigator.clipboard.writeText(postUrl).then(() => toast.success("Post link copied!")).catch(() => toast.error("Failed to copy link."));
     } else {
          toast.error("Cannot share this post (invalid ID).");

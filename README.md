@@ -46,16 +46,16 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- use only My Feed and Explore + profile page
 - Make UserName hover over media post
-- only show comments on full width single column on pop-out
-- comment thread not shown reliably
-- fix comment icon in pop-out and on comment page
-- show comments on post page
-- login IPNS Label Tooltip missing
+
+- only show comments in a thread on full width single column on pop-out (when post or post media is clicked the pop-out opens)
+- fix comment icon in pop-out it should lead to reply view. 
+
+
 - fix user key span to show more of the actual ipns key
-- public view container for post not centerd and no comments possible. For logged in users comment button should lead to reply to page
+- public view container -> no comments possible. For logged in users comment button should lead to reply to page for non Users to login page
+
+- login IPNS Label Tooltip missing
+
 - double use of edit bio button edit-follow-button
-
-
 
