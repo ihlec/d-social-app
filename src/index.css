@@ -841,9 +841,8 @@ content: "";
 
 .expanded-post-container {
     background-color: var(--surface-color);
-    max-width: 800px;
+    max-width: 980px;
     width: 100%;
-    max-height: 90vh;
     overflow-y: auto;
     cursor: default;
     position: relative;

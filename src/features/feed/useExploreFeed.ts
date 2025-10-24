@@ -1,15 +1,9 @@
 // src/features/feed/useExploreFeed.ts
-// --- FIX: Removed unused imports ---
 import { useState, useCallback, useRef } from 'react';
-// import { useState, useCallback, useRef, useEffect } from 'react'; // Removed useEffect
-// --- END FIX ---
 import toast from 'react-hot-toast';
 import { Post, UserProfile, UserState, Follow } from '../../types';
 import { fetchPost, invalidateIpnsCache } from '../../api/ipfsIpns';
-// --- FIX: Removed unused import ---
 import { fetchUserStateByIpns } from '../../state/stateActions';
-// import { fetchUserStateByIpns, fetchUserStateChunkByIpns } from '../../state/stateActions';
-// --- END FIX ---
 
 const EXPLORE_POST_PROFILE_BATCH_SIZE = 5;
 
@@ -162,7 +156,7 @@ export const useAppExplore = ({
 	const loadMoreExplore = useCallback(async () => {
 		if (isLoadingExplore) return;
         setIsLoadingExplore(true);
-        setCanLoadMoreExplore(false);
+        setCanLoadMoreExplore(false); // Assume false until end
         console.log(`[loadMoreExplore] Triggered. Current batch size: ${currentBatchKeys.current.length}, Next layer size: ${nextLayerKeys.current.size}`);
 
         try {
@@ -240,11 +234,12 @@ export const useAppExplore = ({
             const hasMoreKeys = currentBatchKeys.current.length > 0 || nextLayerKeys.current.size > 0;
             setCanLoadMoreExplore(hasMoreKeys);
             console.log(`[loadMoreExplore] Finished. Remaining in batch: ${currentBatchKeys.current.length}, Next layer size: ${nextLayerKeys.current.size}. Can load more: ${hasMoreKeys}`);
-            // Only chain automatically if processing the CURRENT batch
-            if (currentBatchKeys.current.length > 0) {
-                 console.log(`[loadMoreExplore] Automatically chaining next batch from current layer...`);
-                 setTimeout(() => loadMoreExplore(), 100); // Small delay
-            }
+            // --- FIX: Removed all automatic chaining ---
+            // if (currentBatchKeys.current.length > 0) {
+            //      console.log(`[loadMoreExplore] Automatically chaining next batch from current layer...`);
+            //      setTimeout(() => loadMoreExplore(), 100);
+            // }
+            // --- END FIX ---
         }
 	}, [isLoadingExplore, fetchFollowsForLayer, fetchPostsProfilesForBatch, setAllPostsMap, setUserProfilesMap, isExploreInitialized]);
 
@@ -283,7 +278,7 @@ export const useAppExplore = ({
         firstLayerKeys.forEach(k => nextLayerKeys.current.add(k));
 
         console.log(`[refreshExploreFeed] Found ${firstLayerKeys.size} keys for the first layer. Triggering initial loadMoreExplore.`);
-        // Don't unset loading here, loadMoreExplore handles it
+        // loadMoreExplore handles setting isLoadingExplore to false
         await loadMoreExplore(); // Trigger the first batch processing
 
 	}, [userState, myIpnsKey, fetchFollowsForLayer, loadMoreExplore]);
