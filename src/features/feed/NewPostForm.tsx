@@ -92,7 +92,7 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="new-post-form">
       {/* --- FIX: Use replyTargetDisplay --- */}
-      {replyingToPost && <p style={{ fontSize: '0.9em', color: 'var(--text-secondary-color)', marginBottom: '0.5rem' }}>Replying to {replyTargetDisplay}...</p>}
+      {replyingToPost && <p style={{ fontSize: '0.9em', color: 'var(--text-secondary-color)' }}>Replying to {replyTargetDisplay}...</p>}
       {/* --- End Fix --- */}
       <textarea
         className="new-post-textarea"

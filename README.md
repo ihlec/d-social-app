@@ -46,16 +46,10 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- Make UserName hover over media post
-
-- Username should be clickable
-
 - Comment button should always open the overlay with comment functionality
-
-
-- fix user key span to show more of the actual ipns key
+- Get rid of post-page
 
 - login IPNS Label Tooltip missing
 
-- double use of edit bio button edit-follow-button
+- double use of edit bio button edit-follow-button (rename)
 

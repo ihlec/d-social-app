@@ -1,8 +1,6 @@
 // fileName: src/features/profile/ProfilePage.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-// --- FIX: Add useSearchParams and useLocation ---
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
-// --- END FIX ---
 import toast from 'react-hot-toast';
 import ProfileHeader from './ProfileHeader'; // Corrected path
 import Feed from '../feed/Feed'; // Corrected path
@@ -62,10 +60,8 @@ interface DisplayData {
 const ProfilePage: React.FC = () => {
     const { key: profileKey } = useParams<{ key: string }>();
     const navigate = useNavigate();
-    // --- FIX: Add searchParams and location ---
     const [searchParams] = useSearchParams();
     const location = useLocation();
-    // --- END FIX ---
     const {
         myIpnsKey, userState: currentUserState,
         allPostsMap: globalPostsMap, exploreAllPostsMap,
@@ -73,7 +69,6 @@ const ProfilePage: React.FC = () => {
         addPost, isProcessing, isCoolingDown, countdown,
         combinedUserProfilesMap,
         ensurePostsAreFetched,
-        // openModal is not used here
     } = useAppState();
 
     const [profileUserState, setProfileUserState] = useState<UserState | null>(null);
@@ -89,11 +84,9 @@ const ProfilePage: React.FC = () => {
 
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
-    // --- FIX: Explicitly type combinedPosts ---
     const combinedPosts: Map<string, Post> = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
-    // --- END FIX ---
 
-
+    // This function shows the inline reply form
     const handleSetReplying = (post: Post | null) => {
         if (!currentUserState) {
           toast("Please log in to reply.", { icon: '🔒' });
@@ -104,7 +97,7 @@ const ProfilePage: React.FC = () => {
         if (post) {
             const authorProfile = combinedUserProfilesMap.get(post.authorKey);
             setReplyingToAuthorName(authorProfile?.name || null);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            window.scrollTo({ top: 0, behavior: 'smooth' }); // Scrolls page to top
         } else {
              setReplyingToAuthorName(null);
         }
@@ -116,29 +109,13 @@ const ProfilePage: React.FC = () => {
         setReplyingToAuthorName(null);
     };
 
-    // --- FIX: Add useEffect to handle modal_post query param ---
     useEffect(() => {
         const modalPostId = searchParams.get('modal_post');
         if (modalPostId) {
-            // --- FIX: Create a new location object for the background ---
-            // This new object *omits* the `search` param to prevent the loop.
-            const backgroundLoc = {
-                ...location,
-                search: '', // Remove the query param
-            };
-            // --- END FIX ---
-            
-            navigate(`/post/${modalPostId}`, {
-                state: { backgroundLocation: backgroundLoc }, // Pass the "clean" location
-                replace: true // Replace history entry
-            });
+            const backgroundLoc = { ...location, search: '', };
+            navigate(`/post/${modalPostId}`, { state: { backgroundLocation: backgroundLoc }, replace: true });
         }
-    // --- FIX: Update dependencies ---
-    // The effect should re-run if searchParams or navigate changes.
-    // `location` is used inside the `if` block, so it's also a dependency.
     }, [searchParams, navigate, location]);
-    // --- END FIX ---
-
 
     useEffect(() => {
         if (!profileKey) {
@@ -273,14 +250,10 @@ const ProfilePage: React.FC = () => {
         if (replyingToPost) {
              let rootPostId = replyingToPost.id;
              let currentPost: Post | undefined = replyingToPost;
-             // --- FIX: Explicitly type mapForWalk ---
              const mapForWalk: Map<string, Post> = new Map([...combinedPosts, ...profilePosts]);
-             // --- END FIX ---
              while (currentPost?.referenceCID && mapForWalk.has(currentPost.referenceCID)) {
                  rootPostId = currentPost.referenceCID;
-                 // --- FIX: Correct typo mapForWAlk -> mapForWalk ---
                  currentPost = mapForWalk.get(rootPostId); if (!currentPost) break;
-                 // --- END FIX ---
              }
              const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
              return { topLevelPostIds: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
@@ -348,7 +321,8 @@ const ProfilePage: React.FC = () => {
                             userProfilesMap={displayData.userProfilesMap}
                             onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}
                             myIpnsKey={myIpnsKey} onLikePost={currentUserState ? likePost : undefined}
-                            onDislikePost={currentUserState ? dislikePost : undefined} onSetReplyingTo={handleSetReplying}
+                            onDislikePost={currentUserState ? dislikePost : undefined}
+                            onSetReplyingTo={handleSetReplying} // Pass the handler down
                             ensurePostsAreFetched={ensurePostsAreFetched}
                         />
                     </>

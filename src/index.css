@@ -367,7 +367,7 @@ content: "";
     font-size: 0.9em;
     color: var(--text-secondary-color);
     padding: 0.5rem 1rem 0 1rem;
-    margin-bottom: -0.5rem; /* Pull post content up slightly */
+    margin-bottom: 0.5rem; /* Pull post content up slightly */
 }
 .reply-context em {
     font-style: italic;
@@ -403,6 +403,7 @@ content: "";
     margin: .5rem 0;
     white-space: pre-wrap;
     word-wrap: break-word;
+    margin-bottom: 0;
 }
 
 .new-post-form {
@@ -410,11 +411,19 @@ content: "";
     position: relative
 }
 
+.new-post-form > p {
+    opacity: 0.5;
+    background-color: var(--bg-color);
+    margin: 0;
+}
+
+
+
 .new-post-textarea {
     min-height: 150px;
     margin: 0;
     resize: vertical;
-    padding-bottom: 50px
+    padding-bottom: 50px;
 }
 
 .new-post-button {
@@ -770,7 +779,7 @@ content: "";
     gap: 0.5rem;
     padding-top: 1rem; /* Add top padding */
     /* Apply padding to all instances */
-    padding-left: 1rem;
+    padding-left: 0;
     padding-right: 1rem;
     padding-bottom: 1rem;
     /* --- ADD: Position relative for line anchoring --- */
@@ -782,12 +791,10 @@ content: "";
 
 /* --- FIX: Style replies with indent and thread line --- */
 .replies-container .post {
-    padding: .8rem;
-    /* Remove old border */
-    /* border-left: 2px solid var(--border-color); */
-
     /* Add padding for content indent */
     padding-left: 1.5rem;
+    padding-top: 1rem;
+    margin-bottom: 1rem;
     /* Add position relative to anchor the line */
     position: relative;
 
@@ -804,6 +811,18 @@ content: "";
     background-color: var(--border-color);
     opacity: 0.6; /* Make it a bit more subtle */
 
+}
+
+.replies-container .post-header {
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: -0.2rem;
+}
+
+.replies-container .post-footer {
+ margin-top: 0.5rem;
+ margin-left: 0;
 }
 
 /* --- ADDED: Expanded Post Overlay Styles --- */

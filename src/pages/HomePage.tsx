@@ -21,21 +21,13 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
 };
 
 
-// --- FIX: Remove 'myPosts' type ---
 type FeedType = 'myFeed' | 'explore';
-// --- END FIX ---
-
-// --- FIX: This type is no longer needed ---
-// type FeedRowItem = string | string[];
-// --- END FIX ---
 
 
 const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    // --- FIX: Default state to 'myFeed' ---
     const [selectedFeed, setSelectedFeed] = useState<FeedType>('myFeed');
-    // --- END FIX ---
     const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
     const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
 
@@ -64,10 +56,8 @@ const HomePage: React.FC = () => {
 
         if (selectedFeed !== 'explore') {
             exploreInitialized.current = false;
-            // --- FIX: Remove 'myPosts' check ---
             // Only run refresh if feed *changed* to myFeed
             if (selectedFeed !== prevSelectedFeed && selectedFeed === 'myFeed') {
-            // --- END FIX ---
                 console.log(`[HomePage useEffect] Switched to ${selectedFeed}, triggering non-forced refresh...`);
                 if (userState) {
                     refreshFeed();
@@ -91,6 +81,7 @@ const HomePage: React.FC = () => {
     // Interactions
     const handleViewProfile = (key: string) => { /* ... */ setIsSidebarOpen(false); navigate(`/profile/${key}`); };
     const handleSelectFeed = (feed: FeedType) => { /* ... */ setReplyingToPost(null); setSelectedFeed(feed); };
+    // This function shows the inline reply form
     const handleSetReplying = (post: Post | null) => {
         if (!userState) { // Only allow logged-in users to initiate reply
             toast("Please log in to reply.", { icon: '🔒' });
@@ -102,7 +93,7 @@ const HomePage: React.FC = () => {
             // Find the author's name from the combined map
             const authorProfile = combinedUserProfilesMap.get(post.authorKey);
             setReplyingToAuthorName(authorProfile?.name || null);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            window.scrollTo({ top: 0, behavior: 'smooth' }); // Scrolls page to top
         } else {
             setReplyingToAuthorName(null); // Clear name when closing reply
         }
@@ -112,45 +103,10 @@ const HomePage: React.FC = () => {
     // Determine which posts and profiles to display
     const displayData = useMemo(() => {
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []); let preliminaryMap: Map<string, Post>; if (selectedFeed === 'explore') { preliminaryMap = exploreAllPostsMap; } else { preliminaryMap = allPostsMap; } const filteredMap = new Map<string, Post>(); preliminaryMap.forEach((post, id) => { if (!dislikedSet.has(id)) { filteredMap.set(id, post); } }); const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(filteredMap); const hasMyCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey === myIpnsKey) return true; if (hasMyCommentRecursive(reply)) return true; } return false; }; const hasOtherCommentRecursive = (p: Post | undefined): boolean => { if (!p || !p.replies) return false; for (const rId of p.replies) { const reply = postsWithReplies.get(rId); if (!reply) continue; if (reply.authorKey !== myIpnsKey) return true; if (hasOtherCommentRecursive(reply)) return true; } return false; }; if (replyingToPost) { let rootPostId = replyingToPost.id; let currentPost: Post | undefined = replyingToPost; const fullCombinedMapForReply: Map<string, Post> = new Map([...allPostsMap, ...exploreAllPostsMap]); while (currentPost?.referenceCID && fullCombinedMapForReply.has(currentPost.referenceCID)) { rootPostId = currentPost.referenceCID; currentPost = fullCombinedMapForReply.get(rootPostId); if (!currentPost) break; } const { postsWithReplies: fullTree } = buildPostTree(fullCombinedMapForReply);
-            // --- FIX: Return topLevelPostIds as a flat array ---
             return { topLevelPostIds: [rootPostId], allPostsMap: fullTree, userProfilesMap: combinedUserProfilesMap };
-            // --- END FIX ---
-        } let finalTopLevelIds: string[] = [];
-        // --- FIX: Remove 'myPosts' case ---
-        switch (selectedFeed) {
-            /*
-            case 'myPosts':
-                finalTopLevelIds = allTopLevelIds.filter(id => {
-                    const post = postsWithReplies.get(id);
-                    if (!post) return false;
-                    return post.authorKey === myIpnsKey || hasMyCommentRecursive(post);
-                });
-                break;
-            */
-            case 'explore':
-                finalTopLevelIds = allTopLevelIds;
-                break;
-            case 'myFeed':
-            default:
-                finalTopLevelIds = allTopLevelIds.filter(id => {
-                    const post = postsWithReplies.get(id);
-                    if (!post) return false;
-                    const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey);
-                    const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post));
-                    return isFollowed || isMyPostWithOtherComment;
-                });
-                break;
-        }
-        // --- END FIX ---
-        const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
+        } let finalTopLevelIds: string[] = []; switch (selectedFeed) { case 'explore': finalTopLevelIds = allTopLevelIds; break; case 'myFeed': default: finalTopLevelIds = allTopLevelIds.filter(id => { const post = postsWithReplies.get(id); if (!post) return false; const isFollowed = userState?.follows?.some((f: Follow) => f.ipnsKey === post.authorKey); const isMyPostWithOtherComment = (post.authorKey === myIpnsKey && hasOtherCommentRecursive(post)); return isFollowed || isMyPostWithOtherComment; }); break; } const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
 
-        // --- FIX: Remove all chunking logic ---
-        // The masonry component will handle the layout.
-        // --- END FIX ---
-
-        // --- FIX: Return the flat, sorted array of IDs ---
         return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: combinedUserProfilesMap };
-        // --- END FIX ---
     }, [selectedFeed, replyingToPost, allPostsMap, exploreAllPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, combinedUserProfilesMap]);
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
@@ -181,9 +137,8 @@ const HomePage: React.FC = () => {
                      </>
                  )}
 
-                 {/* --- FIX: Remove 'myPosts' check for showing form --- */}
+                 {/* New Post Form - Shown when replying or on 'myFeed' */}
                  {(selectedFeed === 'myFeed' || replyingToPost) && userState && (
-                 // --- END FIX ---
                      <NewPostForm
                         replyingToPost={replyingToPost}
                         replyingToAuthorName={replyingToAuthorName}
@@ -197,12 +152,10 @@ const HomePage: React.FC = () => {
                 {/* Feed */}
                 <Feed /* ... props ... */
                     isLoading={isLoading}
-                    // --- FIX: Pass topLevelPostIds prop ---
                     topLevelPostIds={displayData.topLevelPostIds || []}
-                    // --- END FIX ---
                     allPostsMap={displayData.allPostsMap}
                     userProfilesMap={displayData.userProfilesMap}
-                    onSetReplyingTo={handleSetReplying}
+                    onSetReplyingTo={handleSetReplying} // Pass the handler down
                     onViewProfile={handleViewProfile}
                     onLikePost={likePost}
                     onDislikePost={dislikePost}

@@ -1,5 +1,4 @@
 // fileName: src/components/PostPage.tsx
-// src/components/PostPage.tsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -10,13 +9,12 @@ import { fetchPost, resolveIpns, fetchUserState } from '../api/ipfsIpns'; // Kee
 import { Post, UserProfile, NewPostData } from '../types';
 import NewPostForm from '../features/feed/NewPostForm';
 
-// --- FIX: Update fetchThread signature ---
+// Function to fetch the thread data
 const fetchThread = async (
     startCid: string,
     globalPostsMap: Map<string, Post>, // Pass in the globally available posts
     globalProfilesMap: Map<string, UserProfile> // Pass in global profiles
 ): Promise<{ postMap: Map<string, Post>, profileMap: Map<string, UserProfile> }> => {
-// --- END FIX ---
     const postMap = new Map<string, Post>();
     const profileMap = new Map<string, UserProfile>();
     const CIDsToFetch = new Set<string>();
@@ -24,14 +22,14 @@ const fetchThread = async (
     CIDsToFetch.add(startCid);
     const processedCIDs = new Set<string>();
     console.log(`[fetchThread] Starting thread fetch for ${startCid}. Initial queue size: ${CIDsToFetch.size}`);
-    
+
     while (CIDsToFetch.size > 0) {
         const currentCid = CIDsToFetch.values().next().value as string;
         CIDsToFetch.delete(currentCid);
-        
+
         if (processedCIDs.has(currentCid)) continue;
         processedCIDs.add(currentCid);
-        
+
         console.log(`[fetchThread] Processing CID: ${currentCid}`);
         try {
             let postData = globalPostsMap.get(currentCid);
@@ -93,12 +91,10 @@ const fetchThread = async (
         await Promise.allSettled(Array.from(authorsToFetch).map(async (authorKey) => {
             if (profileMap.has(authorKey)) return;
             try {
-                // --- FIX: Check global profiles map first ---
                 let profile = globalProfilesMap.get(authorKey);
-                // --- END FIX ---
                 if (!profile) {
                     const profileCid = await resolveIpns(authorKey);
-                    const authorState = await fetchUserState(profileCid); 
+                    const authorState = await fetchUserState(profileCid);
                     profile = authorState?.profile;
                 }
                 if (profile) { profileMap.set(authorKey, profile); }
@@ -109,6 +105,7 @@ const fetchThread = async (
     } else {
          console.log(`[fetchThread] No new author profiles to fetch.`);
     }
+
     const finalPostMap = new Map<string, Post>();
     postMap.forEach((post, id) => {
         finalPostMap.set(id, { ...post, replies: post.replies || [] });
@@ -155,9 +152,7 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
     const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
 
-    // --- FIX: Add ref for modal container ---
     const modalContainerRef = useRef<HTMLDivElement>(null);
-    // --- END FIX ---
 
     const combinedGlobalPosts = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
 
@@ -166,16 +161,17 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
         if (!cid) { setError("No post ID provided."); setIsLoading(false); navigate("/"); return; }
         const loadThread = async () => { setIsLoading(true); setError(null); console.log(`[PostPage] Loading thread for CID: ${cid}`); try {
             const { postMap, profileMap } = await fetchThread(cid, combinedGlobalPosts, userProfilesMap);
-            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`); 
-            setThreadPosts(postMap); 
-            setThreadProfiles(new Map([...userProfilesMap, ...profileMap])); 
-            if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); } 
+            console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`);
+            setThreadPosts(postMap);
+            setThreadProfiles(new Map([...userProfilesMap, ...profileMap]));
+            if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); }
             setReplyingToPost(null);
             setReplyingToAuthorName(null);
         };
         loadThread();
-    }, [cid, navigate, combinedGlobalPosts, userProfilesMap]); 
- 
+    }, [cid, navigate, combinedGlobalPosts, userProfilesMap]);
+
+    // Shows the inline reply form and scrolls modal to top
     const handleSetReplying = (post: Post | null) => {
         if (!userState) {
           toast("Please log in to reply.", { icon: '🔒' });
@@ -186,12 +182,10 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
         if (post) {
             const authorProfile = threadProfiles.get(post.authorKey);
             setReplyingToAuthorName(authorProfile?.name || null);
-            
-            // --- FIX: Scroll modal to top ---
+
             if (isModal && modalContainerRef.current) {
                 modalContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
             }
-            // --- END FIX ---
         } else {
              setReplyingToAuthorName(null);
         }
@@ -212,13 +206,13 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
             navigate('/');
         }
     };
- 
+
      const renderContent = () => {
          if (isLoading) return <LoadingSpinner />;
          if (error) return <div className="public-view-container"><p>Error: {error}</p></div>;
- 
+
          let displayCid = cid; // Start with URL CID
-        
+
         if (replyingToPost) {
             let rootPostId = replyingToPost.id;
             let currentPost: Post | undefined = replyingToPost;
@@ -227,7 +221,7 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                  currentPost = threadPosts.get(rootPostId); if (!currentPost) break;
              }
              displayCid = rootPostId;
-        } 
+        }
         else if (displayCid && threadPosts.has(displayCid)) {
              let currentPost = threadPosts.get(displayCid);
              while (currentPost?.referenceCID && threadPosts.has(currentPost.referenceCID)) {
@@ -235,9 +229,9 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                  currentPost = threadPosts.get(displayCid);
                  if (!currentPost) break;
              }
-         } else { return <div className="public-view-container"><p>Post not. found ({cid?.substring(0,8)}...).</p></div>; }
+         } else { return <div className="public-view-container"><p>Post not found ({cid?.substring(0,8)}...).</p></div>; }
          console.log(`[PostPage] Rendering thread starting from root CID: ${displayCid}`);
- 
+
          return (
             <>
                 {replyingToPost && userState && (
@@ -260,9 +254,9 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                     currentUserState={userState}
                     myIpnsKey={myIpnsKey}
                     ensurePostsAreFetched={ensurePostsAreFetched}
-                    onSetReplyingTo={handleSetReplying} 
-                    renderReplies={true} 
-                    isExpandedView={true} 
+                    onSetReplyingTo={handleSetReplying}
+                    renderReplies={true}
+                    isExpandedView={true}
                 />
             </>
          );
@@ -278,13 +272,11 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
                     }
                 }}
             >
-                {/* --- FIX: Attach ref --- */}
-                <div 
+                <div
                     ref={modalContainerRef}
-                    className="expanded-post-container" 
+                    className="expanded-post-container"
                     onClick={(e) => e.stopPropagation()}
                 >
-                {/* --- END FIX --- */}
                     {renderContent()}
                 </div>
             </div>
