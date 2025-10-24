@@ -112,7 +112,6 @@ const PostMedia: React.FC<PostMediaProps> = ({
                         src={mediaUrl}
                         controls
                         autoPlay
-                        muted
                         className="post-media full-width"
                     />
                 )}

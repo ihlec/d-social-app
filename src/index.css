@@ -842,7 +842,7 @@ content: "";
 .expanded-post-container {
     background-color: var(--surface-color);
     max-width: 980px;
-    width: 100%;
+    width: auto;
     overflow-y: auto;
     cursor: default;
     position: relative;
@@ -860,7 +860,7 @@ content: "";
 /* Ensure media in expanded view takes appropriate space */
 .expanded-post-container .post-media,
 .expanded-post-container .video-thumbnail-container img.post-media {
-    max-height: 70vh;
+    max-height: 90vh;
 }
 
 .expanded-post-close-button {

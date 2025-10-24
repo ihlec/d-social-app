@@ -109,7 +109,7 @@ function createVideoThumbnail(file: File): Promise<File | null> {
 
 
     video.preload = 'metadata';
-    video.muted = true; // Required for autoplay attempt in some browsers
+    video.muted = false; // Required for autoplay attempt in some browsers
     video.playsInline = true;
     video.src = URL.createObjectURL(file);
     // Attempt to play briefly to ensure frame is available, might not always work due to browser restrictions
