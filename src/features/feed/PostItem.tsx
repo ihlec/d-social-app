@@ -97,7 +97,24 @@ const PostComponent: React.FC<PostProps> = ({
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     handleInteraction(() => {
-        if (onSetReplyingTo) { onSetReplyingTo(post); }
+        // If we are IN the expanded view (modal), use the inline reply form.
+        if (isExpandedView) {
+            if (onSetReplyingTo) {
+                onSetReplyingTo(post);
+            }
+        }
+        // Otherwise (on the feed), navigate to the modal.
+        else {
+            if (typeof post.id === 'string' && !isTemporaryPost) {
+                // --- FIX: Pass an 'isReplying' flag in the navigation state ---
+                navigate(`/post/${post.id}`, {
+                    state: {
+                        backgroundLocation: location,
+                        isReplying: true // Signal to PostPage to open the reply form
+                    }
+                });
+            }
+        }
     });
   }
 
@@ -106,6 +123,7 @@ const PostComponent: React.FC<PostProps> = ({
 
       if (typeof post.id === 'string' && !isTemporaryPost) {
           navigate(`/post/${post.id}`, {
+            // No isReplying flag here
             state: { backgroundLocation: location }
           });
       }

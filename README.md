@@ -46,8 +46,5 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- Comment button should always open the overlay with comment functionality
-- Get rid of post-page
-
 - double use of edit bio button edit-follow-button (rename)
 

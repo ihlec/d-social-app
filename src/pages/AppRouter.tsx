@@ -27,7 +27,8 @@ function AppRouter() {
       {/* Render the main routes using the background location if it exists, otherwise the current location */}
       <Routes location={backgroundLocation || location}>
         {/* PUBLIC ROUTES: Render normally */}
-        <Route path="/post/:cid" element={<PostPage />} />
+        {/* --- FIX: Removed full-page PostPage route --- */}
+        {/* <Route path="/post/:cid" element={<PostPage />} /> */}
         <Route path="/profile/:key" element={<ProfilePage />} />
 
         {/* LOGIN ROUTE: */}
@@ -61,7 +62,8 @@ function AppRouter() {
       {/* Render the modal route *only* if backgroundLocation exists */}
       {backgroundLocation && (
         <Routes>
-          <Route path="/post/:cid" element={<PostPage isModal={true} />} />
+          {/* --- FIX: Route now renders PostPage without isModal prop --- */}
+          <Route path="/post/:cid" element={<PostPage />} />
           {/* Add other modal routes here if needed */}
         </Routes>
       )}

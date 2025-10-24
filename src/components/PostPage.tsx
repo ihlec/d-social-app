@@ -1,6 +1,6 @@
 // fileName: src/components/PostPage.tsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import PostComponent from '../features/feed/PostItem';
 import LoadingSpinner from './LoadingSpinner';
@@ -128,10 +128,10 @@ const fetchThread = async (
 };
 
 interface PostPageProps {
-  isModal?: boolean;
+  // isModal?: boolean; // No longer needed
 }
 
-const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
+const PostPage: React.FC<PostPageProps> = () => {
     const { cid } = useParams<{ cid: string }>(); // Use URL CID for fetching, even in modal
     const navigate = useNavigate();
     const {
@@ -147,7 +147,6 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const location = useLocation();
-    const canGoBack = location.key !== "default";
     const backgroundLocation = location.state?.backgroundLocation;
     const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
     const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
@@ -164,12 +163,38 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
             console.log(`[PostPage] Thread fetch complete. Posts: ${postMap.size}, Profiles: ${profileMap.size}`);
             setThreadPosts(postMap);
             setThreadProfiles(new Map([...userProfilesMap, ...profileMap]));
-            if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); } } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); }
-            setReplyingToPost(null);
-            setReplyingToAuthorName(null);
+            if (!postMap.has(cid)) { throw new Error("Target post not found after fetch attempt."); }
+
+            // --- FIX: Check for the 'isReplying' flag from navigation state ---
+            const autoReply = location.state?.isReplying === true;
+            const rootPost = postMap.get(cid); // Get the main post
+
+            if (autoReply && rootPost) {
+                console.log("[PostPage] Auto-replying enabled by navigation state.");
+                // Get the author profile from the newly fetched map OR the global map
+                const authorProfile = profileMap.get(rootPost.authorKey) || userProfilesMap.get(rootPost.authorKey);
+                setReplyingToPost(rootPost);
+                setReplyingToAuthorName(authorProfile?.name || null);
+                // Scroll modal to top
+                if (modalContainerRef.current) {
+                    modalContainerRef.current.scrollTo({ top: 0, behavior: 'auto' }); // 'auto' is fine for initial load
+                }
+            } else {
+                // Default behavior
+                setReplyingToPost(null);
+                setReplyingToAuthorName(null);
+            }
+            // --- END FIX ---
+
+            } catch (err) { console.error("[PostPage] Error loading post page:", err); const errorMsg = err instanceof Error ? err.message : "Failed to load post thread."; setError(errorMsg); toast.error(`Could not load post: ${errorMsg}`); } finally { setIsLoading(false); }
+            // --- FIX: Removed manual state resets (now handled in the logic above) ---
+            // setReplyingToPost(null);
+            // setReplyingToAuthorName(null);
+            // --- END FIX ---
         };
         loadThread();
-    }, [cid, navigate, combinedGlobalPosts, userProfilesMap]);
+    // --- FIX: Add location.state?.isReplying to dependency array ---
+    }, [cid, navigate, combinedGlobalPosts, userProfilesMap, location.state?.isReplying]);
 
     // Shows the inline reply form and scrolls modal to top
     const handleSetReplying = (post: Post | null) => {
@@ -183,7 +208,7 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
             const authorProfile = threadProfiles.get(post.authorKey);
             setReplyingToAuthorName(authorProfile?.name || null);
 
-            if (isModal && modalContainerRef.current) {
+            if (modalContainerRef.current) {
                 modalContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
             }
         } else {
@@ -200,10 +225,8 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
     const handleClose = () => {
         if (backgroundLocation) {
             navigate(backgroundLocation.pathname);
-        } else if (canGoBack) {
-            navigate(-1);
         } else {
-            navigate('/');
+            navigate(-1); // Go back
         }
     };
 
@@ -262,36 +285,22 @@ const PostPage: React.FC<PostPageProps> = ({ isModal = false }) => {
          );
      };
 
-    if (isModal) {
-        return (
-            <div
-                className="expanded-post-backdrop"
-                onClick={(e) => {
-                    if (e.target === e.currentTarget) {
-                        handleClose();
-                    }
-                }}
-            >
-                <div
-                    ref={modalContainerRef}
-                    className="expanded-post-container"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {renderContent()}
-                </div>
-            </div>
-        );
-    }
-
-    // Standard full-page rendering
     return (
-        <div className="public-view-container post-page">
-            {canGoBack ? (
-                 <button className="back-to-feed-button" onClick={handleClose}>← Back</button>
-            ) : (
-                 <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
-            )}
-            {renderContent()}
+        <div
+            className="expanded-post-backdrop"
+            onClick={(e) => {
+                if (e.target === e.currentTarget) {
+                    handleClose();
+                }
+            }}
+        >
+            <div
+                ref={modalContainerRef}
+                className="expanded-post-container"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {renderContent()}
+            </div>
         </div>
     );
 };

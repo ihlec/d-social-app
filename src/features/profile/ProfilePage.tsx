@@ -79,13 +79,17 @@ const ProfilePage: React.FC = () => {
     const [isPostsLoading, setIsPostsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedFeed, setSelectedFeed] = useState<ProfileFeedType>('posts');
-    const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
-    const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
+    // --- FIX: Removed replyingToPost state ---
+    // const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
+    // const [replyingToAuthorName, setReplyingToAuthorName] = useState<string | null>(null);
+    // --- END FIX ---
 
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
     const combinedPosts: Map<string, Post> = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
 
+    // --- FIX: Removed handleSetReplying ---
+    /*
     // This function shows the inline reply form
     const handleSetReplying = (post: Post | null) => {
         if (!currentUserState) {
@@ -102,12 +106,16 @@ const ProfilePage: React.FC = () => {
              setReplyingToAuthorName(null);
         }
     };
+    */
+    // --- END FIX ---
 
+    // --- FIX: Removed replyingToPost state logic from handleAddPost ---
     const handleAddPost = (postData: NewPostData) => {
         addPost(postData);
-        setReplyingToPost(null);
-        setReplyingToAuthorName(null);
+        // setReplyingToPost(null);
+        // setReplyingToAuthorName(null);
     };
+    // --- END FIX ---
 
     useEffect(() => {
         const modalPostId = searchParams.get('modal_post');
@@ -123,7 +131,9 @@ const ProfilePage: React.FC = () => {
         }
         const loadProfile = async () => {
              setIsProfileLoading(true); setError(null); setProfilePosts(new Map());
-             setReplyingToPost(null); setReplyingToAuthorName(null);
+             // --- FIX: Removed replyingToPost state resets ---
+             // setReplyingToPost(null); setReplyingToAuthorName(null);
+             // --- END FIX ---
              setLocalProfilesMap(new Map());
              try {
                  let userStateToSet: UserState | null = null;
@@ -152,7 +162,9 @@ const ProfilePage: React.FC = () => {
     useEffect(() => {
         if (!profileUserState) return;
         const fetchPostsForFeed = async () => {
-            if (replyingToPost) return;
+            // --- FIX: Removed replyingToPost check ---
+            // if (replyingToPost) return;
+            // --- END FIX ---
             setIsPostsLoading(true);
             const initialLocalProfiles = profileUserState?.profile && profileKey ? new Map([[profileKey, profileUserState.profile]]) : new Map<string, UserProfile>();
             setLocalProfilesMap(initialLocalProfiles);
@@ -241,12 +253,16 @@ const ProfilePage: React.FC = () => {
             setIsPostsLoading(false);
         };
         fetchPostsForFeed();
-    }, [profileUserState, selectedFeed, replyingToPost, profileKey, combinedPosts, combinedUserProfilesMap]);
+    // --- FIX: Removed replyingToPost from dependencies ---
+    }, [profileUserState, selectedFeed, /* replyingToPost, */ profileKey, combinedPosts, combinedUserProfilesMap]);
+    // --- END FIX ---
 
 
     const displayData = useMemo((): DisplayData => {
         const profileMapToUse: Map<string, UserProfile> = new Map([...combinedUserProfilesMap, ...localProfilesMap]);
 
+        // --- FIX: Removed replyingToPost logic ---
+        /*
         if (replyingToPost) {
              let rootPostId = replyingToPost.id;
              let currentPost: Post | undefined = replyingToPost;
@@ -258,6 +274,8 @@ const ProfilePage: React.FC = () => {
              const { postsWithReplies: threadMap } = buildPostTree(mapForWalk);
              return { topLevelPostIds: [rootPostId], postsWithReplies: threadMap, userProfilesMap: profileMapToUse };
         }
+        */
+        // --- END FIX ---
         if (!profileUserState) return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
 
         let finalPostsMap = profilePosts;
@@ -281,7 +299,9 @@ const ProfilePage: React.FC = () => {
         }
 
         return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: profileMapToUse };
-    }, [profileUserState, profilePosts, combinedUserProfilesMap, localProfilesMap, profileKey, replyingToPost, combinedPosts, selectedFeed, currentUserState?.dislikedPostCIDs]);
+    // --- FIX: Removed replyingToPost from dependencies ---
+    }, [profileUserState, profilePosts, combinedUserProfilesMap, localProfilesMap, profileKey, /* replyingToPost, */ combinedPosts, selectedFeed, currentUserState?.dislikedPostCIDs]);
+    // --- END FIX ---
 
 
     if (!profileKey) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: No profile key provided.</p></div>;
@@ -292,41 +312,43 @@ const ProfilePage: React.FC = () => {
     return (
         <div className="app-container">
             <div className="main-content">
-                {replyingToPost ? (
-                    <button className="back-to-feed-button" onClick={() => handleSetReplying(null)}> ← Back to Profile </button>
-                ) : (
-                    <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
-                )}
+                {/* --- FIX: Removed replyingToPost logic --- */}
+                <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
+                {/* --- END FIX --- */}
+                
                 <ProfileHeader profileKey={profileKey} profile={profileUserState.profile} isMyProfile={isMyProfile} />
-                {replyingToPost && currentUserState && (
+                
+                {/* --- FIX: Removed replyingToPost logic --- */}
+                {isMyProfile && (
                      <NewPostForm
-                        replyingToPost={replyingToPost} replyingToAuthorName={replyingToAuthorName}
+                        replyingToPost={null} replyingToAuthorName={null}
                         onAddPost={handleAddPost} isProcessing={isProcessing}
                         isCoolingDown={isCoolingDown} countdown={countdown}
                      />
                 )}
-                {!replyingToPost && (
-                    <>
-                        <div className="feed-selector">
-                            {profileFeedOptions.map(option => (
-                                <button key={option.value} className={selectedFeed === option.value ? 'active' : ''}
-                                    onClick={() => setSelectedFeed(option.value)} >
-                                    {option.label}
-                                </button>
-                            ))}
-                        </div>
-                        <Feed isLoading={isPostsLoading}
-                            topLevelPostIds={displayData.topLevelPostIds || []}
-                            allPostsMap={displayData.postsWithReplies}
-                            userProfilesMap={displayData.userProfilesMap}
-                            onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}
-                            myIpnsKey={myIpnsKey} onLikePost={currentUserState ? likePost : undefined}
-                            onDislikePost={currentUserState ? dislikePost : undefined}
-                            onSetReplyingTo={handleSetReplying} // Pass the handler down
-                            ensurePostsAreFetched={ensurePostsAreFetched}
-                        />
-                    </>
-                )}
+
+                <>
+                    <div className="feed-selector">
+                        {profileFeedOptions.map(option => (
+                            <button key={option.value} className={selectedFeed === option.value ? 'active' : ''}
+                                onClick={() => setSelectedFeed(option.value)} >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                    <Feed isLoading={isPostsLoading}
+                        topLevelPostIds={displayData.topLevelPostIds || []}
+                        allPostsMap={displayData.postsWithReplies}
+                        userProfilesMap={displayData.userProfilesMap}
+                        onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}
+                        myIpnsKey={myIpnsKey} onLikePost={currentUserState ? likePost : undefined}
+                        onDislikePost={currentUserState ? dislikePost : undefined}
+                        // --- FIX: Removed onSetReplyingTo ---
+                        // onSetReplyingTo={handleSetReplying} // Pass the handler down
+                        ensurePostsAreFetched={ensurePostsAreFetched}
+                    />
+                </>
+                {/* --- END FIX --- */}
             </div>
         </div>
     );
