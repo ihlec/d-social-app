@@ -48,6 +48,10 @@ I will share with you most of my project files. Please do not react until I am d
 ## TODO
 - Make UserName hover over media post
 
+- Username should be clickable
+
+- Comment button should always open the overlay with comment functionality
+
 
 - fix user key span to show more of the actual ipns key
 

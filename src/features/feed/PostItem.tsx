@@ -1,9 +1,6 @@
 // fileName: src/features/feed/PostItem.tsx
-// src/features/feed/PostItem.tsx
 import React, { useEffect } from 'react';
-// --- FIX: Add useLocation import ---
 import { useNavigate, useLocation } from 'react-router-dom';
-// --- END FIX ---
 import { Post, UserProfile, UserState } from '../../types';
 import PostMedia from './PostMedia';
 import { formatTimestamp } from '../../lib/utils';
@@ -42,9 +39,7 @@ const PostComponent: React.FC<PostProps> = ({
   isExpandedView = false, // Default to false
 }) => {
   const navigate = useNavigate();
-  // --- FIX: Get location ---
   const location = useLocation();
-  // --- END FIX ---
   const post = allPostsMap.get(postId);
 
   useEffect(() => {
@@ -78,6 +73,9 @@ const PostComponent: React.FC<PostProps> = ({
   const loadedReplies = post.replies?.filter(replyId => allPostsMap.has(replyId)) ?? [];
   const loadedReplyCount = loadedReplies.length;
   const isTemporaryPost = typeof post.id === 'string' && post.id.startsWith('temp-');
+  const hasMedia = post.mediaCid || post.thumbnailCid || post.mediaType === 'file';
+  // Determine if the overlay structure should be used (image/video only)
+  const useOverlay = hasMedia && post.mediaType !== 'file';
 
   const handleInteraction = (action?: () => void) => {
     if (currentUserState) {
@@ -90,10 +88,7 @@ const PostComponent: React.FC<PostProps> = ({
 
   const handleShare = () => {
     if (typeof post.id === 'string' && !isTemporaryPost) {
-        // --- FIX: Change the shared URL format ---
-        // New URL points to the author's profile with a query param
         const postUrl = `${window.location.origin}${window.location.pathname}#/profile/${post.authorKey}?modal_post=${post.id}`;
-        // --- END FIX ---
         navigator.clipboard.writeText(postUrl).then(() => toast.success("Post link copied!")).catch(() => toast.error("Failed to copy link."));
     } else {
          toast.error("Cannot share this post (invalid ID).");
@@ -106,30 +101,26 @@ const PostComponent: React.FC<PostProps> = ({
     });
   }
 
-  // --- FIX: Revert to using navigate with backgroundLocation state ---
   const handleNavigateToPost = (e: React.MouseEvent) => {
-      // Prevent click action if clicking on buttons/links
       if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a')) { return; }
 
       if (typeof post.id === 'string' && !isTemporaryPost) {
-          // Navigate to post page, passing current location as background
           navigate(`/post/${post.id}`, {
             state: { backgroundLocation: location }
           });
       }
   }
-  // --- END FIX ---
 
   return (
+    // Add post-no-media class if NOT using overlay (i.e., no media OR file media)
     <div
-      className={`post ${isReply ? 'reply-post' : ''}`}
-      // Disable onClick if it's the expanded view to prevent re-triggering
+      className={`post ${isReply ? 'reply-post' : ''} ${!useOverlay ? 'post-no-media' : ''}`}
       onClick={isExpandedView ? undefined : handleNavigateToPost}
       style={{ cursor: isTemporaryPost || isExpandedView ? 'default' : 'pointer' }}
     >
 
        {parentPost && (
-           <div className="reply-context" style={{ fontSize: '0.85em', color: 'var(--text-secondary-color)', marginBottom: '0.5rem' }}>
+           <div className="reply-context"> {/* Always outside media wrapper */}
                Replying to{' '}
                <button onClick={(e) => { e.stopPropagation(); onViewProfile(parentPost.authorKey); }} className="author-name-button" style={{ fontSize: 'inherit', display: 'inline' }} title={parentPost.authorKey}>
                     <strong>@{parentAuthorProfile?.name || `Unknown (${parentPost.authorKey.substring(0,6)}...)`}</strong>
@@ -137,21 +128,42 @@ const PostComponent: React.FC<PostProps> = ({
            </div>
        )}
 
-      <div className="post-header">
-         <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
-      </div>
+      {/* Render header/text normally if NOT using overlay */}
+      {!useOverlay && (
+        <>
+          <div className="post-header">
+            <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
+          </div>
+          {post.content && <p>{post.content}</p>}
+        </>
+      )}
 
-      {post.content && <p>{post.content}</p>}
+      {/* Render media wrapper only if media exists */}
+      {hasMedia && (
+        <div className="post-media-wrapper">
+          {/* Media component */}
+          <div onClick={isExpandedView ? undefined : handleNavigateToPost}>
+            {/* Pass post type info if needed, e.g., to PostMedia */}
+            <PostMedia post={post} isExpandedView={isExpandedView} />
+          </div>
 
-      {/* Disable media onClick if it's the expanded view */}
-      <div onClick={isExpandedView ? undefined : handleNavigateToPost}>
-        {/* Pass isExpandedView to PostMedia */}
-        <PostMedia post={post} isExpandedView={isExpandedView} />
-      </div>
+          {/* Render overlay ONLY for images/videos */}
+          {useOverlay && (
+            <div className="post-media-overlay">
+              <div className="author-name-overlay">
+                <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
+              </div>
+              {post.content && <p className="post-content-overlay">{post.content}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
 
       <div className="post-footer">
          <small title={new Date(post.timestamp).toString()} >{formatTimestamp(post.timestamp)}</small>
         <div className="post-actions" onClick={(e) => e.stopPropagation()}>
+          {/* Action Buttons */}
           <button
               onClick={(e) => { e.stopPropagation(); handleInteraction(onLikePost ? () => onLikePost(post.id) : undefined); }}
               className={`action-button ${isLiked ? 'liked' : ''}`}
@@ -182,9 +194,9 @@ const PostComponent: React.FC<PostProps> = ({
         </div>
       </div>
 
-      {/* Conditionally render replies based on prop */}
       {renderReplies && loadedReplies.length > 0 && (
         <div className="replies-container">
+          {/* Replies rendering */}
           {loadedReplies.map((replyId) => (
             <PostComponent
               key={replyId}
@@ -198,8 +210,8 @@ const PostComponent: React.FC<PostProps> = ({
               currentUserState={currentUserState}
               myIpnsKey={myIpnsKey}
               ensurePostsAreFetched={ensurePostsAreFetched}
-              renderReplies={renderReplies} // Pass down
-              isExpandedView={isExpandedView} // Pass down
+              renderReplies={renderReplies}
+              isExpandedView={isExpandedView}
               isReply={true}
             />
           ))}

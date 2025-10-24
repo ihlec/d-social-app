@@ -380,6 +380,19 @@ content: "";
     padding: 1rem;
 }
 
+.post-no-media .post-footer {
+    margin-left: -1rem;  /* Counteract parent's left padding */
+    margin-right: -1rem; /* Counteract parent's right padding */
+    margin-bottom: -1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+    background-color: var(--bg-color);
+}
+
+
+
 .post strong {
     color: var(--primary-color);
     display: block
@@ -465,24 +478,29 @@ content: "";
 .author-name-overlay { /* Highlights User Name */
     position: static; /* Let flexbox handle positioning */
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
-    margin-bottom: auto; /* Push content down */
     pointer-events: auto; /* Make the button clickable */
     align-self: flex-start; /* Align to the top left */
 }
 
+.author-name-overlay strong { /* Style the name itself */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Styling for the post text container inside the overlay */
 .post-content-overlay {
     color: #fff;
-    text-shadow: 4px 2px 4px rgba(0, 0, 0, 0.9);
-    margin-top: auto;
-    margin-bottom: 0 !important;
-
-    /* Modern Standard CSS (Supported in newer Firefox, Chrome, Edge) */
-    display: block; /* Overrides the -webkit-box display */
-    overflow: hidden;
-    line-clamp: 3; /* This is the new standard property */
-    -webkit-line-clamp: 3; /* Keep for cross-browser reliability */
+    text-shadow: 2px 1px 2px rgba(0, 0, 0, 0.9);
+    pointer-events: none; /* Text itself isn't clickable */
+    padding: 1rem; /* Keep user added padding */
     width: 100%;
+    white-space: pre-wrap; /* Allow wrapping and preserve line breaks */
+    overflow-wrap: break-word; /* Help break long words if needed */
+    /* display: ; <-- REMOVED INVALID PROPERTY */
+    text-align: left; /* Explicitly set text alignment */
+    line-height: 1.4; /* Ensure reasonable line height */
+    overflow: hidden; /* Hide any text exceeding max-height */
 }
+
 
 .post-media {
     display: block;
