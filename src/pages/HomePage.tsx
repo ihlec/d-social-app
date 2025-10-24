@@ -7,7 +7,9 @@ import NewPostForm from '../features/feed/NewPostForm';
 import Feed from '../features/feed/Feed';
 import FeedSelector from '../features/feed/FeedSelector';
 import { Post, NewPostData, Follow } from '../types';
-import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
+// --- FIX: Removed useIntersectionObserver ---
+// import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
+// --- END FIX ---
 import { RefreshIcon } from '../components/Icons';
 import logo from '/logo.png';
 
@@ -32,27 +34,25 @@ const HomePage: React.FC = () => {
         userState, myIpnsKey, latestStateCID, isLoadingFeed, isProcessing, isCoolingDown, countdown,
         addPost, likePost, dislikePost, followUser, unfollowUser, refreshFeed, logout,
         isLoadingExplore, loadMoreExplore, refreshExploreFeed,
-        unresolvedFollows, 
-        // --- FIX: Use single, consolidated maps ---
-        allPostsMap, 
-        userProfilesMap,
+        // --- FIX: Destructure canLoadMoreExplore ---
+        canLoadMoreExplore,
         // --- END FIX ---
+        unresolvedFollows, allPostsMap, userProfilesMap,
         otherUsers,
         ensurePostsAreFetched,
     } = useAppState();
 
-    // --- FIX: No longer need to combine maps ---
-    // const combinedPosts: Map<string, Post> = useMemo(() => new Map([...allPostsMap, ...exploreAllPostsMap]), [allPostsMap, exploreAllPostsMap]);
+    // --- FIX: Removed intersection observer ---
+    // const [loadMoreRef, isLoadMoreVisible] = useIntersectionObserver({ threshold: 0.1 });
     // --- END FIX ---
-
-    const [loadMoreRef, isLoadMoreVisible] = useIntersectionObserver({ threshold: 0.1 });
     const exploreInitialized = useRef(false);
     const prevSelectedFeedRef = useRef<FeedType | undefined>(undefined);
 
-    // Load more explore items
-    useEffect(() => {
-         if (isLoadMoreVisible && selectedFeed === 'explore' && !isLoadingExplore) { loadMoreExplore(); }
-    }, [isLoadMoreVisible, selectedFeed, isLoadingExplore, loadMoreExplore]);
+    // --- FIX: Removed effect for intersection observer ---
+    // useEffect(() => {
+    //      if (isLoadMoreVisible && selectedFeed === 'explore' && !isLoadingExplore) { loadMoreExplore(); }
+    // }, [isLoadMoreVisible, selectedFeed, isLoadingExplore, loadMoreExplore]);
+    // --- END FIX ---
 
     // Combined useEffect for feed switching/initialization
     useEffect(() => {
@@ -91,47 +91,40 @@ const HomePage: React.FC = () => {
     // Determine which posts and profiles to display
     const displayData = useMemo(() => {
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []);
-        
-        // --- FIX: Always build tree from the *full* allPostsMap ---
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
-        // --- END FIX ---
-        
         const followedKeys = new Set(userState?.follows?.map((f: Follow) => f.ipnsKey) ?? []);
 
         let finalTopLevelIds: string[] = [];
         switch (selectedFeed) {
             case 'explore':
-                // Filter top level IDs: not disliked
-                finalTopLevelIds = allTopLevelIds.filter(id => !dislikedSet.has(id));
+                finalTopLevelIds = allTopLevelIds.filter(id => {
+                    const post = postsWithReplies.get(id);
+                    if (!post) return false;
+                    return !dislikedSet.has(id) && // Not disliked by me
+                           post.authorKey !== myIpnsKey && // Not my post
+                           !followedKeys.has(post.authorKey); // Not from someone I follow
+                });
                 break;
             case 'myFeed':
             default:
                 finalTopLevelIds = allTopLevelIds.filter(id => {
                     const post = postsWithReplies.get(id);
                     if (!post) return false;
-
-                    // Always hide posts disliked by me
-                    if (dislikedSet.has(id)) {
-                        return false;
-                    }
-                    
-                    // Show if I wrote it or I follow the author
+                    if (dislikedSet.has(id)) return false;
                     return post.authorKey === myIpnsKey || followedKeys.has(post.authorKey);
                 });
                 break;
-        } 
-        
+        }
+
         const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
 
-        // --- FIX: Return single maps ---
         return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: userProfilesMap };
-        // --- END FIX ---
-    // --- FIX: Update dependencies ---
     }, [selectedFeed, allPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, userProfilesMap]);
-    // --- END FIX ---
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
-     const showLoadMore = selectedFeed === 'explore';
+     // --- FIX: showLoadMore depends on canLoadMoreExplore state ---
+     const showLoadMoreButton = selectedFeed === 'explore' && canLoadMoreExplore && !isLoadingExplore;
+     // --- END FIX ---
 
 
     // HTML Components
@@ -177,8 +170,29 @@ const HomePage: React.FC = () => {
                     currentUserState={userState}
                     myIpnsKey={myIpnsKey}
                     ensurePostsAreFetched={ensurePostsAreFetched}
-                    footerComponent={showLoadMore ? <div ref={loadMoreRef} className="load-more-trigger">{isLoadingExplore && <p className="loading">Loading More...</p>}</div> : undefined}
+                    // --- FIX: Removed footerComponent ---
+                    // footerComponent={showLoadMore ? <div ref={loadMoreRef} className="load-more-trigger">{isLoadingExplore && <p className="loading">Loading More...</p>}</div> : undefined}
+                    // --- END FIX ---
                 />
+
+                {/* --- FIX: Add Load More Button --- */}
+                {selectedFeed === 'explore' && (
+                    <div style={{ padding: '1rem', textAlign: 'center' }}>
+                        {isLoadingExplore ? (
+                            <p className="loading">Loading More...</p>
+                        ) : showLoadMoreButton ? (
+                             <button
+                                onClick={loadMoreExplore}
+                                disabled={isLoadingExplore}
+                                className="new-post-button" // Reuse styling or create specific one
+                                style={{ width: 'auto', padding: '0.5em 1.5em' }}
+                             >
+                                Load More
+                             </button>
+                        ) : null /* Optionally show 'End reached' message here */}
+                    </div>
+                )}
+                {/* --- END FIX --- */}
             </div>
         </div>
     );

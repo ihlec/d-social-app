@@ -48,3 +48,6 @@ I will share with you most of my project files. Please do not react until I am d
 ## TODO
 - double use of edit bio button edit-follow-button (rename)
 
+- fix explore feed to show new content only
+- fix explore feed to explore multiple levels
+

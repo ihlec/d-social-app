@@ -13,7 +13,7 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
 
   // Memoize the context value object based on the properties returned by the hook
   const contextValue = useMemo(() => ({
-    ...appState, // Spread all properties from the reverted hook return value
+    ...appState, // Spread all properties
   }), [
       // Add all properties from the UseAppStateReturn type
       appState.isLoggedIn,
@@ -26,11 +26,6 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
       appState.countdown,
       appState.allPostsMap,
       appState.userProfilesMap,
-      // --- FIX: Removed deleted maps ---
-      // appState.exploreAllPostsMap,
-      // appState.exploreUserProfilesMap,
-      // appState.combinedUserProfilesMap,
-      // --- END FIX ---
       appState.unresolvedFollows,
       appState.otherUsers,
       appState.loginWithFilebase,
@@ -45,6 +40,9 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
       appState.isLoadingExplore,
       appState.loadMoreExplore,
       appState.refreshExploreFeed,
+      // --- FIX: Add canLoadMoreExplore ---
+      appState.canLoadMoreExplore,
+      // --- END FIX ---
       appState.updateProfile,
       appState.ensurePostsAreFetched,
   ]);
