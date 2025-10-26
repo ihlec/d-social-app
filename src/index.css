@@ -538,8 +538,6 @@ content: "";
     transform: translate(-50%, -50%) scale(1.1)
 }
 
-
-
 .feed-selector {
     display: flex;
     justify-content: center;
@@ -576,6 +574,8 @@ content: "";
     height: 2px;
     background-color: var(--primary-color);
 }
+
+/* --- REMOVED OBSOLETE .login-method-selector --- */
 
 .comment {
     position: relative;
