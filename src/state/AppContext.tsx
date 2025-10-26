@@ -1,4 +1,5 @@
 // fileName: src/state/AppContext.tsx
+// fileName: src/state/AppContext.tsx
 import React, { createContext, useMemo, ReactNode } from 'react';
 import { useAppStateInternal, UseAppStateReturn } from '../state/useAppStorage';
 
@@ -45,6 +46,11 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
       // --- END FIX ---
       appState.updateProfile,
       appState.ensurePostsAreFetched,
+      // --- FIX: Add dialog state dependencies ---
+      appState.isInitializeDialogOpen,
+      appState.onInitializeUser,
+      appState.onRetryLogin,
+      // --- END FIX ---
   ]);
 
 

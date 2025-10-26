@@ -1,3 +1,4 @@
+// fileName: src/hooks/useAuth.ts
 // src/hooks/useAppAuth.ts
 import { useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
@@ -9,7 +10,10 @@ import {
     logoutSession,
     createEmptyUserState,
     resolveIpns,
-    fetchUserState
+    fetchUserState,
+    // --- FIX: Import custom error ---
+    UserStateNotFoundError
+    // --- END FIX ---
 } from '../../api/ipfsIpns';
 import { saveOptimisticCookie } from '../../state/stateActions';
 
@@ -24,6 +28,10 @@ interface UseAppAuthArgs {
     currentUserState: UserState | null;
     // --- FIX: Add processMainFeed ---
     processMainFeed: (state: UserState) => Promise<void>;
+    // --- END FIX ---
+    // --- FIX: Add dialog controls ---
+    openInitializeDialog: (onInitialize: () => void, onRetry: () => void) => void;
+    closeInitializeDialog: () => void;
     // --- END FIX ---
 }
 
@@ -47,7 +55,11 @@ export const useAppAuth = ({
 	resetAllState,
     currentUserState,
     // --- FIX: Destructure processMainFeed ---
-    processMainFeed
+    processMainFeed,
+    // --- END FIX ---
+    // --- FIX: Destructure dialog controls ---
+    openInitializeDialog,
+    closeInitializeDialog
     // --- END FIX ---
 }: UseAppAuthArgs): UseAppAuthReturn => {
 
@@ -148,51 +160,104 @@ export const useAppAuth = ({
         if (!nameLabel || !bucketCredential) { toast.error("Credentials required."); return; }
 		resetAllState();
 		setIsLoggedIn(null); // Set loading state
-		await toast.promise((async () => {
-			const { session, state, cid } = await loginToFilebase(nameLabel, bucketCredential);
-			sessionStorage.setItem("currentUserLabel", nameLabel);
-			setMyIpnsKey(session.resolvedIpnsKey!);
-			setUserState(state);
-            setLatestStateCID(cid);
-            setIsLoggedIn(true); // Set logged in AFTER state is set
-			saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: nameLabel, updatedAt: state.updatedAt });
-            // --- FIX: Process feed after successful login ---
-            await processMainFeed(state);
-            // --- END FIX ---
-		})(), {
-            loading: "Logging in...",
-            success: "Welcome!",
-            error: (e) => {
-                setIsLoggedIn(false); // Ensure loggedIn is false on error
-                return `Login failed: ${e instanceof Error ? e.message : String(e)}`;
+
+        // --- FIX: Refactor to catch UserStateNotFoundError ---
+        const attemptLogin = async (forceInitialize: boolean = false) => {
+            toast.loading("Logging in...", { id: "login-toast" });
+            try {
+                const { session, state, cid } = await loginToFilebase(nameLabel, bucketCredential, forceInitialize);
+                
+                sessionStorage.setItem("currentUserLabel", nameLabel);
+                setMyIpnsKey(session.resolvedIpnsKey!);
+                setUserState(state);
+                setLatestStateCID(cid);
+                setIsLoggedIn(true);
+                saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: nameLabel, updatedAt: state.updatedAt });
+                
+                closeInitializeDialog(); // Close dialog on success
+                toast.dismiss("login-toast");
+                toast.success("Welcome!");
+                
+                await processMainFeed(state); // Process feed *after* success toast
+
+            } catch (error) {
+                toast.dismiss("login-toast"); // Dismiss loading
+                if (error instanceof UserStateNotFoundError) {
+                    console.warn("[loginWithFilebase] UserStateNotFoundError caught.");
+                    const onInitialize = () => {
+                        console.log("[loginWithFilebase] User chose to initialize.");
+                        attemptLogin(true); // Retry, force initialization
+                    };
+                    const onRetry = () => {
+                        console.log("[loginWithFilebase] User chose to retry.");
+                        attemptLogin(false); // Retry, don't force
+                    };
+                    openInitializeDialog(onInitialize, onRetry);
+                } else {
+                    // Standard error
+                    setIsLoggedIn(false);
+                    closeInitializeDialog(); 
+                    toast.error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
+                }
             }
-        });
-	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed]);
+        };
+
+        // Initial attempt
+        await attemptLogin(false);
+        // --- END FIX ---
+
+	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed, openInitializeDialog, closeInitializeDialog]);
 
 	const loginWithKubo = useCallback(async (apiUrl: string, keyName: string) => {
         if (!apiUrl || !keyName) { toast.error("API URL/Key Name required."); return; }
 		resetAllState();
 		setIsLoggedIn(null); // Set loading state
-		await toast.promise((async () => {
-			const { session, state, cid } = await loginToKubo(apiUrl, keyName);
-			sessionStorage.setItem("currentUserLabel", keyName);
-			setMyIpnsKey(session.resolvedIpnsKey!);
-			setUserState(state);
-            setLatestStateCID(cid);
-            setIsLoggedIn(true); // Set logged in AFTER state is set
-			saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: keyName, updatedAt: state.updatedAt });
-            // --- FIX: Process feed after successful login ---
-            await processMainFeed(state);
-            // --- END FIX ---
-		})(), {
-            loading: "Logging in...",
-            success: "Welcome!",
-            error: (e) => {
-                setIsLoggedIn(false); // Ensure loggedIn is false on error
-                return `Login failed: ${e instanceof Error ? e.message : String(e)}`;
+
+        // --- FIX: Refactor to catch UserStateNotFoundError ---
+        const attemptLogin = async (forceInitialize: boolean = false) => {
+            toast.loading("Logging in...", { id: "login-toast" }); // Show loading on each attempt
+            try {
+                const { session, state, cid } = await loginToKubo(apiUrl, keyName, forceInitialize);
+                
+                sessionStorage.setItem("currentUserLabel", keyName);
+                setMyIpnsKey(session.resolvedIpnsKey!);
+                setUserState(state);
+                setLatestStateCID(cid);
+                setIsLoggedIn(true);
+                saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: keyName, updatedAt: state.updatedAt });
+                
+                closeInitializeDialog(); // Close dialog on success
+                toast.dismiss("login-toast");
+                toast.success("Welcome!");
+                
+                await processMainFeed(state); // Process feed *after* success toast
+            } catch (error) {
+                toast.dismiss("login-toast"); // Dismiss loading
+                if (error instanceof UserStateNotFoundError) {
+                    console.warn("[loginWithKubo] UserStateNotFoundError caught.");
+                    const onInitialize = () => {
+                        console.log("[loginWithKubo] User chose to initialize.");
+                        attemptLogin(true); // Retry, force initialization
+                    };
+                    const onRetry = () => {
+                        console.log("[loginWithKubo] User chose to retry.");
+                        attemptLogin(false); // Retry, don't force
+                    };
+                    openInitializeDialog(onInitialize, onRetry);
+                } else {
+                    // Standard error
+                    setIsLoggedIn(false);
+                    closeInitializeDialog();
+                    toast.error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
+                }
             }
-        });
-	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed]);
+        };
+
+        // Initial attempt
+        await attemptLogin(false);
+        // --- END FIX ---
+
+	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed, openInitializeDialog, closeInitializeDialog]);
 
 
 	// --- FIX: Removed refreshAuthState from return ---

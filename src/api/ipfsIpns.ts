@@ -1,3 +1,4 @@
+// fileName: src/lib/ipfsIpns.ts
 // src/lib/ipfs.ts
 // --- FIX: Remove unused UserProfile import ---
 import { UserState, Post, Session } from '../types';
@@ -6,6 +7,22 @@ import { getCookie, setCookie, eraseCookie } from '../lib/utils';
 import { S3Client } from "@aws-sdk/client-s3";
 // --- ADD TOAST IMPORT ---
 import toast from 'react-hot-toast';
+
+// --- NEW CUSTOM ERROR ---
+/**
+ * Custom error thrown when user state resolution fails during login,
+ * distinguishing it from other login failures (e.g., bad credentials).
+ */
+export class UserStateNotFoundError extends Error {
+    public readonly identifier: string; // The keyName or nameLabel
+    constructor(message: string, identifier: string) {
+        super(message);
+        this.name = 'UserStateNotFoundError';
+        this.identifier = identifier;
+    }
+}
+// --- END NEW CUSTOM ERROR ---
+
 
 // --- FIX: Use a cookie prefix instead of a static name ---
 const SESSION_COOKIE_PREFIX = 'dSocialSession';
@@ -165,7 +182,12 @@ export function logoutSession(): void {
 // --- End Fix ---
 
 // --- FIX: loginToKubo now fetches state and returns { session, state, cid } ---
-export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ session: Session, state: UserState, cid: string }> {
+// --- FIX: Added forceInitialize flag ---
+export async function loginToKubo(
+    apiUrl: string, 
+    keyName: string,
+    forceInitialize: boolean = false
+): Promise<{ session: Session, state: UserState, cid: string }> {
      try { 
          await fetchKubo(apiUrl, '/api/v0/id'); 
          const keys = await fetchKubo(apiUrl, '/api/v0/key/list'); 
@@ -191,9 +213,17 @@ export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ se
              state = await fetchUserState(cid, keyName);
              // --- End Fix ---
          } catch (e) {
-             console.warn(`Could not resolve initial state for ${keyName}, using default.`);
-             cid = DEFAULT_USER_STATE_CID;
-             state = createEmptyUserState({ name: keyName });
+             console.warn(`Could not resolve initial state for ${keyName}:`, e);
+             // --- MODIFICATION: Check forceInitialize flag ---
+             if (forceInitialize) {
+                 console.log(`[loginToKubo] Force initializing user ${keyName}.`);
+                 cid = DEFAULT_USER_STATE_CID;
+                 state = createEmptyUserState({ name: keyName });
+             } else {
+                 // Throw custom error to be caught by useAuth
+                 throw new UserStateNotFoundError(`Failed to resolve initial state for ${keyName}`, keyName);
+             }
+             // --- END MODIFICATION ---
          }
 
          return { session, state, cid };
@@ -201,15 +231,20 @@ export async function loginToKubo(apiUrl: string, keyName: string): Promise<{ se
      } catch (error) { 
          console.error("Kubo login failed:", error); 
          logoutSession(); // This will clear the label and any old cookie
-         throw error; 
+         throw error; // Re-throw UserStateNotFoundError or other login errors
      }
 }
 
 /**
  * Logs into Filebase using a 3-part credential string.
  * --- FIX: loginToFilebase now fetches state and returns { session, state, cid } ---
+ * --- FIX: Added forceInitialize flag ---
  */
-export async function loginToFilebase(nameLabel: string, bucketCredential?: string): Promise<{ session: Session, state: UserState, cid: string }> {
+export async function loginToFilebase(
+    nameLabel: string, 
+    bucketCredential?: string,
+    forceInitialize: boolean = false
+): Promise<{ session: Session, state: UserState, cid: string }> {
      if (!bucketCredential) throw new Error("Filebase credential required.");
 
      let decoded: string;
@@ -255,9 +290,17 @@ export async function loginToFilebase(nameLabel: string, bucketCredential?: stri
          state = await fetchUserState(cid, nameLabel);
          // --- End Fix ---
      } catch (e) {
-         console.warn(`Could not resolve initial state for ${nameLabel}, using default.`);
-         cid = DEFAULT_USER_STATE_CID;
-         state = createEmptyUserState({ name: nameLabel });
+         console.warn(`Could not resolve initial state for ${nameLabel}:`, e);
+         // --- MODIFICATION: Check forceInitialize flag ---
+         if (forceInitialize) {
+            console.log(`[loginToFilebase] Force initializing user ${nameLabel}.`);
+            cid = DEFAULT_USER_STATE_CID;
+            state = createEmptyUserState({ name: nameLabel });
+         } else {
+            // Throw custom error to be caught by useAuth
+            throw new UserStateNotFoundError(`Failed to resolve initial state for ${nameLabel}`, nameLabel);
+         }
+         // --- END MODIFICATION ---
      }
 
      return { session, state, cid };

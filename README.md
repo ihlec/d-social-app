@@ -51,3 +51,13 @@ I will share with you most of my project files. Please do not react until I am d
 - fix explore feed to show new content only
 - fix explore feed to explore multiple levels
 
+- introduce settings sidebar on the right
+- setting to pick presenceServer
+- setting to pick gateway
+
+- show the copied post also on Other Users Online
+
+- 
+
+
+

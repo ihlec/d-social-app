@@ -1,4 +1,5 @@
 // fileName: src/pages/AppRouter.tsx
+// fileName: src/pages/AppRouter.tsx
 // src/router/AppRouter.tsx
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import HomePage from './HomePage';
@@ -7,9 +8,19 @@ import PostPage from 'src/components/PostPage';
 import Login from 'src/features/auth/Login';
 import { useAppState } from '@/state/useAppStorage'; // Import the context hook
 import LoadingSpinner from 'src/components/LoadingSpinner';
+// --- FIX: Import the new dialog component ---
+import InitializeUserDialog from 'src/components/InitializeUserDialog';
+// --- END FIX ---
 
 function AppRouter() {
-  const { isLoggedIn, loginWithFilebase, loginWithKubo } = useAppState();
+  const { 
+    isLoggedIn, loginWithFilebase, loginWithKubo,
+    // --- FIX: Get dialog state and handlers ---
+    isInitializeDialogOpen,
+    onInitializeUser,
+    onRetryLogin
+    // --- END FIX ---
+  } = useAppState();
   const location = useLocation();
   // Check for the background location state passed by PostItem
   const backgroundLocation = location.state?.backgroundLocation;
@@ -67,6 +78,14 @@ function AppRouter() {
           {/* Add other modal routes here if needed */}
         </Routes>
       )}
+
+      {/* --- FIX: Render the global dialog --- */}
+      <InitializeUserDialog
+        isOpen={isInitializeDialogOpen}
+        onInitialize={onInitializeUser || (() => {})} // Pass handlers
+        onRetry={onRetryLogin || (() => {})}
+      />
+      {/* --- END FIX --- */}
     </>
   );
 }
