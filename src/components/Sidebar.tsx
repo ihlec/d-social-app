@@ -1,3 +1,4 @@
+// fileName: src/components/Sidebar.tsx
 // src/components/Layout/Sidebar.tsx
 import React, { useState } from 'react';
 import { UserState, Follow, OnlinePeer } from '../types';
@@ -108,8 +109,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                          </span>
                          {/* --- FIX: Render full key --- */}
                          <span className="user-key" title={follow.ipnsKey} onClick={() => handleCopyKey(follow.ipnsKey)}>
-                            {follow.ipnsKey}
+                            {/* --- FIX: Moved feedback to start of span --- */}
                              {copiedKey === follow.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
+                            {follow.ipnsKey}
                         </span>
                         {/* --- END FIX --- */}
                         <button className="unfollow-button" onClick={() => onUnfollow(follow.ipnsKey)}>Unfollow</button>
@@ -128,8 +130,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                          <span className="user-name" onClick={() => user.ipnsKey && onViewProfile(user.ipnsKey)} title={`View ${user.name}'s profile`}>{user.name}</span>
                          {/* --- FIX: Render full key --- */}
                          <span className="user-key" title={user.ipnsKey} onClick={() => handleCopyKey(user.ipnsKey)}>
-                             {user.ipnsKey}
+                             {/* --- FIX: Moved feedback to start of span --- */}
                              {copiedKey === user.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
+                             {user.ipnsKey}
                          </span>
                          {/* --- END FIX --- */}
                       </div>

@@ -1,7 +1,7 @@
 // fileName: src/lib/ipfsIpns.ts
 // src/lib/ipfs.ts
 // --- FIX: Remove unused UserProfile import ---
-import { UserState, Post, Session } from '../types';
+import { UserState, Post, Session, Follow } from '../types'; // --- ADDED FOLLOW ---
 import { getCookie, setCookie, eraseCookie } from '../lib/utils';
 // --- FIX 1: Add S3Client import ---
 import { S3Client } from "@aws-sdk/client-s3";
@@ -562,13 +562,27 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
 
     console.log(`[fetchUserState] Aggregation finished after ${chunksProcessed} chunks. Final state:`, aggregatedState); // Debug log
 
+    // --- FIX: De-duplicate follows list ---
+    // We keep the *first* occurrence, which (due to concatenation order) is the *newest* one from the head.
+    const uniqueFollowsMap = new Map<string, Follow>();
+    (aggregatedState.follows ?? []).forEach(follow => {
+        if (follow?.ipnsKey && !uniqueFollowsMap.has(follow.ipnsKey)) {
+            uniqueFollowsMap.set(follow.ipnsKey, follow);
+        }
+    });
+    console.log(`[fetchUserState] De-duplicated follows: ${aggregatedState.follows?.length} -> ${uniqueFollowsMap.size}`);
+    // --- END FIX ---
+
+
     // Now, normalize the final aggregated state (ensure all arrays exist, profile defaults)
     return {
         // --- FIX: Use hint as fallback if aggregation resulted in no profile ---
         profile: aggregatedState.profile || { name: profileNameHint || 'Unknown User' },
         // --- End Fix ---
         postCIDs: aggregatedState.postCIDs ?? [],
-        follows: aggregatedState.follows ?? [],
+        // --- FIX: Use de-duplicated list ---
+        follows: Array.from(uniqueFollowsMap.values()),
+        // --- END FIX ---
         likedPostCIDs: aggregatedState.likedPostCIDs ?? [],
         dislikedPostCIDs: aggregatedState.dislikedPostCIDs ?? [],
         updatedAt: aggregatedState.updatedAt || 0,

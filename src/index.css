@@ -222,12 +222,19 @@ button:disabled {
     background: var(--primary-color);
     color: #fff;
     padding: 2px 6px;
-    font-size: .8em
+    font-size: .8em;
+    z-index: 5; /* --- ADDED: Ensure feedback is on top --- */
 }
 
 .copy-feedback {
     right: 10px;
 }
+
+/* --- ADDED: Explicitly position inline feedback --- */
+.copy-feedback-inline {
+    left: 0;
+}
+/* --- END ADD --- */
 
 .follow-form {
     display: flex;
