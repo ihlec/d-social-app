@@ -60,4 +60,37 @@ I will share with you most of my project files. Please do not react until I am d
 - 
 
 
+## Local test users
 
+Cornelius
+Ben
+Tom
+Failicitas
+
+## Remote IPFS nodes need cors rules
+
+{
+  "API": {
+    "HTTPHeaders": {
+      "Access-Control-Allow-Origin": [
+        "*", 
+      ],
+      "Access-Control-Allow-Methods": [
+        "*"
+      ],
+      "Access-Control-Allow-Headers": [
+        "Authorization", 
+        "Content-Type" 
+      ]
+      "Access-Control-Allow-Credentials": ["true"]
+    }
+  },
+  "Gateway": {
+     // It's also good practice to configure Gateway CORS
+    "HTTPHeaders": {
+       "Access-Control-Allow-Origin": ["*"],
+       "Access-Control-Allow-Methods": ["*"],
+       "Access-Control-Allow-Headers": ["Content-Type"]
+    }
+  }
+}

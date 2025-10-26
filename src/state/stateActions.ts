@@ -5,7 +5,7 @@ import {
     resolveIpns,
     fetchUserState,
     fetchUserStateChunk,
-    uploadJsonToIpfs,
+    uploadJsonToIpfs, // Keep this import for Kubo uploads
     publishToIpns,
 } from '../api/ipfsIpns';
 // --- REMOVED: Filebase imports ---
@@ -15,6 +15,7 @@ import { UserProfile, UserState, OptimisticStateCookie, NewPostData, Post } from
 // --- Cookie Helpers ---
 const getOptimisticCookieName = (ipnsKey: string) => `dSocialOptimisticState_${ipnsKey}`;
 
+// --- ADDED: Export keyword ---
 export const loadOptimisticCookie = (ipnsKey: string): OptimisticStateCookie | null => {
     const cookieName = getOptimisticCookieName(ipnsKey);
     const cookieValue = getCookie(cookieName);
@@ -28,7 +29,9 @@ export const loadOptimisticCookie = (ipnsKey: string): OptimisticStateCookie | n
     }
     return null;
 };
+// --- END ADD ---
 
+// --- ADDED: Export keyword ---
 export const saveOptimisticCookie = (ipnsKey: string, data: OptimisticStateCookie): void => {
     const cookieName = getOptimisticCookieName(ipnsKey);
     try {
@@ -37,8 +40,10 @@ export const saveOptimisticCookie = (ipnsKey: string, data: OptimisticStateCooki
         console.error("Failed to save optimistic cookie:", e);
     }
 };
+// --- END ADD ---
 
 // --- Data Fetching Helpers ---
+// --- ADDED: Export keyword ---
 export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { // ...
     try {
         const profileCid = await resolveIpns(ipnsKey);
@@ -52,94 +57,108 @@ export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { 
         return { name: 'Unknown User' };
     }
 }
+// --- END ADD ---
 
+// --- ADDED: Export keyword ---
 export async function fetchUserStateByIpns(ipnsKey: string): Promise<{ state: UserState, cid: string }> {
     const cid = await resolveIpns(ipnsKey);
     const state = await fetchUserState(cid, ipnsKey);
     return { state, cid };
 }
+// --- END ADD ---
 
-
+// --- ADDED: Export keyword ---
 export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> { // ...
     const cid = await resolveIpns(ipnsKey);
     return await fetchUserStateChunk(cid);
 }
+// --- END ADD ---
 
 // --- Kubo-specific Upload Helper ---
-// --- MODIFIED: Added userLabel parameter ---
-async function uploadFileToKubo(apiUrl: string, file: File | Blob, userLabel: string): Promise<string> {
+async function uploadFileToKubo(apiUrl: string, file: File | Blob, userLabel: string, auth?: { username?: string, password?: string }): Promise<string> {
     const fd = new FormData();
     fd.append('file', file);
     const url = new URL(`${apiUrl}/api/v0/add`);
     url.searchParams.append('pin', 'true');
     url.searchParams.append('cid-version', '1');
-    // --- ADDED: 'to' and 'create' parameters for directory ---
     const sanitizedLabel = userLabel.replace(/[^a-zA-Z0-9_-]/g, '_'); // Sanitize label for folder name
     const directoryName = `dSocialApp-${sanitizedLabel}`;
-    url.searchParams.append('to', directoryName);
-    url.searchParams.append('create', 'true'); // Create directory if it doesn't exist
-    url.searchParams.append('wrap-with-directory', 'true'); // Ensure file is *inside* the directory
-    // --- END ADD ---
+
+    const headers = new Headers();
+    if (auth?.username && auth.password) {
+        const credentials = btoa(`${auth.username}:${auth.password}`);
+        headers.append('Authorization', `Basic ${credentials}`);
+    }
 
     try {
-        const response = await fetch(url.toString(), { method: "POST", body: fd });
+        const fileName = (file instanceof File) ? file.name : 'blob'; // Get filename or default
+        const targetPath = `${directoryName}/${fileName}`; // Target path within Kubo's MFS-like structure for 'add'
+
+        const addFd = new FormData();
+        addFd.append('file', file, targetPath); // Specify the full path as the filename in FormData
+
+        const addUrl = new URL(`${apiUrl}/api/v0/add`);
+        addUrl.searchParams.append('pin', 'true');
+        addUrl.searchParams.append('cid-version', '1');
+        // addUrl.searchParams.append('parents', 'true'); // Optionally ensure parent dirs are created
+
+
+        const response = await fetch(addUrl.toString(), { method: "POST", body: addFd, headers: headers }); // Pass auth headers
+
         if (!response.ok) throw new Error(`Kubo RPC error /api/v0/add: ${response.statusText}`);
         const txt = await response.text();
         const lines = txt.trim().split('\n');
-        // --- MODIFIED: Find the entry matching the file name within the directory ---
-        const fileName = (file instanceof File) ? file.name : 'blob'; // Get filename or default
-        const targetPath = `${directoryName}/${fileName}`;
+        // The last line should contain the hash of the added file or the wrapping directory
         for (let i = lines.length - 1; i >= 0; i--) {
             try {
                 const p = JSON.parse(lines[i]);
-                // Check if the entry's Name matches the expected directory/filename path
+                 // Check if the name matches the intended file path within the directory
                 if (p?.Name === targetPath && p?.Hash) {
                     return p.Hash;
                 }
-                // Also check if the *last* entry represents the created *directory*
-                // and return the file's hash if the directory structure was simple
-                if (i === lines.length -1 && p?.Name === directoryName && lines.length > 1) {
-                   // If the wrapper directory is the last entry,
-                   // the actual file hash is likely the second-to-last entry.
-                   try {
-                       const fileEntry = JSON.parse(lines[lines.length - 2]);
-                       if (fileEntry?.Hash && fileEntry?.Name === fileName) { // Check name matches without dir
-                          return fileEntry.Hash;
-                       }
-                   } catch {/* ignore parse error */}
+                // Fallback: If the last entry is just the file name (less likely with path in FormData)
+                if (p?.Name === fileName && p?.Hash) {
+                    console.warn(`[uploadFileToKubo] Found hash by filename match ('${fileName}') instead of full path ('${targetPath}'). Check Kubo 'add' behavior.`);
+                    return p.Hash;
                 }
+                 // Fallback: If the response wraps it in a directory object, take the file hash before it
+                if (p?.Name === directoryName && lines.length > 1 && i === lines.length - 1) {
+                     try {
+                        const fileEntry = JSON.parse(lines[i - 1]);
+                        if (fileEntry?.Hash && fileEntry?.Name === fileName) { // Check name matches without dir
+                            console.warn(`[uploadFileToKubo] Found hash in entry preceding directory ('${directoryName}'). Check Kubo 'add' behavior.`);
+                           return fileEntry.Hash;
+                        }
+                    } catch {/* ignore parse error */}
+                }
+
             } catch { /* ignore parse error */ }
         }
-        // Fallback: If specific path not found, return the hash of the last entry (might be the dir CID)
-        // Or better: try parsing the second to last line assuming the last is the directory wrapper
-        if (lines.length > 1) {
-            try {
-                const lastFileEntry = JSON.parse(lines[lines.length - 2]);
-                if (lastFileEntry?.Hash) return lastFileEntry.Hash;
-            } catch { /* ignore */ }
-        }
-         // Final fallback if only one line or second-to-last fails
+        // Last resort fallback: grab the hash from the very last line if nothing else matched
         if (lines.length > 0) {
             try {
                 const lastEntry = JSON.parse(lines[lines.length - 1]);
-                if (lastEntry?.Hash) return lastEntry.Hash;
+                if (lastEntry?.Hash) {
+                     console.warn(`[uploadFileToKubo] Using hash from last line ('${lastEntry?.Name}') as fallback.`);
+                    return lastEntry.Hash;
+                }
             } catch { /* ignore */ }
         }
-        // --- END MODIFICATION ---
         throw new Error("Bad 'add' response from Kubo or could not find file hash in response.");
     } catch (e) { console.error(`Kubo file upload failed:`, e); throw e; }
 }
 
+
 // --- Complex Action Helpers ---
+// --- ADDED: Export keyword ---
 export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // ...
     const { content, referenceCID, file } = postData;
     const session = getSession();
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
         throw new Error("No active Kubo session.");
     }
-    // --- ADDED: Get userLabel ---
     const userLabel = sessionStorage.getItem("currentUserLabel") || "unknownUser";
-    // --- END ADD ---
+    const auth = { username: session.kuboUsername, password: session.kuboPassword }; // Prepare auth object
 
     let mediaCid: string | undefined, thumbnailCid: string | undefined;
     let mediaType: 'image' | 'video' | 'file' | undefined, fileName: string | undefined;
@@ -151,10 +170,9 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
 
         const thumbnailFile = await createThumbnail(file);
 
-        // --- MODIFIED: Pass userLabel to uploadFileToKubo ---
-        mediaCid = await uploadFileToKubo(session.rpcApiUrl, file, userLabel);
-        if (thumbnailFile) thumbnailCid = await uploadFileToKubo(session.rpcApiUrl, thumbnailFile, userLabel);
-        // --- END MODIFICATION ---
+        // Pass auth to Kubo upload
+        mediaCid = await uploadFileToKubo(session.rpcApiUrl, file, userLabel, auth);
+        if (thumbnailFile) thumbnailCid = await uploadFileToKubo(session.rpcApiUrl, thumbnailFile, userLabel, auth);
     }
 
     const finalPost: Omit<Post, 'id' | 'replies'> = {
@@ -162,12 +180,15 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
     };
 
     let finalPostCID: string;
-    finalPostCID = await uploadJsonToIpfs(session.rpcApiUrl, finalPost);
+    // Pass auth to Kubo JSON upload
+    finalPostCID = await uploadJsonToIpfs(session.rpcApiUrl, finalPost, auth);
 
     return { finalPost, finalPostCID };
 }
+// --- END ADD ---
 
 
+// --- ADDED: Export keyword ---
 export async function _uploadStateAndPublishToIpns(
     stateToPublish: UserState | Partial<UserState>,
     myIpnsKey: string,
@@ -177,6 +198,7 @@ export async function _uploadStateAndPublishToIpns(
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl || !session.ipnsKeyName) {
         throw new Error("Session is misconfigured for publishing state.");
     }
+    const auth = { username: session.kuboUsername, password: session.kuboPassword }; // Prepare auth object
 
     const profileName = ('profile' in stateToPublish && stateToPublish.profile?.name) || sessionStorage.getItem("currentUserLabel") || '';
     const timestamp = ('updatedAt' in stateToPublish && stateToPublish.updatedAt) || Date.now();
@@ -197,8 +219,10 @@ export async function _uploadStateAndPublishToIpns(
 
     let headCID: string;
 
-    headCID = await uploadJsonToIpfs(session.rpcApiUrl, finalStateToUpload);
-    await publishToIpns(session.rpcApiUrl, headCID, session.ipnsKeyName);
+    // Pass auth to Kubo JSON upload
+    headCID = await uploadJsonToIpfs(session.rpcApiUrl, finalStateToUpload, auth);
+    // Pass auth to Kubo publish
+    await publishToIpns(session.rpcApiUrl, headCID, session.ipnsKeyName, auth);
 
     // Save cookie after successful publish
     const cookieData: OptimisticStateCookie = { cid: headCID, name: profileName, updatedAt: timestamp };
@@ -206,16 +230,21 @@ export async function _uploadStateAndPublishToIpns(
 
     return headCID;
 }
+// --- END ADD ---
 
+// --- ADDED: Export keyword ---
 export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserState>): Promise<string> {
      const session = getSession();
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
         throw new Error("Session is misconfigured for state upload.");
     }
+     const auth = { username: session.kuboUsername, password: session.kuboPassword }; // Prepare auth object
 
     let cid: string;
-    cid = await uploadJsonToIpfs(session.rpcApiUrl, stateToUpload);
+    // Pass auth to Kubo JSON upload
+    cid = await uploadJsonToIpfs(session.rpcApiUrl, stateToUpload, auth);
 
     return cid;
 }
+// --- END ADD ---
 
