@@ -1,58 +1,54 @@
 // fileName: src/state/AppContext.tsx
-// fileName: src/state/AppContext.tsx
-import React, { createContext, useMemo, ReactNode } from 'react';
-import { useAppStateInternal, UseAppStateReturn } from '../state/useAppStorage';
+// src/context/AppContext.tsx
+import React, { createContext } from 'react';
+import { UseAppStateReturn, useAppStateInternal } from './useAppStorage'; // Assuming the internal hook is exported from here
 
+// Create the context with a default value of null or a specific structure
+// The default value should match the shape of UseAppStateReturn but can be null initially
 const AppStateContext = createContext<UseAppStateReturn | null>(null);
 
 interface AppStateProviderProps {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) => {
-  const appState = useAppStateInternal();
+  const appState = useAppStateInternal(); // Use the internal hook
 
-  // Memoize the context value object based on the properties returned by the hook
-  const contextValue = useMemo(() => ({
-    ...appState, // Spread all properties
-  }), [
-      // Add all properties from the UseAppStateReturn type
-      appState.isLoggedIn,
-      appState.userState,
-      appState.myIpnsKey,
-      appState.latestStateCID,
-      appState.isLoadingFeed,
-      appState.isProcessing,
-      appState.isCoolingDown,
-      appState.countdown,
-      appState.allPostsMap,
-      appState.userProfilesMap,
-      appState.unresolvedFollows,
-      appState.otherUsers,
-      appState.loginWithFilebase,
-      appState.loginWithKubo,
-      appState.logout,
-      appState.addPost,
-      appState.likePost,
-      appState.dislikePost,
-      appState.followUser,
-      appState.unfollowUser,
-      appState.refreshFeed,
-      appState.isLoadingExplore,
-      appState.loadMoreExplore,
-      appState.refreshExploreFeed,
-      // --- FIX: Add canLoadMoreExplore ---
-      appState.canLoadMoreExplore,
-      // --- END FIX ---
-      appState.updateProfile,
-      appState.ensurePostsAreFetched,
-      // --- FIX: Add dialog state dependencies ---
-      appState.isInitializeDialogOpen,
-      appState.onInitializeUser,
-      appState.onRetryLogin,
-      // --- END FIX ---
-  ]);
-
+  // Prepare the value to be passed down, ensure it matches UseAppStateReturn
+  // Make sure all properties returned by useAppStateInternal are included here
+  const contextValue: UseAppStateReturn = {
+    isLoggedIn: appState.isLoggedIn,
+    userState: appState.userState,
+    myIpnsKey: appState.myIpnsKey,
+    latestStateCID: appState.latestStateCID,
+    isLoadingFeed: appState.isLoadingFeed,
+    isProcessing: appState.isProcessing,
+    isCoolingDown: appState.isCoolingDown,
+    countdown: appState.countdown,
+    // --- REMOVED: loginWithFilebase from context value ---
+    // loginWithFilebase: appState.loginWithFilebase,
+    loginWithKubo: appState.loginWithKubo,
+    logout: appState.logout,
+    addPost: appState.addPost,
+    likePost: appState.likePost,
+    dislikePost: appState.dislikePost,
+    followUser: appState.followUser,
+    unfollowUser: appState.unfollowUser,
+    refreshFeed: appState.refreshFeed,
+    isLoadingExplore: appState.isLoadingExplore,
+    loadMoreExplore: appState.loadMoreExplore,
+    refreshExploreFeed: appState.refreshExploreFeed,
+    canLoadMoreExplore: appState.canLoadMoreExplore,
+    updateProfile: appState.updateProfile,
+    ensurePostsAreFetched: appState.ensurePostsAreFetched,
+    unresolvedFollows: appState.unresolvedFollows,
+    allPostsMap: appState.allPostsMap,
+    userProfilesMap: appState.userProfilesMap,
+    otherUsers: appState.otherUsers,
+    isInitializeDialogOpen: appState.isInitializeDialogOpen,
+    onInitializeUser: appState.onInitializeUser,
+    onRetryLogin: appState.onRetryLogin,
+  };
 
   return (
     <AppStateContext.Provider value={contextValue}>

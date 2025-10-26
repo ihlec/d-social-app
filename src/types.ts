@@ -1,5 +1,6 @@
 // src/types/index.ts
-import { S3Client } from "@aws-sdk/client-s3";
+// --- REMOVED: S3Client import ---
+// import { S3Client } from "@aws-sdk/client-s3";
 
 // ... (keep UserProfile, Follow, Post, UserState, etc.) ...
 export interface UserProfile { name: string; bio?: string; }
@@ -12,15 +13,16 @@ export interface NewPostData { content: string; referenceCID?: string; file?: Fi
 
 // --- Modified Session type ---
 export interface Session {
-  sessionType: 'kubo' | 'filebase' | null;
+  // --- REMOVED: 'filebase' from sessionType ---
+  sessionType: 'kubo' | null;
   rpcApiUrl?: string; // Kubo
   ipnsKeyName?: string; // Kubo key name ('self', 'my-key')
-  resolvedIpnsKey?: string; // Actual Peer ID (for both Kubo and Filebase)
-  s3Client?: S3Client | undefined; // Filebase S3 Client (needs initialization)
-  bucketName?: string; // Filebase Bucket Name
-  ipnsNameLabel?: string; // Filebase IPNS Name Label (e.g., "Tom")
-  // Store Filebase S3/API credentials
-  filebaseKey?: string; // Filebase Access Key ID
-  filebaseSecret?: string; // Filebase Secret Access Key
+  // --- REMOVED: Filebase-specific properties ---
+  resolvedIpnsKey?: string; // Actual Peer ID
+  // s3Client?: S3Client | undefined; 
+  // bucketName?: string; 
+  // ipnsNameLabel?: string; 
+  // filebaseKey?: string; 
+  // filebaseSecret?: string; 
 }
 // --- End Modified Session type ---

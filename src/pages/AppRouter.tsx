@@ -8,21 +8,19 @@ import PostPage from 'src/components/PostPage';
 import Login from 'src/features/auth/Login';
 import { useAppState } from '@/state/useAppStorage'; // Import the context hook
 import LoadingSpinner from 'src/components/LoadingSpinner';
-// --- FIX: Import the new dialog component ---
 import InitializeUserDialog from 'src/components/InitializeUserDialog';
-// --- END FIX ---
 
 function AppRouter() {
   const { 
-    isLoggedIn, loginWithFilebase, loginWithKubo,
-    // --- FIX: Get dialog state and handlers ---
+    isLoggedIn, 
+    // --- REMOVED: loginWithFilebase ---
+    // loginWithFilebase, 
+    loginWithKubo,
     isInitializeDialogOpen,
     onInitializeUser,
     onRetryLogin
-    // --- END FIX ---
   } = useAppState();
   const location = useLocation();
-  // Check for the background location state passed by PostItem
   const backgroundLocation = location.state?.backgroundLocation;
 
   if (isLoggedIn === null) {
@@ -35,11 +33,7 @@ function AppRouter() {
 
   return (
     <>
-      {/* Render the main routes using the background location if it exists, otherwise the current location */}
       <Routes location={backgroundLocation || location}>
-        {/* PUBLIC ROUTES: Render normally */}
-        {/* --- FIX: Removed full-page PostPage route --- */}
-        {/* <Route path="/post/:cid" element={<PostPage />} /> */}
         <Route path="/profile/:key" element={<ProfilePage />} />
 
         {/* LOGIN ROUTE: */}
@@ -48,7 +42,8 @@ function AppRouter() {
           element={
             !isLoggedIn ? (
               <Login
-                onLoginFilebase={loginWithFilebase}
+                // --- REMOVED: onLoginFilebase prop ---
+                // onLoginFilebase={loginWithFilebase}
                 onLoginKubo={loginWithKubo}
               />
             ) : (
@@ -65,27 +60,21 @@ function AppRouter() {
           }
         />
 
-        {/* CATCH-ALL: Redirects any other path */}
-        {/* Adjusted catch-all to redirect based on login status */}
          <Route path="*" element={<Navigate to={isLoggedIn ? "/" : "/login"} replace />} />
       </Routes>
 
       {/* Render the modal route *only* if backgroundLocation exists */}
       {backgroundLocation && (
         <Routes>
-          {/* --- FIX: Route now renders PostPage without isModal prop --- */}
           <Route path="/post/:cid" element={<PostPage />} />
-          {/* Add other modal routes here if needed */}
         </Routes>
       )}
 
-      {/* --- FIX: Render the global dialog --- */}
       <InitializeUserDialog
         isOpen={isInitializeDialogOpen}
         onInitialize={onInitializeUser || (() => {})} // Pass handlers
         onRetry={onRetryLogin || (() => {})}
       />
-      {/* --- END FIX --- */}
     </>
   );
 }

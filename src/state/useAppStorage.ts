@@ -25,7 +25,8 @@ export interface UseAppStateReturn {
 	isProcessing: boolean;
 	isCoolingDown: boolean;
 	countdown: number;
-	loginWithFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;
+    // --- REMOVED: loginWithFilebase ---
+	// loginWithFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;
 	loginWithKubo: (apiUrl: string, keyName: string) => Promise<void>;
 	logout: () => void;
 	addPost: (postData: NewPostData) => Promise<void>;
@@ -44,11 +45,9 @@ export interface UseAppStateReturn {
 	allPostsMap: Map<string, Post>;
 	userProfilesMap: Map<string, UserProfile>;
 	otherUsers: OnlinePeer[];
-    // --- FIX: Add dialog state to interface ---
     isInitializeDialogOpen: boolean;
     onInitializeUser: (() => void) | null;
     onRetryLogin: (() => void) | null;
-    // --- END FIX ---
 }
 
 // --- The Main Hook Logic (Assembler) ---
@@ -62,13 +61,11 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
 	const [otherUsers, setOtherUsers] = useState<OnlinePeer[]>([]);
     
-    // --- FIX: Add state for initialization dialog ---
     const [initializeDialog, setInitializeDialog] = useState<{
         isOpen: boolean;
         onInitialize: (() => void) | null;
         onRetry: (() => void) | null;
     }>({ isOpen: false, onInitialize: null, onRetry: null });
-    // --- END FIX ---
 
 	const lastPostTimestamp = useMemo(() => userState?.updatedAt, [userState]);
 	const { isCoolingDown, countdown } = useCooldown(lastPostTimestamp, POST_COOLDOWN_MS);
@@ -77,20 +74,16 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         setUserState(null); setMyIpnsKey(''); setLatestStateCID(''); setIsLoggedIn(false);
         setAllPostsMap(new Map()); setUserProfilesMap(new Map());
         setUnresolvedFollows([]); setOtherUsers([]);
-        // --- FIX: Ensure dialog is closed on reset ---
         setInitializeDialog({ isOpen: false, onInitialize: null, onRetry: null });
-        // --- END FIX ---
         toast("Logged out.");
 	}, []);
 
-    // --- FIX: Add dialog helper functions ---
     const openInitializeDialog = (onInitialize: () => void, onRetry: () => void) => {
         setInitializeDialog({ isOpen: true, onInitialize, onRetry });
     };
     const closeInitializeDialog = () => {
         setInitializeDialog({ isOpen: false, onInitialize: null, onRetry: null });
     };
-    // --- END FIX ---
 
 	const fetchMissingParentPost = useParentPostFetcher({
         allPostsMap, setAllPostsMap, userProfilesMap, setUserProfilesMap,
@@ -98,12 +91,11 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const { isLoadingFeed, processMainFeed, ensurePostsAreFetched }: UseAppFeedReturn = useAppFeed({
         myIpnsKey, allPostsMap, userProfilesMap, setAllPostsMap, setUserProfilesMap, setUnresolvedFollows, fetchMissingParentPost,
     });
-	const { loginWithFilebase, loginWithKubo, logout }: UseAppAuthReturn = useAppAuth({
+    // --- REMOVED: loginWithFilebase from destructuring ---
+	const { loginWithKubo, logout }: UseAppAuthReturn = useAppAuth({
         setUserState, setMyIpnsKey, setLatestStateCID, setIsLoggedIn, resetAllState, currentUserState: userState, processMainFeed,
-        // --- FIX: Pass dialog controls to auth hook ---
         openInitializeDialog,
         closeInitializeDialog
-        // --- END FIX ---
     });
 	const { isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore }: UseAppExploreReturn = useAppExplore({
         myIpnsKey, userState, allPostsMap, setAllPostsMap, setUserProfilesMap, fetchMissingParentPost,
@@ -129,9 +121,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		userState,
         setUserState,
         myIpnsKey,
-        // --- FIX: Pass latestStateCID value ---
         latestStateCID,
-        // --- END FIX ---
         setAllPostsMap,
         setLatestStateCID, // Pass setter as well
         setUserProfilesMap,
@@ -143,7 +133,10 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		isLoggedIn, userState, myIpnsKey, latestStateCID,
 		isLoadingFeed,
 		isProcessing, isCoolingDown, countdown,
-		loginWithFilebase, loginWithKubo, logout,
+        // --- REMOVED: loginWithFilebase from return ---
+		// loginWithFilebase, 
+        loginWithKubo, 
+        logout,
 		addPost,
 		likePost, dislikePost, followUser, unfollowUser,
 		refreshFeed,
@@ -152,11 +145,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		updateProfile, ensurePostsAreFetched,
 		unresolvedFollows, allPostsMap, userProfilesMap,
 		otherUsers,
-        // --- FIX: Export dialog state and handlers ---
         isInitializeDialogOpen: initializeDialog.isOpen,
         onInitializeUser: initializeDialog.onInitialize,
         onRetryLogin: initializeDialog.onRetry,
-        // --- END FIX ---
 	};
 };
 

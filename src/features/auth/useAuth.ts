@@ -5,15 +5,14 @@ import toast from 'react-hot-toast';
 import { UserState } from '../../types'; // Added Session import
 import {
     getSession,
-    loginToFilebase,
+    // --- REMOVED: loginToFilebase ---
+    // loginToFilebase,
     loginToKubo,
     logoutSession,
     createEmptyUserState,
     resolveIpns,
     fetchUserState,
-    // --- FIX: Import custom error ---
     UserStateNotFoundError
-    // --- END FIX ---
 } from '../../api/ipfsIpns';
 import { saveOptimisticCookie } from '../../state/stateActions';
 
@@ -26,22 +25,16 @@ interface UseAppAuthArgs {
 	setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean | null>>;
 	resetAllState: () => void;
     currentUserState: UserState | null;
-    // --- FIX: Add processMainFeed ---
     processMainFeed: (state: UserState) => Promise<void>;
-    // --- END FIX ---
-    // --- FIX: Add dialog controls ---
     openInitializeDialog: (onInitialize: () => void, onRetry: () => void) => void;
     closeInitializeDialog: () => void;
-    // --- END FIX ---
 }
 
 export interface UseAppAuthReturn {
-    loginWithFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;
+    // --- REMOVED: loginWithFilebase ---
+    // loginWithFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;
 	loginWithKubo: (apiUrl: string, keyName: string) => Promise<void>;
 	logout: () => void;
-    // --- FIX: Removed refreshAuthState from return ---
-    // refreshAuthState: () => Promise<UserState | null>;
-    // --- END FIX ---
 }
 
 /**
@@ -54,20 +47,17 @@ export const useAppAuth = ({
 	setIsLoggedIn,
 	resetAllState,
     currentUserState,
-    // --- FIX: Destructure processMainFeed ---
     processMainFeed,
-    // --- END FIX ---
-    // --- FIX: Destructure dialog controls ---
     openInitializeDialog,
     closeInitializeDialog
-    // --- END FIX ---
 }: UseAppAuthArgs): UseAppAuthReturn => {
 
-    // --- FIX: Make refreshAuthState internal ---
     const refreshAuthState = useCallback(async (): Promise<UserState | null> => {
         const session = getSession();
         const ipnsKey = session.resolvedIpnsKey;
-        const identifierToResolve = session.sessionType === 'filebase' ? session.ipnsNameLabel : ipnsKey;
+        // --- MODIFIED: Simplified identifier ---
+        const identifierToResolve = ipnsKey; 
+        // const identifierToResolve = session.sessionType === 'filebase' ? session.ipnsNameLabel : ipnsKey;
 
         if (!ipnsKey || !identifierToResolve) {
             console.warn("[refreshAuthState] No IPNS key/identifier found in session.");
@@ -79,8 +69,6 @@ export const useAppAuth = ({
         const timeSinceLastAction = Date.now() - (currentUserState?.updatedAt || 0);
         if (currentUserState?.updatedAt && timeSinceLastAction < POST_COOLDOWN_MS) {
             console.log(`[refreshAuthState] Skipping network fetch due to active cooldown (${Math.round((POST_COOLDOWN_MS - timeSinceLastAction)/1000)}s remaining).`);
-            // If skipping due to cooldown, assume we are still logged in with current state
-            // No need to set isLoggedIn here, it should already be true
             return currentUserState; // Return current state
         }
 
@@ -91,20 +79,17 @@ export const useAppAuth = ({
             headCid = await resolveIpns(identifierToResolve);
             console.log(`[refreshAuthState] Resolved to CID: ${headCid}`);
 
-            // Pass profile name hint (use current state's profile OR label from session storage)
             const profileNameHint = currentUserState?.profile?.name || sessionStorage.getItem("currentUserLabel") || "";
             state = await fetchUserState(headCid, profileNameHint);
             console.log("[refreshAuthState] Fetched aggregated state:", state);
 
             if (!state) throw new Error("Fetched state is null");
 
-            // --- SUCCESS ---
             setUserState(state);
             setLatestStateCID(headCid);
             setMyIpnsKey(ipnsKey); // Ensure IPNS key is set
             setIsLoggedIn(true); // Set logged in ON SUCCESS
 
-            // Save optimistic cookie
             const userName = state.profile.name || sessionStorage.getItem("currentUserLabel") || "";
             saveOptimisticCookie(ipnsKey, { cid: headCid, name: userName, updatedAt: state.updatedAt });
 
@@ -113,37 +98,27 @@ export const useAppAuth = ({
         } catch (error) {
             console.error("[refreshAuthState] Error fetching own state:", error);
             toast.error("Failed to refresh user state.");
-            // --- FAILURE ---
-            // Don't logout completely, maybe just revert to optimistic state if possible?
-            // For now, set loggedIn to false to indicate failure.
             setIsLoggedIn(false);
-            // Optionally clear sensitive state but keep basic profile?
             setUserState(prev => prev ? createEmptyUserState(prev.profile) : null); // Keep profile if exists
             setLatestStateCID('');
-            // Keep MyIpnsKey? Maybe not if refresh failed badly.
-            // setMyIpnsKey('');
-
             return null;
         }
     }, [currentUserState, setUserState, setLatestStateCID, setMyIpnsKey, setIsLoggedIn]);
-    // --- END FIX ---
 
 	// Session rehydration on mount
 	useEffect(() => {
-        const session = getSession(); // getSession() now also reads from sessionStorage
-        if (session.sessionType && session.resolvedIpnsKey) {
+        // --- MODIFIED: Simplified session check ---
+        const session = getSession(); 
+        if (session.sessionType === 'kubo' && session.resolvedIpnsKey) {
             console.log("[useAppAuth useEffect] Session found. Attempting initial state fetch via refreshAuthState.");
-            // --- FIX: Call refreshAuthState to fetch full state and trigger feed processing ---
             refreshAuthState().then(initialState => {
                 if (initialState) {
                     console.log("[useAppAuth useEffect] Initial state fetched successfully. Processing feed.");
-                    processMainFeed(initialState); // Process feed AFTER state is confirmed
+                    processMainFeed(initialState); 
                 } else {
                     console.warn("[useAppAuth useEffect] Initial state fetch failed.");
-                    // isLoggedIn should be false already from refreshAuthState failure
                 }
             });
-            // --- END FIX ---
         } else {
             console.log("[useAppAuth useEffect] No session found.");
             setIsLoggedIn(false); // Definitely not logged in
@@ -156,64 +131,13 @@ export const useAppAuth = ({
 		logoutSession(); resetAllState();
 	}, [resetAllState]);
 
-	const loginWithFilebase = useCallback(async (nameLabel: string, bucketCredential?: string) => {
-        if (!nameLabel || !bucketCredential) { toast.error("Credentials required."); return; }
-		resetAllState();
-		setIsLoggedIn(null); // Set loading state
-
-        // --- FIX: Refactor to catch UserStateNotFoundError ---
-        const attemptLogin = async (forceInitialize: boolean = false) => {
-            toast.loading("Logging in...", { id: "login-toast" });
-            try {
-                const { session, state, cid } = await loginToFilebase(nameLabel, bucketCredential, forceInitialize);
-                
-                sessionStorage.setItem("currentUserLabel", nameLabel);
-                setMyIpnsKey(session.resolvedIpnsKey!);
-                setUserState(state);
-                setLatestStateCID(cid);
-                setIsLoggedIn(true);
-                saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: nameLabel, updatedAt: state.updatedAt });
-                
-                closeInitializeDialog(); // Close dialog on success
-                toast.dismiss("login-toast");
-                toast.success("Welcome!");
-                
-                await processMainFeed(state); // Process feed *after* success toast
-
-            } catch (error) {
-                toast.dismiss("login-toast"); // Dismiss loading
-                if (error instanceof UserStateNotFoundError) {
-                    console.warn("[loginWithFilebase] UserStateNotFoundError caught.");
-                    const onInitialize = () => {
-                        console.log("[loginWithFilebase] User chose to initialize.");
-                        attemptLogin(true); // Retry, force initialization
-                    };
-                    const onRetry = () => {
-                        console.log("[loginWithFilebase] User chose to retry.");
-                        attemptLogin(false); // Retry, don't force
-                    };
-                    openInitializeDialog(onInitialize, onRetry);
-                } else {
-                    // Standard error
-                    setIsLoggedIn(false);
-                    closeInitializeDialog(); 
-                    toast.error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            }
-        };
-
-        // Initial attempt
-        await attemptLogin(false);
-        // --- END FIX ---
-
-	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed, openInitializeDialog, closeInitializeDialog]);
+	// --- REMOVED: loginWithFilebase function ---
 
 	const loginWithKubo = useCallback(async (apiUrl: string, keyName: string) => {
         if (!apiUrl || !keyName) { toast.error("API URL/Key Name required."); return; }
 		resetAllState();
 		setIsLoggedIn(null); // Set loading state
 
-        // --- FIX: Refactor to catch UserStateNotFoundError ---
         const attemptLogin = async (forceInitialize: boolean = false) => {
             toast.loading("Logging in...", { id: "login-toast" }); // Show loading on each attempt
             try {
@@ -253,14 +177,11 @@ export const useAppAuth = ({
             }
         };
 
-        // Initial attempt
         await attemptLogin(false);
-        // --- END FIX ---
 
 	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed, openInitializeDialog, closeInitializeDialog]);
 
 
-	// --- FIX: Removed refreshAuthState from return ---
-	return { loginWithFilebase, loginWithKubo, logout };
-    // --- END FIX ---
+	// --- MODIFIED: Updated return object ---
+	return { loginWithKubo, logout };
 };
