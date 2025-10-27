@@ -76,11 +76,6 @@ export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partia
 
 // --- Kubo-specific Upload Helper ---
 async function uploadFileToKubo(apiUrl: string, file: File | Blob, userLabel: string, auth?: { username?: string, password?: string }): Promise<string> {
-    const fd = new FormData();
-    fd.append('file', file);
-    const url = new URL(`${apiUrl}/api/v0/add`);
-    url.searchParams.append('pin', 'true');
-    url.searchParams.append('cid-version', '1');
     const sanitizedLabel = userLabel.replace(/[^a-zA-Z0-9_-]/g, '_'); // Sanitize label for folder name
     const directoryName = `dSocialApp-${sanitizedLabel}`;
 
@@ -90,62 +85,83 @@ async function uploadFileToKubo(apiUrl: string, file: File | Blob, userLabel: st
         headers.append('Authorization', `Basic ${credentials}`);
     }
 
-    try {
-        const fileName = (file instanceof File) ? file.name : 'blob'; // Get filename or default
-        const targetPath = `${directoryName}/${fileName}`; // Target path within Kubo's MFS-like structure for 'add'
+    let fileCid: string | null = null;
+    const fileName = (file instanceof File) ? file.name : 'blob';
+    // --- FIX: Use a leading slash for an absolute MFS path ---
+    const targetPath = `/${directoryName}/${fileName}`; 
 
+    try {
+        // ---
+        // --- START OF MODIFICATION ---
+        // ---
+
+        // --- STEP 1: Add the file normally to get its CID ---
         const addFd = new FormData();
-        addFd.append('file', file, targetPath); // Specify the full path as the filename in FormData
+        addFd.append('file', file, fileName); // Use the plain filename
 
         const addUrl = new URL(`${apiUrl}/api/v0/add`);
         addUrl.searchParams.append('pin', 'true');
         addUrl.searchParams.append('cid-version', '1');
-        // addUrl.searchParams.append('parents', 'true'); // Optionally ensure parent dirs are created
+        // Add 'wrap-with-directory=false' to just get the file's hash as a single JSON response
+        addUrl.searchParams.append('wrap-with-directory', 'false'); 
 
+        const addResponse = await fetch(addUrl.toString(), { 
+            method: "POST", 
+            body: addFd, 
+            headers: new Headers(headers) // Pass headers
+        });
 
-        const response = await fetch(addUrl.toString(), { method: "POST", body: addFd, headers: headers }); // Pass auth headers
-
-        if (!response.ok) throw new Error(`Kubo RPC error /api/v0/add: ${response.statusText}`);
-        const txt = await response.text();
-        const lines = txt.trim().split('\n');
-        // The last line should contain the hash of the added file or the wrapping directory
-        for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-                const p = JSON.parse(lines[i]);
-                 // Check if the name matches the intended file path within the directory
-                if (p?.Name === targetPath && p?.Hash) {
-                    return p.Hash;
-                }
-                // Fallback: If the last entry is just the file name (less likely with path in FormData)
-                if (p?.Name === fileName && p?.Hash) {
-                    console.warn(`[uploadFileToKubo] Found hash by filename match ('${fileName}') instead of full path ('${targetPath}'). Check Kubo 'add' behavior.`);
-                    return p.Hash;
-                }
-                 // Fallback: If the response wraps it in a directory object, take the file hash before it
-                if (p?.Name === directoryName && lines.length > 1 && i === lines.length - 1) {
-                     try {
-                        const fileEntry = JSON.parse(lines[i - 1]);
-                        if (fileEntry?.Hash && fileEntry?.Name === fileName) { // Check name matches without dir
-                            console.warn(`[uploadFileToKubo] Found hash in entry preceding directory ('${directoryName}'). Check Kubo 'add' behavior.`);
-                           return fileEntry.Hash;
-                        }
-                    } catch {/* ignore parse error */}
-                }
-
-            } catch { /* ignore parse error */ }
+        if (!addResponse.ok) throw new Error(`Kubo RPC error /api/v0/add: ${addResponse.statusText}`);
+        
+        const addTxt = await addResponse.text();
+        try {
+            const p = JSON.parse(addTxt); // Should be a single JSON line
+            if (p?.Hash) {
+                fileCid = p.Hash;
+            } else {
+                throw new Error("Bad 'add' response from Kubo. No hash found.");
+            }
+        } catch (e) {
+             console.error("Failed to parse 'add' response:", addTxt);
+             throw new Error("Bad 'add' response from Kubo (JSON parse failed).");
         }
-        // Last resort fallback: grab the hash from the very last line if nothing else matched
-        if (lines.length > 0) {
+
+        if (!fileCid) throw new Error("Could not extract CID from 'add' response.");
+
+        // --- STEP 2: Copy the file (by CID) into the MFS path ---
+        console.log(`[uploadFileToKubo] File added (CID: ${fileCid}). Copying to MFS path: ${targetPath}`);
+
+        const cpUrl = new URL(`${apiUrl}/api/v0/files/cp`);
+        cpUrl.searchParams.append('arg', `/ipfs/${fileCid}`); // Source: /ipfs/CID
+        cpUrl.searchParams.append('arg', targetPath);       // Destination: /dSocialApp-Ben/file.mp4
+        cpUrl.searchParams.append('parents', 'true');      // Create parent directories if they don't exist
+
+        const cpResponse = await fetch(cpUrl.toString(), { 
+            method: "POST", 
+            headers: new Headers(headers) // Pass headers again
+        });
+
+        if (!cpResponse.ok) {
+            // Try to read error message from Kubo
             try {
-                const lastEntry = JSON.parse(lines[lines.length - 1]);
-                if (lastEntry?.Hash) {
-                     console.warn(`[uploadFileToKubo] Using hash from last line ('${lastEntry?.Name}') as fallback.`);
-                    return lastEntry.Hash;
-                }
-            } catch { /* ignore */ }
+                const errJson = await cpResponse.json();
+                throw new Error(`Kubo RPC error /api/v0/files/cp: ${errJson.Message || cpResponse.statusText}`);
+            } catch {
+                throw new Error(`Kubo RPC error /api/v0/files/cp: ${cpResponse.statusText}`);
+            }
         }
-        throw new Error("Bad 'add' response from Kubo or could not find file hash in response.");
-    } catch (e) { console.error(`Kubo file upload failed:`, e); throw e; }
+        
+        console.log(`[uploadFileToKubo] Successfully copied CID ${fileCid} to MFS path ${targetPath}`);
+        return fileCid; // Return the CID
+
+        // ---
+        // --- END OF MODIFICATION ---
+        // ---
+
+    } catch (e) { 
+        console.error(`Kubo file upload or MFS copy failed:`, e); 
+        throw e; 
+    }
 }
 
 

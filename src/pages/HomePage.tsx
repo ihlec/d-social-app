@@ -7,17 +7,13 @@ import NewPostForm from '../features/feed/NewPostForm';
 import Feed from '../features/feed/Feed';
 import FeedSelector from '../features/feed/FeedSelector';
 import { Post, NewPostData, Follow } from '../types';
-// --- FIX: Removed useIntersectionObserver ---
-// import { useIntersectionObserver } from '../hooks/useIntersectionObserver';
-// --- END FIX ---
 import { RefreshIcon } from '../components/Icons';
 import logo from '/logo.png';
 
-// ... (helper functions: getLatestActivityTimestamp, buildPostTree remain the same) ...
-const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => { /* ... */
+const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => { 
     const post = postsMap.get(postId); if (!post) return 0; let latestTimestamp = post.timestamp; if (post.replies && post.replies.length > 0) { for (const replyId of post.replies) { const replyTimestamp = getLatestActivityTimestamp(replyId, postsMap); if (replyTimestamp > latestTimestamp) { latestTimestamp = replyTimestamp; } } } return latestTimestamp;
 };
-const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => { /* ... */
+const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => { 
     const postsWithReplies = new Map<string, Post>(); const topLevelIds = new Set<string>(); postMap.forEach((post, id) => { postsWithReplies.set(id, { ...post, replies: [] }); topLevelIds.add(id); }); postsWithReplies.forEach((post) => { if (post.referenceCID && postsWithReplies.has(post.referenceCID)) { postsWithReplies.get(post.referenceCID)?.replies?.push(post.id); topLevelIds.delete(post.id); } else if (post.referenceCID) { /* console.warn(...) */ } }); return { topLevelIds: Array.from(topLevelIds), postsWithReplies };
 };
 
@@ -34,34 +30,21 @@ const HomePage: React.FC = () => {
         userState, myIpnsKey, latestStateCID, isLoadingFeed, isProcessing, isCoolingDown, countdown,
         addPost, likePost, dislikePost, followUser, unfollowUser, refreshFeed, logout,
         isLoadingExplore, loadMoreExplore, refreshExploreFeed,
-        // --- FIX: Destructure canLoadMoreExplore ---
         canLoadMoreExplore,
-        // --- END FIX ---
         unresolvedFollows, allPostsMap, userProfilesMap,
         otherUsers,
         ensurePostsAreFetched,
     } = useAppState();
 
-    // --- FIX: Removed intersection observer ---
-    // const [loadMoreRef, isLoadMoreVisible] = useIntersectionObserver({ threshold: 0.1 });
-    // --- END FIX ---
     const exploreInitialized = useRef(false);
     const prevSelectedFeedRef = useRef<FeedType | undefined>(undefined);
 
-    // --- FIX: Removed effect for intersection observer ---
-    // useEffect(() => {
-    //      if (isLoadMoreVisible && selectedFeed === 'explore' && !isLoadingExplore) { loadMoreExplore(); }
-    // }, [isLoadMoreVisible, selectedFeed, isLoadingExplore, loadMoreExplore]);
-    // --- END FIX ---
-
-    // Combined useEffect for feed switching/initialization
     useEffect(() => {
         const prevSelectedFeed = prevSelectedFeedRef.current;
         prevSelectedFeedRef.current = selectedFeed; // Update ref
 
         if (selectedFeed !== 'explore') {
             exploreInitialized.current = false;
-            // Only run refresh if feed *changed* to myFeed
             if (selectedFeed !== prevSelectedFeed && selectedFeed === 'myFeed') {
                 console.log(`[HomePage useEffect] Switched to ${selectedFeed}, triggering non-forced refresh...`);
                 if (userState) {
@@ -70,7 +53,7 @@ const HomePage: React.FC = () => {
                      console.warn("[HomePage useEffect] Skipping refresh on feed switch, no user state yet.");
                 }
             }
-        } else { // selectedFeed === 'explore'
+        } else { 
             if (userState && !exploreInitialized.current) {
                 console.log("[HomePage useEffect] Switching to Explore, initializing...");
                 exploreInitialized.current = true;
@@ -79,7 +62,6 @@ const HomePage: React.FC = () => {
                  console.log("[HomePage useEffect] Switching to Explore, already initialized or no user state.");
             }
         }
-    // Depend only on selectedFeed and userState (for explore init).
     }, [selectedFeed, userState, refreshExploreFeed, refreshFeed]);
 
 
@@ -122,21 +104,18 @@ const HomePage: React.FC = () => {
     }, [selectedFeed, allPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, userProfilesMap]);
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
-     // --- FIX: showLoadMore depends on canLoadMoreExplore state ---
      const showLoadMoreButton = selectedFeed === 'explore' && canLoadMoreExplore && !isLoadingExplore;
-     // --- END FIX ---
+
 
 
     // HTML Components
     return (
         <div className="app-container">
-            {/* Logo/Hamburger */}
             <div className="logo-container" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
                 <img src={logo} alt="Logo" />
             </div>
 
-            {/* Sidebar */}
-            <Sidebar /* ... props ... */
+            <Sidebar 
                 isOpen={isSidebarOpen} userState={userState} ipnsKey={myIpnsKey} latestCid={latestStateCID} unresolvedFollows={unresolvedFollows} otherUsers={otherUsers} onFollow={followUser} onUnfollow={unfollowUser} onViewProfile={handleViewProfile} onLogout={logout}
             />
 
@@ -170,12 +149,8 @@ const HomePage: React.FC = () => {
                     currentUserState={userState}
                     myIpnsKey={myIpnsKey}
                     ensurePostsAreFetched={ensurePostsAreFetched}
-                    // --- FIX: Removed footerComponent ---
-                    // footerComponent={showLoadMore ? <div ref={loadMoreRef} className="load-more-trigger">{isLoadingExplore && <p className="loading">Loading More...</p>}</div> : undefined}
-                    // --- END FIX ---
                 />
 
-                {/* --- FIX: Add Load More Button --- */}
                 {selectedFeed === 'explore' && (
                     <div style={{ padding: '1rem', textAlign: 'center' }}>
                         {isLoadingExplore ? (
@@ -192,7 +167,6 @@ const HomePage: React.FC = () => {
                         ) : null /* Optionally show 'End reached' message here */}
                     </div>
                 )}
-                {/* --- END FIX --- */}
             </div>
         </div>
     );
