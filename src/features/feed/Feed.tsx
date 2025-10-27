@@ -8,7 +8,7 @@ import { Post, UserProfile, UserState } from '../../types';
 
 interface FeedProps {
   isLoading: boolean;
-  topLevelPostIds: string[];
+  topLevelIds: string[];
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
   onViewProfile: (ipnsKey: string) => void;
@@ -16,13 +16,15 @@ interface FeedProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>;
+  // --- START MODIFICATION: Update signature ---
+  ensurePostsAreFetched?: (postCids: string[], authorHint?: string) => Promise<void>;
+  // --- END MODIFICATION ---
   footerComponent?: React.ReactNode;
 }
 
 const Feed: React.FC<FeedProps> = ({
   isLoading,
-  topLevelPostIds,
+  topLevelIds = [], // Default added previously
   allPostsMap,
   userProfilesMap,
   onViewProfile,
@@ -33,8 +35,10 @@ const Feed: React.FC<FeedProps> = ({
   ensurePostsAreFetched,
   footerComponent,
 }) => {
+    console.log(`[Feed Render] Rendering Feed. isLoading: ${isLoading}, Posts to render: ${topLevelIds.length}`);
 
   if (isLoading) {
+    console.log("[Feed Render] Rendering LoadingSpinner.");
     return <LoadingSpinner />;
   }
 
@@ -46,14 +50,16 @@ const Feed: React.FC<FeedProps> = ({
 
   return (
        <div className="feed-container">
-         {topLevelPostIds.length === 0 && !isLoading && <EmptyPlaceholder />}
+         {topLevelIds.length === 0 && !isLoading && <EmptyPlaceholder />}
 
          <ResponsiveMasonry
-            // This aligns with the 1100px max-width of the #root container
             columnsCountBreakPoints={{ 350: 1, 750: 2, 1100: 3 }}
          >
             <Masonry gutter="1rem">
-                {topLevelPostIds.map(postId => (
+                {topLevelIds.map(postId => {
+                    console.log(`[Feed Render] Rendering PostItem for ID: ${postId.substring(0,10)}...`);
+                    return (
+                     // --- START MODIFICATION: Pass all required props ---
                      <PostComponent
                         key={postId}
                         postId={postId}
@@ -65,15 +71,15 @@ const Feed: React.FC<FeedProps> = ({
                         currentUserState={currentUserState}
                         myIpnsKey={myIpnsKey}
                         ensurePostsAreFetched={ensurePostsAreFetched}
-                        // --- FIX: Explicitly set isExpandedView to false ---
-                        isExpandedView={false}
-                        // --- END FIX ---
-                    />
-                ))}
+                        isExpandedView={false} // Keep explicitly false for feed view
+                        // No need to pass isReply or renderReplies from here
+                     />
+                     // --- END MODIFICATION ---
+                    );
+                })}
             </Masonry>
          </ResponsiveMasonry>
 
-         {/* Render the footer component (for intersection observer) outside the masonry layout */}
          {footerComponent && footerComponent}
         </div>
   );

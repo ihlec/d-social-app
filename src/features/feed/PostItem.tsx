@@ -17,10 +17,12 @@ interface PostProps {
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  ensurePostsAreFetched?: (postCids: string[]) => Promise<void>;
+  // --- START MODIFICATION: Update signature ---
+  ensurePostsAreFetched?: (postCids: string[], authorHint?: string) => Promise<void>;
+  // --- END MODIFICATION ---
   isReply?: boolean;
   renderReplies?: boolean;
-  isExpandedView?: boolean; // Keep prop to disable its own onClick
+  isExpandedView?: boolean;
 }
 
 const PostComponent: React.FC<PostProps> = ({
@@ -36,8 +38,12 @@ const PostComponent: React.FC<PostProps> = ({
   ensurePostsAreFetched,
   isReply = false,
   renderReplies = false,
-  isExpandedView = false, // Default to false
+  isExpandedView = false,
 }) => {
+    // --- START LOGGING ---
+    console.log(`[PostItem Render] Rendering PostItem for ID: ${postId.substring(0,10)}...`);
+    // --- END LOGGING ---
+
   const navigate = useNavigate();
   const location = useLocation();
   const post = allPostsMap.get(postId);
@@ -48,16 +54,43 @@ const PostComponent: React.FC<PostProps> = ({
         (replyId) => replyId && !replyId.startsWith('temp-') && !allPostsMap.has(replyId)
       );
       if (missingReplyCIDs.length > 0) {
+        // --- START MODIFICATION: Call without authorHint (it's optional) ---
         ensurePostsAreFetched(missingReplyCIDs);
+        // --- END MODIFICATION ---
       }
     }
-  }, [post?.id, post?.replies, allPostsMap, ensurePostsAreFetched]);
+  }, [post, allPostsMap, ensurePostsAreFetched]);
 
 
   if (!post) {
-    console.warn(`Post data missing entirely for ID: ${postId}`);
+    console.warn(`[PostItem Render] Post data missing for ID: ${postId}`); // <-- MODIFIED LOG
     return ( <div className={`post ${isReply ? 'reply-post' : ''}`} style={{ opacity: 0.7 }}><p><em>Loading post data ({postId.substring(0,8)}...)...</em></p></div> );
   }
+
+  const isPlaceholder = post.timestamp === 0;
+
+  if (isPlaceholder) {
+      // --- START LOGGING ---
+      console.log(`[PostItem Render] Rendering PLACEHOLDER for ID: ${postId.substring(0,10)}...`);
+      // --- END LOGGING ---
+      const authorProfile = userProfilesMap.get(post.authorKey);
+      const displayAuthorName = authorProfile?.name || `Unknown (${post.authorKey.substring(0, 6)}...)`;
+      return (
+          <div className={`post ${isReply ? 'reply-post' : ''} post-no-media`} style={{ opacity: 0.6, cursor: 'default' }}>
+               <div className="post-header">
+                  <button onClick={(e) => { e.stopPropagation(); onViewProfile(post.authorKey); }} className="author-name-button" title={post.authorKey}><strong>{displayAuthorName}</strong></button>
+               </div>
+              <p><em>{post.content}</em></p>
+              <div className="post-footer">
+                  <small>Pruned/Removed</small>
+              </div>
+          </div>
+      );
+  }
+
+  // --- START LOGGING ---
+  console.log(`[PostItem Render] Rendering FULL post for ID: ${postId.substring(0,10)}...`);
+  // --- END LOGGING ---
 
   if (!post.authorKey || typeof post.timestamp !== 'number') {
      console.warn(`Post data incomplete or invalid for ID: ${postId}`, post);
@@ -74,7 +107,6 @@ const PostComponent: React.FC<PostProps> = ({
   const loadedReplyCount = loadedReplies.length;
   const isTemporaryPost = typeof post.id === 'string' && post.id.startsWith('temp-');
   const hasMedia = post.mediaCid || post.thumbnailCid || post.mediaType === 'file';
-  // Determine if the overlay structure should be used (image/video only)
   const useOverlay = hasMedia && post.mediaType !== 'file';
 
   const handleInteraction = (action?: () => void) => {
@@ -97,20 +129,17 @@ const PostComponent: React.FC<PostProps> = ({
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     handleInteraction(() => {
-        // If we are IN the expanded view (modal), use the inline reply form.
         if (isExpandedView) {
             if (onSetReplyingTo) {
                 onSetReplyingTo(post);
             }
         }
-        // Otherwise (on the feed), navigate to the modal.
         else {
             if (typeof post.id === 'string' && !isTemporaryPost) {
-                // --- FIX: Pass an 'isReplying' flag in the navigation state ---
                 navigate(`/post/${post.id}`, {
                     state: {
                         backgroundLocation: location,
-                        isReplying: true // Signal to PostPage to open the reply form
+                        isReplying: true
                     }
                 });
             }
@@ -123,14 +152,12 @@ const PostComponent: React.FC<PostProps> = ({
 
       if (typeof post.id === 'string' && !isTemporaryPost) {
           navigate(`/post/${post.id}`, {
-            // No isReplying flag here
             state: { backgroundLocation: location }
           });
       }
   }
 
   return (
-    // Add post-no-media class if NOT using overlay (i.e., no media OR file media)
     <div
       className={`post ${isReply ? 'reply-post' : ''} ${!useOverlay ? 'post-no-media' : ''}`}
       onClick={isExpandedView ? undefined : handleNavigateToPost}
@@ -138,7 +165,7 @@ const PostComponent: React.FC<PostProps> = ({
     >
 
        {parentPost && (
-           <div className="reply-context"> {/* Always outside media wrapper */}
+           <div className="reply-context">
                Replying to{' '}
                <button onClick={(e) => { e.stopPropagation(); onViewProfile(parentPost.authorKey); }} className="author-name-button" style={{ fontSize: 'inherit', display: 'inline' }} title={parentPost.authorKey}>
                     <strong>@{parentAuthorProfile?.name || `Unknown (${parentPost.authorKey.substring(0,6)}...)`}</strong>
@@ -146,7 +173,6 @@ const PostComponent: React.FC<PostProps> = ({
            </div>
        )}
 
-      {/* Render header/text normally if NOT using overlay */}
       {!useOverlay && (
         <>
           <div className="post-header">
@@ -156,16 +182,12 @@ const PostComponent: React.FC<PostProps> = ({
         </>
       )}
 
-      {/* Render media wrapper only if media exists */}
       {hasMedia && (
         <div className="post-media-wrapper">
-          {/* Media component */}
           <div onClick={isExpandedView ? undefined : handleNavigateToPost}>
-            {/* Pass post type info if needed, e.g., to PostMedia */}
             <PostMedia post={post} isExpandedView={isExpandedView} />
           </div>
 
-          {/* Render overlay ONLY for images/videos */}
           {useOverlay && (
             <div className="post-media-overlay">
               <div className="author-name-overlay">
@@ -181,7 +203,6 @@ const PostComponent: React.FC<PostProps> = ({
       <div className="post-footer">
          <small title={new Date(post.timestamp).toString()} >{formatTimestamp(post.timestamp)}</small>
         <div className="post-actions" onClick={(e) => e.stopPropagation()}>
-          {/* Action Buttons */}
           <button
               onClick={(e) => { e.stopPropagation(); handleInteraction(onLikePost ? () => onLikePost(post.id) : undefined); }}
               className={`action-button ${isLiked ? 'liked' : ''}`}
@@ -214,7 +235,6 @@ const PostComponent: React.FC<PostProps> = ({
 
       {renderReplies && loadedReplies.length > 0 && (
         <div className="replies-container">
-          {/* Replies rendering */}
           {loadedReplies.map((replyId) => (
             <PostComponent
               key={replyId}

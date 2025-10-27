@@ -10,10 +10,22 @@ import { Post, NewPostData, Follow } from '../types';
 import { RefreshIcon } from '../components/Icons';
 import logo from '/logo.png';
 
-const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => { 
-    const post = postsMap.get(postId); if (!post) return 0; let latestTimestamp = post.timestamp; if (post.replies && post.replies.length > 0) { for (const replyId of post.replies) { const replyTimestamp = getLatestActivityTimestamp(replyId, postsMap); if (replyTimestamp > latestTimestamp) { latestTimestamp = replyTimestamp; } } } return latestTimestamp;
+const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
+    const post = postsMap.get(postId);
+    if (!post || post.timestamp === 0) return 0;
+    let latestTimestamp = post.timestamp;
+    if (post.replies && post.replies.length > 0) {
+        for (const replyId of post.replies) {
+            const replyTimestamp = getLatestActivityTimestamp(replyId, postsMap);
+            if (replyTimestamp > 0 && replyTimestamp > latestTimestamp) {
+                latestTimestamp = replyTimestamp;
+            }
+        }
+    }
+    return latestTimestamp;
 };
-const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => { 
+
+const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => {
     const postsWithReplies = new Map<string, Post>(); const topLevelIds = new Set<string>(); postMap.forEach((post, id) => { postsWithReplies.set(id, { ...post, replies: [] }); topLevelIds.add(id); }); postsWithReplies.forEach((post) => { if (post.referenceCID && postsWithReplies.has(post.referenceCID)) { postsWithReplies.get(post.referenceCID)?.replies?.push(post.id); topLevelIds.delete(post.id); } else if (post.referenceCID) { /* console.warn(...) */ } }); return { topLevelIds: Array.from(topLevelIds), postsWithReplies };
 };
 
@@ -38,42 +50,62 @@ const HomePage: React.FC = () => {
 
     const exploreInitialized = useRef(false);
     const prevSelectedFeedRef = useRef<FeedType | undefined>(undefined);
+    const isInitialLoad = useRef(true);
+
+    console.log("[HomePage Render] Component rendering..."); // <-- ADDED LOG
 
     useEffect(() => {
+        console.log("[HomePage useEffect] Running effect. isInitialLoad:", isInitialLoad.current, "SelectedFeed:", selectedFeed); // <-- ADDED LOG
         const prevSelectedFeed = prevSelectedFeedRef.current;
-        prevSelectedFeedRef.current = selectedFeed; // Update ref
+        prevSelectedFeedRef.current = selectedFeed;
+
+        if (isInitialLoad.current) {
+            isInitialLoad.current = false;
+            console.log("[HomePage useEffect] Initial load detected, skipping effect-based refresh.");
+            if (selectedFeed === 'explore' && userState && !exploreInitialized.current) {
+                 console.log("[HomePage useEffect] Initializing Explore on first load.");
+                 exploreInitialized.current = true;
+                 refreshExploreFeed();
+            }
+            return;
+        }
+
 
         if (selectedFeed !== 'explore') {
             exploreInitialized.current = false;
             if (selectedFeed !== prevSelectedFeed && selectedFeed === 'myFeed') {
                 console.log(`[HomePage useEffect] Switched to ${selectedFeed}, triggering non-forced refresh...`);
                 if (userState) {
-                    refreshFeed();
+                    // Pass force=false explicitly
+                    refreshFeed(false);
                 } else {
                      console.warn("[HomePage useEffect] Skipping refresh on feed switch, no user state yet.");
                 }
+            } else {
+                 console.log(`[HomePage useEffect] Feed is ${selectedFeed}, but didn't switch to it. No refresh triggered.`); // <-- ADDED LOG
             }
-        } else { 
+        } else { // selectedFeed === 'explore'
             if (userState && !exploreInitialized.current) {
-                console.log("[HomePage useEffect] Switching to Explore, initializing...");
+                console.log("[HomePage useEffect] Switching to Explore or userState loaded, initializing...");
                 exploreInitialized.current = true;
                 refreshExploreFeed();
             } else {
-                 console.log("[HomePage useEffect] Switching to Explore, already initialized or no user state.");
+                 console.log(`[HomePage useEffect] Explore selected. Initialized: ${exploreInitialized.current}. Has userState: ${!!userState}`); // <-- MODIFIED LOG
             }
         }
+        console.log("[HomePage useEffect] Effect finished."); // <-- ADDED LOG
     }, [selectedFeed, userState, refreshExploreFeed, refreshFeed]);
 
 
-    // Interactions
-    const handleViewProfile = (key: string) => { /* ... */ setIsSidebarOpen(false); navigate(`/profile/${key}`); };
-    const handleSelectFeed = (feed: FeedType) => { /* ... */ setSelectedFeed(feed); };
-    const handleAddPost = (postData: NewPostData) => { /* ... */ addPost(postData); };
+    const handleViewProfile = (key: string) => { setIsSidebarOpen(false); navigate(`/profile/${key}`); };
+    const handleSelectFeed = (feed: FeedType) => { setSelectedFeed(feed); };
+    const handleAddPost = (postData: NewPostData) => { addPost(postData); };
 
-    // Determine which posts and profiles to display
     const displayData = useMemo(() => {
+        console.log("[HomePage useMemo] Calculating displayData..."); // <-- ADDED LOG
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []);
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
+         console.log(`[HomePage useMemo] built tree. allTopLevelIds: ${allTopLevelIds.length}, postsWithReplies: ${postsWithReplies.size}`); // <-- ADDED LOG
         const followedKeys = new Set(userState?.follows?.map((f: Follow) => f.ipnsKey) ?? []);
 
         let finalTopLevelIds: string[] = [];
@@ -81,51 +113,50 @@ const HomePage: React.FC = () => {
             case 'explore':
                 finalTopLevelIds = allTopLevelIds.filter(id => {
                     const post = postsWithReplies.get(id);
-                    if (!post) return false;
-                    return !dislikedSet.has(id) && // Not disliked by me
-                           post.authorKey !== myIpnsKey && // Not my post
-                           !followedKeys.has(post.authorKey); // Not from someone I follow
+                    if (!post || post.timestamp === 0) return false;
+                    return !dislikedSet.has(id) &&
+                           post.authorKey !== myIpnsKey &&
+                           !followedKeys.has(post.authorKey);
                 });
                 break;
             case 'myFeed':
             default:
                 finalTopLevelIds = allTopLevelIds.filter(id => {
                     const post = postsWithReplies.get(id);
-                    if (!post) return false;
+                    if (!post || post.timestamp === 0) return false;
                     if (dislikedSet.has(id)) return false;
                     return post.authorKey === myIpnsKey || followedKeys.has(post.authorKey);
                 });
                 break;
         }
+         console.log(`[HomePage useMemo] Filtered topLevelIds for ${selectedFeed}: ${finalTopLevelIds.length}`); // <-- ADDED LOG
 
         const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
+         console.log("[HomePage useMemo] Sorting complete. Returning displayData."); // <-- ADDED LOG
 
-        return { topLevelPostIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: userProfilesMap };
+        return { topLevelIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: userProfilesMap };
     }, [selectedFeed, allPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, userProfilesMap]);
 
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
      const showLoadMoreButton = selectedFeed === 'explore' && canLoadMoreExplore && !isLoadingExplore;
 
 
-
-    // HTML Components
     return (
         <div className="app-container">
             <div className="logo-container" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
                 <img src={logo} alt="Logo" />
             </div>
-
-            <Sidebar 
+            <Sidebar
                 isOpen={isSidebarOpen} userState={userState} ipnsKey={myIpnsKey} latestCid={latestStateCID} unresolvedFollows={unresolvedFollows} otherUsers={otherUsers} onFollow={followUser} onUnfollow={unfollowUser} onViewProfile={handleViewProfile} onLogout={logout}
             />
-
-            {/* Main Content */}
             <div className={`main-content ${isSidebarOpen ? 'sidebar-open' : ''}`}>
-                 <> {/* ... header + feed selector ... */ }
-                    <div className="feed-header"> <button className="refresh-button" onClick={() => selectedFeed === 'explore' ? refreshExploreFeed() : refreshFeed(true)} disabled={isLoading || isProcessing} title={selectedFeed === 'explore' ? "Refresh Explore Feed" : "Refresh Feed"} > <RefreshIcon /> </button> </div>
+                 <>
+                    <div className="feed-header">
+                        {/* Explicitly pass force=true */}
+                        <button className="refresh-button" onClick={() => selectedFeed === 'explore' ? refreshExploreFeed() : refreshFeed(true)} disabled={isLoading || isProcessing} title={selectedFeed === 'explore' ? "Refresh Explore Feed" : "Refresh Feed"} > <RefreshIcon /> </button>
+                    </div>
                     <FeedSelector selectedFeed={selectedFeed} onSelectFeed={handleSelectFeed} />
                  </>
-
                  {selectedFeed === 'myFeed' && userState && (
                      <NewPostForm
                         replyingToPost={null}
@@ -136,11 +167,9 @@ const HomePage: React.FC = () => {
                         countdown={countdown}
                      />
                  )}
-
-                {/* Feed */}
-                <Feed /* ... props ... */
+                <Feed
                     isLoading={isLoading}
-                    topLevelPostIds={displayData.topLevelPostIds || []}
+                    topLevelIds={displayData.topLevelIds || []} // Corrected prop name
                     allPostsMap={displayData.allPostsMap}
                     userProfilesMap={displayData.userProfilesMap}
                     onViewProfile={handleViewProfile}
@@ -150,7 +179,6 @@ const HomePage: React.FC = () => {
                     myIpnsKey={myIpnsKey}
                     ensurePostsAreFetched={ensurePostsAreFetched}
                 />
-
                 {selectedFeed === 'explore' && (
                     <div style={{ padding: '1rem', textAlign: 'center' }}>
                         {isLoadingExplore ? (
@@ -159,12 +187,13 @@ const HomePage: React.FC = () => {
                              <button
                                 onClick={loadMoreExplore}
                                 disabled={isLoadingExplore}
-                                className="new-post-button" // Reuse styling or create specific one
+                                className="new-post-button"
                                 style={{ width: 'auto', padding: '0.5em 1.5em' }}
                              >
                                 Load More
                              </button>
-                        ) : null /* Optionally show 'End reached' message here */}
+                        ) : null
+                        }
                     </div>
                 )}
             </div>

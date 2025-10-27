@@ -7,6 +7,9 @@ import {
     fetchUserStateChunk,
     uploadJsonToIpfs, // Keep this import for Kubo uploads
     publishToIpns,
+    // --- START MODIFICATION: Import fetchKubo ---
+    fetchKubo,
+    // --- END MODIFICATION ---
 } from '../api/ipfsIpns';
 // --- REMOVED: Filebase imports ---
 import { createThumbnail } from '../lib/media';
@@ -259,3 +262,50 @@ export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserSt
     return cid;
 }
 // --- END ADD ---
+
+// --- START MODIFICATION: Add pruneContentFromKubo ---
+/**
+ * Unpins CIDs, removes files from MFS, and runs GC on the local Kubo node.
+ * @param cidsToUnpin An array of CIDs to unpin.
+ * @param mfsPathsToRemove An array of absolute MFS paths to remove (e.g., /dSocialApp-Ben/file.jpg)
+ */
+export async function pruneContentFromKubo(cidsToUnpin: (string | undefined)[], mfsPathsToRemove: (string | undefined)[]) {
+    const session = getSession();
+    if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
+        console.warn("Cannot prune content: No active Kubo session.");
+        return;
+    }
+    const auth = { username: session.kuboUsername, password: session.kuboPassword };
+    const rpcApiUrl = session.rpcApiUrl;
+
+    // 1. Unpin CIDs
+    const unpinPromises = cidsToUnpin.map(cid => {
+        if (!cid) return Promise.resolve();
+        console.log(`[prune] Unpinning CID: ${cid}`);
+        // Note: fetchKubo is imported from ipfsIpns.ts
+        return fetchKubo(rpcApiUrl, '/api/v0/pin/rm', { arg: cid }, undefined, auth)
+            .catch(e => console.error(`Failed to unpin ${cid}:`, e)); // Don't let one failure stop others
+    });
+    await Promise.allSettled(unpinPromises);
+    console.log("[prune] Unpinning complete.");
+
+    // 2. Remove from MFS
+    const mfsPromises = mfsPathsToRemove.map(path => {
+        if (!path) return Promise.resolve();
+        console.log(`[prune] Removing MFS path: ${path}`);
+        return fetchKubo(rpcApiUrl, '/api/v0/files/rm', { arg: path }, undefined, auth)
+            .catch(e => console.error(`Failed to remove MFS ${path}:`, e));
+    });
+    await Promise.allSettled(mfsPromises);
+    console.log("[prune] MFS removal complete.");
+
+    // 3. Run Garbage Collector to prune blocks from cache
+    try {
+        console.log("[prune] Triggering garbage collection...");
+        await fetchKubo(rpcApiUrl, '/api/v0/repo/gc', undefined, undefined, auth);
+        console.log("[prune] Garbage collection complete.");
+    } catch (e) {
+        console.error("Garbage collection failed:", e);
+    }
+}
+// --- END MODIFICATION ---

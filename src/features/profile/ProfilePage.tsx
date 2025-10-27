@@ -58,7 +58,7 @@ const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], pos
 };
 
 interface DisplayData {
-    topLevelPostIds: string[];
+    topLevelIds: string[];
     postsWithReplies: Map<string, Post>;
     userProfilesMap: Map<string, UserProfile>;
 }
@@ -70,10 +70,8 @@ const ProfilePage: React.FC = () => {
     const location = useLocation();
     const {
         myIpnsKey, userState: currentUserState,
-        // --- FIX: Use single, consolidated maps ---
         allPostsMap,
         userProfilesMap,
-        // --- END FIX ---
         likePost, dislikePost,
         addPost, isProcessing, isCoolingDown, countdown,
         ensurePostsAreFetched,
@@ -88,11 +86,6 @@ const ProfilePage: React.FC = () => {
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
     
-    // --- FIX: No longer need to combine maps ---
-    // const combinedPosts: Map<string, Post> = useMemo(() => new Map([...globalPostsMap, ...exploreAllPostsMap]), [globalPostsMap, exploreAllPostsMap]);
-    // --- END FIX ---
-
-    // HandleAddPost (no reply logic needed)
     const handleAddPost = (postData: NewPostData) => {
         addPost(postData);
     };
@@ -111,8 +104,8 @@ const ProfilePage: React.FC = () => {
         }
         const loadProfile = async () => {
              setIsProfileLoading(true); setError(null);
+             let userStateToSet: UserState | null = null; // --- Store state to use after finally block ---
              try {
-                 let userStateToSet: UserState | null = null;
                  if (isMyProfile && currentUserState) {
                      userStateToSet = currentUserState;
                  } else {
@@ -120,91 +113,101 @@ const ProfilePage: React.FC = () => {
                      userStateToSet = await fetchUserState(profileStateCid, profileKey);
                  }
                  if (!userStateToSet) throw new Error("Could not load user state.");
-                 setProfileUserState(userStateToSet);
+                 
+                 setProfileUserState(userStateToSet); // --- Set state immediately ---
 
              } catch (err) {
                  console.error("Error loading profile page:", err);
                  setError(err instanceof Error ? err.message : "Failed to load profile.");
                  toast.error("Could not load this profile.");
-             } finally { setIsProfileLoading(false); }
+             } finally {
+                 setIsProfileLoading(false); // --- Set loading false immediately ---
+             }
+
+             // --- START MODIFICATION: Run post-fetching *after* loading is false (non-blocking) ---
+             if (userStateToSet) {
+                const postCids = userStateToSet.postCIDs || [];
+                const likedCids = userStateToSet.likedPostCIDs || [];
+                const dislikedCids = userStateToSet.dislikedPostCIDs || [];
+                
+                const allCids = [...new Set([...postCids, ...likedCids, ...dislikedCids])];
+                
+                const missingCids = allCids.filter(cid => cid && !cid.startsWith('temp-') && !allPostsMap.has(cid));
+                
+                if (missingCids.length > 0) {
+                    console.log(`[ProfilePage] Found ${missingCids.length} posts to fetch (lazy)...`);
+                    // --- DO NOT AWAIT ---
+                    ensurePostsAreFetched(missingCids, profileKey)
+                        .catch(e => console.error(`[ProfilePage] Lazy fetch failed: ${e}`));
+                }
+             }
+             // --- END MODIFICATION ---
         };
         loadProfile();
-    }, [profileKey, myIpnsKey, currentUserState, isMyProfile, navigate]);
+    }, [profileKey, myIpnsKey, currentUserState, isMyProfile, navigate, ensurePostsAreFetched, allPostsMap]);
 
 
     const displayData = useMemo((): DisplayData => {
-        // --- FIX: Use single userProfilesMap ---
         const profileMapToUse: Map<string, UserProfile> = userProfilesMap;
-        // --- END FIX ---
 
         if (!profileUserState) {
-            return { topLevelPostIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
+            return { topLevelIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
         }
 
-        // --- FIX: Build tree from single allPostsMap ---
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
-        // --- END FIX ---
 
-        // 2. Determine the set of target CIDs based on the selected feed
         let targetCids: Set<string>;
+        let filteredTopLevelIds: string[];
+        const dislikedSet = new Set(currentUserState?.dislikedPostCIDs || []); // Viewer's dislikes
+
         switch (selectedFeed) {
             case 'posts':
-                const postCids = new Set<string>();
-                // --- FIX: Filter from single allPostsMap ---
+                targetCids = new Set<string>();
                 allPostsMap.forEach((post, cid) => {
                     if (post.authorKey === profileKey) {
-                        postCids.add(cid);
+                        targetCids.add(cid);
                     }
                 });
-                // --- END FIX ---
-                targetCids = postCids;
+                filteredTopLevelIds = allTopLevelIds.filter(id => targetCids.has(id));
                 break;
             case 'likes':
                 targetCids = new Set(profileUserState.likedPostCIDs || []);
+                filteredTopLevelIds = allTopLevelIds
+                    .filter(id => targetCids.has(id)) 
+                    .filter(id => !dislikedSet.has(id)); 
                 break;
             case 'dislikes':
                 targetCids = new Set(profileUserState.dislikedPostCIDs || []);
+                filteredTopLevelIds = allTopLevelIds.filter(id => targetCids.has(id));
                 break;
             default:
-                targetCids = new Set();
+                filteredTopLevelIds = [];
         }
 
-        // 3. Filter the topLevelIds
-        const dislikedSet = new Set(currentUserState?.dislikedPostCIDs || []);
-        let filteredTopLevelIds: string[];
-
-        if (selectedFeed === 'dislikes') {
-            filteredTopLevelIds = allTopLevelIds.filter(id => targetCids.has(id));
-        } else {
-            filteredTopLevelIds = allTopLevelIds
-                .filter(id => targetCids.has(id)) // Must be in the target list
-                .filter(id => !dislikedSet.has(id)); // Must not be disliked by *me*
-        }
-
-        // 4. Sort the filtered list
         const sortedTopLevelIds = filteredTopLevelIds.sort((a, b) => {
             const latestA = getLatestActivityTimestamp(a, postsWithReplies);
             const latestB = getLatestActivityTimestamp(b, postsWithReplies);
             return latestB - latestA;
         });
 
-        // 5. Ensure the profile user's own profile is in the map
         if (profileKey && !profileMapToUse.has(profileKey) && profileUserState.profile) {
             const newProfileMap = new Map(profileMapToUse);
             newProfileMap.set(profileKey, profileUserState.profile);
-            return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: newProfileMap };
+            return { topLevelIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: newProfileMap };
         }
 
-        return { topLevelPostIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: profileMapToUse };
-    // --- FIX: Updated dependencies ---
+        return { topLevelIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: profileMapToUse };
     }, [profileUserState, selectedFeed, profileKey, allPostsMap, userProfilesMap, currentUserState?.dislikedPostCIDs]);
-    // --- END FIX ---
 
 
     if (!profileKey) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: No profile key provided.</p></div>;
+    
+    // --- START MODIFICATION: Show loading spinner OR profile header ---
+    // This allows the header to render while the feed (which might be empty) is still loading
     if (isProfileLoading && !profileUserState) return <LoadingSpinner />;
     if (error) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: {error}</p></div>;
     if (!profileUserState) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Profile not found.</p></div>;
+    // --- END MODIFICATION ---
 
     return (
         <div className="app-container">
@@ -231,8 +234,10 @@ const ProfilePage: React.FC = () => {
                         ))}
                     </div>
                     <Feed 
-                        isLoading={isProfileLoading}
-                        topLevelPostIds={displayData.topLevelPostIds || []}
+                        // --- START MODIFICATION: isLoading is now only for the *initial* load ---
+                        isLoading={isProfileLoading} 
+                        // --- END MODIFICATION ---
+                        topLevelIds={displayData.topLevelIds || []}
                         allPostsMap={displayData.postsWithReplies}
                         userProfilesMap={displayData.userProfilesMap}
                         onViewProfile={(key) => navigate(`/profile/${key}`)} currentUserState={currentUserState}

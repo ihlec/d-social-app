@@ -6,7 +6,10 @@ import {
     uploadPost,
     _uploadStateAndPublishToIpns,
     _uploadStateOnly,
-    fetchUserStateByIpns
+    fetchUserStateByIpns,
+    // --- START MODIFICATION: Import pruneContentFromKubo ---
+    pruneContentFromKubo,
+    // --- END MODIFICATION ---
 } from './stateActions';
 
 const ARRAY_CHUNK_LIMIT = 5;
@@ -22,6 +25,9 @@ interface UseAppActionsArgs {
 	setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
 	setUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
 	refreshFeed: (force?: boolean) => Promise<void>;
+    // --- START MODIFICATION: Add allPostsMap ---
+    allPostsMap: Map<string, Post>;
+    // --- END MODIFICATION ---
 }
 
 /**
@@ -38,6 +44,9 @@ export const useAppActions = ({
 	setLatestStateCID: setLatestHeadCID, // Rename for clarity within hook
 	setUserProfilesMap,
 	refreshFeed,
+    // --- START MODIFICATION: Destructure allPostsMap ---
+    allPostsMap,
+    // --- END MODIFICATION ---
 }: UseAppActionsArgs) => {
 
 	const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -218,6 +227,52 @@ export const useAppActions = ({
 		liked.delete(postId); // Disliking removes like
         // --- END FIX ---
 
+        // --- START MODIFICATION: Pruning Logic ---
+        const isDislikingNow = !isDisliked; // We are *adding* a dislike
+        if (isDislikingNow) {
+            const postToPrune = allPostsMap.get(postId);
+            if (postToPrune) {
+                const cidsToPrune: (string | undefined)[] = [];
+                const mfsPathsToPrune: (string | undefined)[] = [];
+
+                // 1. Add Post, Media, and Thumbnail CIDs to unpin list
+                cidsToPrune.push(postToPrune.id); // The post JSON CID
+                cidsToPrune.push(postToPrune.mediaCid);
+                cidsToPrune.push(postToPrune.thumbnailCid);
+
+                // 2. If we are the author, also remove files from MFS
+                if (postToPrune.authorKey === myIpnsKey) {
+                    const userLabel = sessionStorage.getItem("currentUserLabel") || "";
+                    const sanitizedLabel = userLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const directoryName = `dSocialApp-${sanitizedLabel}`;
+
+                    // Add thumbnail path (predictable name)
+                    if (postToPrune.thumbnailCid) {
+                        // Assuming thumbnail is always 'thumbnail.jpg'. 
+                        // Note: This is fragile. A better implementation would store the thumbnail *filename*
+                        // during upload, just like we do for 'file' types.
+                        // For now, we assume 'thumbnail.jpg' from media.ts
+                        mfsPathsToPrune.push(`/${directoryName}/thumbnail.jpg`);
+                    }
+                    // Add 'file' type path (fileName is stored)
+                    if (postToPrune.mediaType === 'file' && postToPrune.fileName) {
+                        mfsPathsToPrune.push(`/${directoryName}/${postToPrune.fileName}`);
+                    }
+                    // NOTE: We still can't prune image/video media from MFS reliably
+                    // because the original filename isn't stored on the post object in a predictable way.
+                    // We *could* try to remove `/${directoryName}/${postToPrune.fileName}`
+                    // if fileName exists, but media.ts doesn't set fileName for images/videos.
+                }
+                
+                // 3. Trigger pruning as a background task (fire-and-forget)
+                // This unpins, removes from MFS, and runs GC.
+                pruneContentFromKubo(cidsToPrune, mfsPathsToPrune)
+                    .then(() => toast.success("Post pruned from node.", { icon: "🧹" }))
+                    .catch(e => toast.error(`Pruning failed: ${e instanceof Error ? e.message : "Unknown"}`));
+            }
+        }
+        // --- END MODIFICATION ---
+
 		const newUserState: UserState = {
             ...userState,
             likedPostCIDs: Array.from(liked),
@@ -270,7 +325,9 @@ export const useAppActions = ({
 		} finally {
 			setIsProcessing(false);
 		}
-	}, [userState, isProcessing, myIpnsKey, latestStateCID, setUserState, setLatestHeadCID]);
+        // --- START MODIFICATION: Add allPostsMap to dependency array ---
+	}, [userState, isProcessing, myIpnsKey, latestStateCID, setUserState, setLatestHeadCID, allPostsMap]);
+    // --- END MODIFICATION ---
 
 	const followUser = useCallback(async (ipnsKeyToFollow: string) => {
 		if (!userState || isProcessing || ipnsKeyToFollow === myIpnsKey) return;
@@ -398,7 +455,7 @@ export const useAppActions = ({
             ...userState,
             profile: { ...userState.profile, name: newName, ...profileData },
             updatedAt: Date.now(),
-            // --- FIX: Preserve existing link. This is an "accumulate" action. ---
+            // --- FIX: Preserve existing link. This is an "accumGulate" action. ---
             extendedUserState: userState.extendedUserState || null
         };
 		setUserState(newUserState); // Optimistic UI

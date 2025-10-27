@@ -109,12 +109,15 @@ export function logoutSession(): void {
 
 // --- IPFS/IPNS Operations ---
 
-async function fetchKubo(
+export async function fetchKubo(
     apiUrl: string,
     path: string,
     params?: Record<string, string>,
     body?: FormData | string,
-    auth?: { username?: string, password?: string }
+    auth?: { username?: string, password?: string },
+    // --- START MODIFICATION: Add timeoutMs parameter with default ---
+    timeoutMs: number = 60000 // Default to 60 seconds
+    // --- END MODIFICATION ---
 ): Promise<any> {
     const url = new URL(`${apiUrl}${path}`);
     if (params) Object.entries(params).forEach(([k, v]) => { url.searchParams.append(k, v); });
@@ -136,29 +139,49 @@ async function fetchKubo(
         headers.append('Content-Type', 'application/json');
     }
 
+    const ctrl = new AbortController();
+    // --- START MODIFICATION: Use timeoutMs parameter ---
+    const timeoutId = setTimeout(() => {
+        console.warn(`[fetchKubo] TIMEOUT for ${path} after ${timeoutMs/1000}s.`);
+        ctrl.abort();
+    }, timeoutMs); 
+    // --- END MODIFICATION ---
+
     try {
         const response = await fetch(url.toString(), {
             method: "POST",
             headers: headers,
-            body: fetchBody
+            body: fetchBody,
+            signal: ctrl.signal 
         });
+
+        clearTimeout(timeoutId);
+
         if (!response.ok) { const txt = await response.text(); let jsn; try { jsn = JSON.parse(txt); } catch { /* ignore */ } const msg = jsn?.Message || txt || `HTTP ${response.status}`; if (path === '/api/v0/name/resolve' && msg.includes('could not resolve name')) throw new Error(`Kubo IPNS failed: ${msg}`); throw new Error(`Kubo RPC error ${path}: ${msg}`); } if (path === "/api/v0/add") { const txt = await response.text(); const lines = txt.trim().split('\n'); for (let i = lines.length - 1; i >= 0; i--) { try { const p = JSON.parse(lines[i]); if (p?.Hash) return p; } catch { /* ignore */ } } throw new Error("Bad 'add' response."); } if (path === "/api/v0/cat") { try { return await response.json(); } catch (e) { throw new Error("Bad 'cat' response."); } }
-        if (["/api/v0/name/resolve", "/api/v0/name/publish", "/api/v0/key/list", "/api/v0/id", "/api/v0/key/gen"].includes(path)) return response.json();
+        if (["/api/v0/name/resolve", "/api/v0/name/publish", "/api/v0/key/list", "/api/v0/id", "/api/v0/key/gen", "/api/v0/pin/rm", "/api/v0/files/rm", "/api/v0/repo/gc"].includes(path)) return response.json();
         return response.json();
-    } catch (e) { console.error(`Kubo call failed: ${path}`, e); throw e; }
+    } catch (e) { 
+        clearTimeout(timeoutId);
+        if (e instanceof Error && e.name === 'AbortError') {
+             // --- START MODIFICATION: Use timeoutMs in error message ---
+             throw new Error(`Kubo RPC error ${path}: Request timed out after ${timeoutMs/1000}s.`);
+             // --- END MODIFICATION ---
+        }
+        console.error(`Kubo call failed: ${path}`, e); 
+        throw e; 
+    }
 }
 
 
-// --- MOVED BACK: uploadJsonToIpfs from stateActions ---
-// --- ADDED: Export keyword ---
 export async function uploadJsonToIpfs(apiUrl: string, data: any, auth?: { username?: string, password?: string }): Promise<string> {
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' }); const fd = new FormData(); fd.append('file', blob, `data-${Date.now()}.json`);
+    // Uses default (longer) timeout
     const res = await fetchKubo(apiUrl, '/api/v0/add', { pin: 'true', 'cid-version': '1' }, fd, auth);
     if (!res?.Hash) throw new Error("Upload failed."); return res.Hash;
 }
-// --- END MOVE & ADD ---
 
 export async function publishToIpns(apiUrl: string, cid: string, keyName: string, auth?: { username?: string, password?: string }): Promise<string> {
+    // Uses default (longer) timeout
     const res = await fetchKubo(apiUrl, '/api/v0/name/publish', { arg: `/ipfs/${cid}`, key: keyName, lifetime: '720h' }, undefined, auth);
     if (!res?.Name) throw new Error("Publish failed."); return res.Name;
 }
@@ -171,6 +194,7 @@ export async function loginToKubo(
     password?: string
 ): Promise<{ session: Session, state: UserState, cid: string }> {
      try {
+         // Uses default (longer) timeout - ID and key list should be fast, but part of login flow
          await fetchKubo(apiUrl, '/api/v0/id', undefined, undefined, { username, password });
          const keysResponse = await fetchKubo(apiUrl, '/api/v0/key/list', undefined, undefined, { username, password });
          let keyInfo = Array.isArray(keysResponse?.Keys) ? keysResponse.Keys.find((k: any) => k.Name === keyName) : undefined;
@@ -182,6 +206,7 @@ export async function loginToKubo(
          if (!keyInfo?.Id) {
             console.log(`[loginToKubo] Key "${keyName}" not found. Generating new key...`);
             try {
+                // Uses default (longer) timeout
                 const genResponse = await fetchKubo(apiUrl, '/api/v0/key/gen', { arg: keyName, type: 'ed25519' }, undefined, { username, password });
                 if (!genResponse?.Id || !genResponse?.Name || genResponse.Name !== keyName) {
                     throw new Error(`Failed to generate key "${keyName}" or response was invalid.`);
@@ -193,9 +218,11 @@ export async function loginToKubo(
 
                 console.log(`[loginToKubo] Initializing state for new user "${keyName}"...`);
                 initialState = createEmptyUserState({ name: keyName });
+                // Uses default (longer) timeout
                 initialCid = await uploadJsonToIpfs(apiUrl, initialState, { username, password });
                 console.log(`[loginToKubo] Uploaded initial state to CID: ${initialCid}`);
 
+                // Uses default (longer) timeout
                 await publishToIpns(apiUrl, initialCid, keyName, { username, password });
                 console.log(`[loginToKubo] Published initial state CID to IPNS for key "${keyName}".`);
 
@@ -207,15 +234,15 @@ export async function loginToKubo(
              resolvedIpnsKey = keyInfo.Id;
              console.log(`[loginToKubo] Found existing key "${keyName}" with ID: ${resolvedIpnsKey}`);
              try {
-                 initialCid = await resolveIpns(resolvedIpnsKey); // Resolve doesn't need auth usually
-                 // Fetching state might need auth if done via Kubo cat
-                 initialState = await fetchUserState(initialCid, keyName);
+                 initialCid = await resolveIpns(resolvedIpnsKey); // Resolve uses shorter timeout internally now
+                 initialState = await fetchUserState(initialCid, keyName); // Fetch state uses shorter timeout internally now
              } catch (e) {
                  console.warn(`Could not resolve initial state for existing user ${keyName}:`, e);
                  if (forceInitialize) {
                      console.log(`[loginToKubo] Force initializing existing user ${keyName}.`);
                      initialCid = DEFAULT_USER_STATE_CID;
                      initialState = createEmptyUserState({ name: keyName });
+                     // Uses default (longer) timeout
                      await publishToIpns(apiUrl, initialCid, keyName, { username, password });
                      console.log(`[loginToKubo] Force initialized and published default state for ${keyName}.`);
 
@@ -313,13 +340,16 @@ export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
     if (session.sessionType === 'kubo' && session.rpcApiUrl && session.resolvedIpnsKey && (ipnsIdentifier === session.ipnsKeyName || ipnsIdentifier === session.resolvedIpnsKey)) {
         keyToResolve = session.resolvedIpnsKey;
         try {
+            // --- START MODIFICATION: Pass shorter timeout for resolve ---
             const res = await fetchKubo(
                 session.rpcApiUrl,
                 '/api/v0/name/resolve',
                 { arg: keyToResolve, nocache: 'true' },
                 undefined,
-                { username: session.kuboUsername, password: session.kuboPassword }
+                { username: session.kuboUsername, password: session.kuboPassword },
+                5000 // 5 seconds timeout
             );
+            // --- END MODIFICATION ---
             if (res?.Path?.startsWith('/ipfs/')) {
                  const cid = res.Path.replace('/ipfs/', '');
                  ipnsResolutionCache.set(ipnsIdentifier, { cid, timestamp: Date.now() });
@@ -386,22 +416,18 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
     (aggregatedState.follows ?? []).forEach(follow => { if (follow?.ipnsKey && !uniqueFollowsMap.has(follow.ipnsKey)) { uniqueFollowsMap.set(follow.ipnsKey, follow); } });
     console.log(`[fetchUserState] De-duplicated follows: ${aggregatedState.follows?.length} -> ${uniqueFollowsMap.size}`);
 
-    // --- FIX: De-duplicate all CID arrays ---
     const uniquePostCIDs = [...new Set(aggregatedState.postCIDs ?? [])];
     const uniqueLikedPostCIDs = [...new Set(aggregatedState.likedPostCIDs ?? [])];
     const uniqueDislikedPostCIDs = [...new Set(aggregatedState.dislikedPostCIDs ?? [])];
     console.log(`[fetchUserState] De-duplicated postCIDs: ${aggregatedState.postCIDs?.length} -> ${uniquePostCIDs.length}`);
     console.log(`[fetchUserState] De-duplicated likedPostCIDs: ${aggregatedState.likedPostCIDs?.length} -> ${uniqueLikedPostCIDs.length}`);
-    // --- END FIX ---
 
     return {
         profile: aggregatedState.profile || { name: profileNameHint || 'Unknown User' },
-        // --- FIX: Use unique arrays ---
         postCIDs: uniquePostCIDs,
         follows: Array.from(uniqueFollowsMap.values()),
         likedPostCIDs: uniqueLikedPostCIDs,
         dislikedPostCIDs: uniqueDislikedPostCIDs,
-        // --- END FIX ---
         updatedAt: aggregatedState.updatedAt || 0,
         extendedUserState: null
     };
@@ -412,7 +438,7 @@ export async function fetchUserStateChunk(cid: string): Promise<Partial<UserStat
          return { profile: { name: "Default User" }, postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], updatedAt: 0, extendedUserState: null };
     }
     try {
-        const data = await fetchPost(cid); // fetchPost passes auth from session
+        const data = await fetchPost(cid); // fetchPost uses shorter timeout internally now
         if (!data) throw new Error(`No data found for CID ${cid}`);
         return data as Partial<UserState>;
     } catch (error) { console.error(`Failed to fetch UserState chunk ${cid}:`, error); return {}; }
@@ -422,29 +448,62 @@ export async function fetchPost(cid: string): Promise<Post | UserState | any > {
     const session = getSession();
     if (session.sessionType === 'kubo' && session.rpcApiUrl) {
         try {
+            // --- START MODIFICATION: Pass shorter timeout for cat ---
             return await fetchKubo(
                 session.rpcApiUrl,
                 '/api/v0/cat',
                 { arg: cid },
                 undefined,
-                { username: session.kuboUsername, password: session.kuboPassword }
+                { username: session.kuboUsername, password: session.kuboPassword },
+                5000 // 5 seconds timeout
             );
+            // --- END MODIFICATION ---
         } catch (e) { console.warn(`Kubo fetch ${cid} failed, falling back.`, e); }
     }
     try { return await fetchCidViaGateways(cid); } catch (e) { throw e; }
+}
+
+export async function fetchPostLocal(cid: string, authorHint: string): Promise<Post | UserState | any> {
+    const session = getSession();
+    if (session.sessionType === 'kubo' && session.rpcApiUrl) {
+        try {
+            // --- START MODIFICATION: Pass shorter timeout for cat ---
+            const data = await fetchKubo(
+                session.rpcApiUrl,
+                '/api/v0/cat',
+                { arg: cid },
+                undefined,
+                { username: session.kuboUsername, password: session.kuboPassword },
+                5000 // 5 seconds timeout
+            );
+            // --- END MODIFICATION ---
+            if (data && typeof data === 'object' && (data.authorKey || data.profile)) {
+                return data;
+            } else {
+                 console.warn(`[fetchPostLocal] Kubo fetch ${cid} returned invalid data.`);
+            }
+        } catch (e) {
+            console.warn(`[fetchPostLocal] Kubo fetch ${cid} failed. Returning placeholder.`, e);
+        }
+    } else {
+        console.warn("[fetchPostLocal] No Kubo session available. Returning placeholder.");
+    }
+
+    const errorMessage = "Content removed or unavailable locally.";
+    const placeholderPost: Post = {
+        id: cid,
+        authorKey: authorHint, 
+        content: `[Post content (CID: ${cid.substring(0, 10)}...) ${errorMessage}]`,
+        timestamp: 0, 
+        replies: []
+    };
+    return placeholderPost;
 }
 
 export const invalidateIpnsCache = () => { console.log("Invalidating IPNS cache."); ipnsResolutionCache.clear(); };
 
 export const getMediaUrl = (cid: string): string => {
     if (!cid || cid.startsWith('blob:')) return cid;
-    // --- FIX: Remove unused session variable ---
-    // const session = getSession();
-    // --- END FIX ---
-    // Use public gateway URL for media to avoid auth issues if node isn't configured for gateway access
-    // if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-    //     try { const rpcUrl = new URL(session.rpcApiUrl); return `${rpcUrl.protocol}//${rpcUrl.hostname}:8080/ipfs/${cid}`; } catch (e) { console.warn("Bad Kubo URL.", e); }
-    // }
     const isCidV0 = cid.startsWith('Qm');
     if (isCidV0) return `${PUBLIC_CONTENT_GATEWAYS[0].url}/ipfs/${cid}`;
     const gw = PUBLIC_CONTENT_GATEWAYS[1]; return gw.url.replace('{cid}', cid);

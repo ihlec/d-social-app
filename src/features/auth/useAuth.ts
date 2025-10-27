@@ -2,7 +2,6 @@
 // src/hooks/useAppAuth.ts
 import { useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
-// --- REMOVED: Unused Session import ---
 import { UserState } from '../../types';
 import {
     getSession,
@@ -12,10 +11,8 @@ import {
     resolveIpns,
     fetchUserState,
     UserStateNotFoundError,
-    // --- ADDED: saveOptimisticCookie (explicitly import from correct location) ---
     saveOptimisticCookie
 } from '../../api/ipfsIpns';
-// --- REMOVED: saveOptimisticCookie import from stateActions ---
 
 
 const POST_COOLDOWN_MS = 300 * 1000;
@@ -27,7 +24,7 @@ interface UseAppAuthArgs {
 	setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean | null>>;
 	resetAllState: () => void;
     currentUserState: UserState | null;
-    processMainFeed: (state: UserState) => Promise<void>;
+    processMainFeed: (state: UserState, myIpnsKey: string) => Promise<void>;
     openInitializeDialog: (onInitialize: () => void, onRetry: () => void) => void;
     closeInitializeDialog: () => void;
 }
@@ -73,11 +70,11 @@ export const useAppAuth = ({
         let state: UserState | null = null;
         try {
             console.log("[refreshAuthState] Attempting to resolve IPNS Key:", identifierToResolve);
-            headCid = await resolveIpns(identifierToResolve); // resolveIpns handles auth internally if needed via session
+            headCid = await resolveIpns(identifierToResolve);
             console.log(`[refreshAuthState] Resolved to CID: ${headCid}`);
 
             const profileNameHint = currentUserState?.profile?.name || session.ipnsKeyName || "";
-            state = await fetchUserState(headCid, profileNameHint); // fetchUserState handles auth internally if needed via session
+            state = await fetchUserState(headCid, profileNameHint);
             console.log("[refreshAuthState] Fetched aggregated state:", state);
 
             if (!state) throw new Error("Fetched state is null");
@@ -88,7 +85,6 @@ export const useAppAuth = ({
             setIsLoggedIn(true);
 
             const userName = state.profile.name || session.ipnsKeyName || "";
-            // Use resolved IPNS key for cookie, name hint for value
             saveOptimisticCookie(ipnsKey, { cid: headCid, name: userName, updatedAt: state.updatedAt });
 
             return state;
@@ -104,24 +100,32 @@ export const useAppAuth = ({
     }, [currentUserState, setUserState, setLatestStateCID, setMyIpnsKey, setIsLoggedIn]);
 
 	useEffect(() => {
+        console.log("[useAppAuth useEffect] Running effect."); // <-- ADDED LOG
         const session = getSession();
         if (session.sessionType === 'kubo' && session.resolvedIpnsKey) {
-            console.log("[useAppAuth useEffect] Kubo Session found. Attempting initial state fetch via refreshAuthState.");
+            console.log("[useAppAuth useEffect] Session found. Attempting initial state fetch."); // <-- ADDED LOG
+            const ipnsKey = session.resolvedIpnsKey;
             refreshAuthState().then(initialState => {
-                if (initialState) {
-                    console.log("[useAppAuth useEffect] Initial state fetched successfully. Processing feed.");
-                    processMainFeed(initialState);
+                if (initialState && ipnsKey) {
+                    console.log("[useAppAuth useEffect] Initial state fetched. Calling processMainFeed..."); // <-- ADDED LOG
+                    processMainFeed(initialState, ipnsKey)
+                        .then(() => {
+                            console.log("[useAppAuth useEffect] processMainFeed completed successfully."); // <-- ADDED LOG
+                        })
+                        .catch(err => {
+                             console.error("[useAppAuth useEffect] processMainFeed failed:", err); // <-- ADDED LOG
+                        });
                 } else {
-                    console.warn("[useAppAuth useEffect] Initial state fetch failed.");
+                    console.warn("[useAppAuth useEffect] Initial state fetch failed or ipnsKey missing after refreshAuthState."); // <-- MODIFIED LOG
                 }
             });
         } else {
-            console.log("[useAppAuth useEffect] No session found.");
+            console.log("[useAppAuth useEffect] No session found. Setting logged out state."); // <-- MODIFIED LOG
             setIsLoggedIn(false);
             setMyIpnsKey(''); setUserState(null); setLatestStateCID('');
         }
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, []); // Keep dependencies minimal for initial load
 
 	const logout = useCallback(() => {
 		logoutSession(); resetAllState();
@@ -142,19 +146,18 @@ export const useAppAuth = ({
                 setUserState(state);
                 setLatestStateCID(cid);
                 setIsLoggedIn(true);
-                // Use resolved IPNS key for cookie, keyName hint for value
                 saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: keyName, updatedAt: state.updatedAt });
 
                 closeInitializeDialog();
                 toast.dismiss("login-toast");
                 toast.success("Welcome!");
 
-                await processMainFeed(state);
+                 console.log("[loginWithKubo] Login successful. Calling processMainFeed..."); // <-- ADDED LOG
+                 await processMainFeed(state, session.resolvedIpnsKey!);
+                 console.log("[loginWithKubo] processMainFeed completed after login."); // <-- ADDED LOG
             } catch (error) {
                 toast.dismiss("login-toast");
-                // --- FIX: Add fallback check for error.name ---
                 if (error instanceof UserStateNotFoundError || (error instanceof Error && error.name === 'UserStateNotFoundError')) {
-                // --- END FIX ---
                     console.warn("[loginWithKubo] UserStateNotFoundError caught.");
                     const onInitialize = () => {
                         console.log("[loginWithKubo] User chose to initialize.");
