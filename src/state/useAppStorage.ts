@@ -1,7 +1,9 @@
 // fileName: src/state/useAppStorage.ts
 import { useState, useMemo, useContext, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import AppStateContext from '../state/AppContext';
+// --- FIX: Import named context ---
+import { AppStateContext } from '../state/AppContext';
+// --- END FIX ---
 import { UserState, Post, UserProfile, OnlinePeer, NewPostData } from '@/types';
 import { useCooldown } from '@/hooks/useCooldown';
 
@@ -134,7 +136,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 		isLoadingFeed,
 		isProcessing, isCoolingDown, countdown,
         // --- REMOVED: loginWithFilebase from return ---
-		// loginWithFilebase, 
+		// loginWithKubo, 
         loginWithKubo, 
         logout,
 		addPost,

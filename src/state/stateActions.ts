@@ -1,4 +1,4 @@
-// src/hooks/stateActions.ts
+// fileName: src/hooks/stateActions.ts
 import { getCookie, setCookie } from '../lib/utils';
 import {
     getSession,
@@ -191,8 +191,10 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
 // --- ADDED: Export keyword ---
 export async function _uploadStateAndPublishToIpns(
     stateToPublish: UserState | Partial<UserState>,
-    myIpnsKey: string,
-    currentHeadCID?: string // CID before this update
+    myIpnsKey: string
+    // --- FIX: Removed currentHeadCID argument ---
+    // currentHeadCID?: string // CID before this update
+    // --- END FIX ---
 ): Promise<string> {
     const session = getSession();
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl || !session.ipnsKeyName) {
@@ -205,17 +207,11 @@ export async function _uploadStateAndPublishToIpns(
 
     const finalStateToUpload = { ...stateToPublish };
 
-    const isChunk = 'extendedUserState' in finalStateToUpload && finalStateToUpload.extendedUserState;
-
-    if (!isChunk && currentHeadCID) {
-        console.log(`[_uploadStateAndPublishToIpns] Not a chunk, linking to previous head: ${currentHeadCID}`);
-        (finalStateToUpload as Partial<UserState>).extendedUserState = currentHeadCID;
-    } else if (!isChunk && !currentHeadCID) {
-        console.log("[_uploadStateAndPublishToIpns] Not a chunk and no previous head CID provided. Creating initial state.");
-         (finalStateToUpload as Partial<UserState>).extendedUserState = null; // Explicitly null for clarity
-    } else {
-         console.log("[_uploadStateAndPublishToIpns] Is a chunk, using existing extendedUserState link:", finalStateToUpload.extendedUserState);
-    }
+    // --- FIX: Remove logic that uses currentHeadCID. ---
+    // The stateToPublish object now *always* contains the correct extendedUserState link (or null)
+    // as set by the logic in useActions.ts.
+    console.log("[_uploadStateAndPublishToIpns] Publishing state with link:", finalStateToUpload.extendedUserState);
+    // --- END FIX ---
 
     let headCID: string;
 
@@ -247,4 +243,3 @@ export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserSt
     return cid;
 }
 // --- END ADD ---
-

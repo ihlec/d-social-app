@@ -37,6 +37,11 @@ body {
     text-align: center; /* --- Center Login Page Text  --- */
     height: 100%;
     display: flex;
+  justify-content: center; /* Centers horizontally */
+}
+
+h1 {
+    margin-bottom: 1.5rem;
 }
 
 /* --- Themed Links  --- */

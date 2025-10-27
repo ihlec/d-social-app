@@ -152,7 +152,9 @@ export const useAppAuth = ({
                 await processMainFeed(state);
             } catch (error) {
                 toast.dismiss("login-toast");
-                if (error instanceof UserStateNotFoundError) {
+                // --- FIX: Add fallback check for error.name ---
+                if (error instanceof UserStateNotFoundError || (error instanceof Error && error.name === 'UserStateNotFoundError')) {
+                // --- END FIX ---
                     console.warn("[loginWithKubo] UserStateNotFoundError caught.");
                     const onInitialize = () => {
                         console.log("[loginWithKubo] User chose to initialize.");
@@ -177,4 +179,3 @@ export const useAppAuth = ({
 
 	return { loginWithKubo, logout };
 };
-

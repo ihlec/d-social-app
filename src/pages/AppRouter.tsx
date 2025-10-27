@@ -23,48 +23,49 @@ function AppRouter() {
   const location = useLocation();
   const backgroundLocation = location.state?.backgroundLocation;
 
-  if (isLoggedIn === null) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <LoadingSpinner />
-      </div>
-    );
-  }
-
+  // --- FIX: The dialog must be rendered *outside* the conditional loading spinner return ---
   return (
     <>
-      <Routes location={backgroundLocation || location}>
-        <Route path="/profile/:key" element={<ProfilePage />} />
+      {isLoggedIn === null && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <LoadingSpinner />
+        </div>
+      )}
 
-        {/* LOGIN ROUTE: */}
-        <Route
-          path="/login"
-          element={
-            !isLoggedIn ? (
-              <Login
-                // --- REMOVED: onLoginFilebase prop ---
-                // onLoginFilebase={loginWithFilebase}
-                onLoginKubo={loginWithKubo}
-              />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          }
-        />
+      {isLoggedIn !== null && (
+        <Routes location={backgroundLocation || location}>
+          <Route path="/profile/:key" element={<ProfilePage />} />
 
-        {/* PROTECTED ROUTES: */}
-        <Route
-          path="/"
-          element={
-            isLoggedIn ? <HomePage /> : <Navigate to="/login" replace />
-          }
-        />
+          {/* LOGIN ROUTE: */}
+          <Route
+            path="/login"
+            element={
+              !isLoggedIn ? (
+                <Login
+                  // --- REMOVED: onLoginFilebase prop ---
+                  // onLoginFilebase={loginWithFilebase}
+                  onLoginKubo={loginWithKubo}
+                />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
 
-         <Route path="*" element={<Navigate to={isLoggedIn ? "/" : "/login"} replace />} />
-      </Routes>
+          {/* PROTECTED ROUTES: */}
+          <Route
+            path="/"
+            element={
+              isLoggedIn ? <HomePage /> : <Navigate to="/login" replace />
+            }
+          />
+
+          <Route path="*" element={<Navigate to={isLoggedIn ? "/" : "/login"} replace />} />
+        </Routes>
+      )}
 
       {/* Render the modal route *only* if backgroundLocation exists */}
-      {backgroundLocation && (
+      {backgroundLocation && isLoggedIn !== null && (
         <Routes>
           <Route path="/post/:cid" element={<PostPage />} />
         </Routes>
@@ -77,6 +78,7 @@ function AppRouter() {
       />
     </>
   );
+  // --- END FIX ---
 }
 
 export default AppRouter;

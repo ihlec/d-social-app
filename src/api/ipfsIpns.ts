@@ -386,12 +386,22 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
     (aggregatedState.follows ?? []).forEach(follow => { if (follow?.ipnsKey && !uniqueFollowsMap.has(follow.ipnsKey)) { uniqueFollowsMap.set(follow.ipnsKey, follow); } });
     console.log(`[fetchUserState] De-duplicated follows: ${aggregatedState.follows?.length} -> ${uniqueFollowsMap.size}`);
 
+    // --- FIX: De-duplicate all CID arrays ---
+    const uniquePostCIDs = [...new Set(aggregatedState.postCIDs ?? [])];
+    const uniqueLikedPostCIDs = [...new Set(aggregatedState.likedPostCIDs ?? [])];
+    const uniqueDislikedPostCIDs = [...new Set(aggregatedState.dislikedPostCIDs ?? [])];
+    console.log(`[fetchUserState] De-duplicated postCIDs: ${aggregatedState.postCIDs?.length} -> ${uniquePostCIDs.length}`);
+    console.log(`[fetchUserState] De-duplicated likedPostCIDs: ${aggregatedState.likedPostCIDs?.length} -> ${uniqueLikedPostCIDs.length}`);
+    // --- END FIX ---
+
     return {
         profile: aggregatedState.profile || { name: profileNameHint || 'Unknown User' },
-        postCIDs: aggregatedState.postCIDs ?? [],
+        // --- FIX: Use unique arrays ---
+        postCIDs: uniquePostCIDs,
         follows: Array.from(uniqueFollowsMap.values()),
-        likedPostCIDs: aggregatedState.likedPostCIDs ?? [],
-        dislikedPostCIDs: aggregatedState.dislikedPostCIDs ?? [],
+        likedPostCIDs: uniqueLikedPostCIDs,
+        dislikedPostCIDs: uniqueDislikedPostCIDs,
+        // --- END FIX ---
         updatedAt: aggregatedState.updatedAt || 0,
         extendedUserState: null
     };
@@ -439,4 +449,3 @@ export const getMediaUrl = (cid: string): string => {
     if (isCidV0) return `${PUBLIC_CONTENT_GATEWAYS[0].url}/ipfs/${cid}`;
     const gw = PUBLIC_CONTENT_GATEWAYS[1]; return gw.url.replace('{cid}', cid);
 };
-

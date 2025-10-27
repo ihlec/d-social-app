@@ -5,7 +5,9 @@ import { UseAppStateReturn, useAppStateInternal } from './useAppStorage'; // Ass
 
 // Create the context with a default value of null or a specific structure
 // The default value should match the shape of UseAppStateReturn but can be null initially
-const AppStateContext = createContext<UseAppStateReturn | null>(null);
+// --- FIX: Use named export instead of default ---
+export const AppStateContext = createContext<UseAppStateReturn | null>(null);
+// --- END FIX ---
 
 interface AppStateProviderProps {
   children: React.ReactNode;
@@ -57,4 +59,6 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
   );
 };
 
-export default AppStateContext;
+// --- FIX: Removed default export ---
+// export default AppStateContext;
+// --- END FIX ---
