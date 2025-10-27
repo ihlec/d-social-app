@@ -93,6 +93,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
   // Video type
   if (post.mediaType === 'video') {
     
+    // Cleanup effect for video src
     useEffect(() => {
         const videoElement = videoRef.current;
         return () => {
@@ -101,56 +102,56 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 videoElement.src = '';
             }
         };
-    }, []); 
+    }, []); // Runs only on unmount
 
-    if (isExpandedView && mediaUrl) {
-        return (
-             <div ref={mediaRef} className="post-media-container">
-                {isVisible && (
-                    <video
-                        ref={videoRef}
-                        src={mediaUrl}
-                        controls
-                        autoPlay
-                        className="post-media full-width"
+    // --- START MODIFICATION: Conditional Rendering Logic ---
+    if (isExpandedView) {
+        // Only render the VIDEO element if in expanded view AND mediaUrl exists
+        if (mediaUrl) {
+            return (
+                 <div ref={mediaRef} className="post-media-container">
+                    {isVisible && (
+                        <video
+                            ref={videoRef}
+                            src={mediaUrl}
+                            controls
+                            autoPlay // Autoplay only in expanded view
+                            className="post-media full-width" // Use appropriate class
+                        />
+                    )}
+                </div>
+            );
+        } else {
+            // Expanded view but no video? Maybe show thumbnail as fallback? Or nothing.
+            // For now, render nothing if the main video isn't available in expanded view.
+             return null; 
+        }
+    } else {
+        // Feed view: ONLY render the THUMBNAIL if it exists
+        if (thumbnailUrl) {
+            return (
+              <div ref={mediaRef} className="post-media-container">
+                {isVisible && ( 
+                  <div className="video-thumbnail-container">
+                    <img
+                      src={thumbnailUrl}
+                      alt="Video thumbnail"
+                      className="post-media video-thumbnail"
+                      loading="lazy"
                     />
+                    <PlayIcon />
+                  </div>
                 )}
-            </div>
-        );
-    }
-
-    if (!mediaUrl && !thumbnailUrl) return null;
-
-    return (
-      <div ref={mediaRef} className="post-media-container">
-        {isVisible && ( 
-          <>
-            {/* --- FIX: Removed logic for showFullMedia --- */}
-            {/* The click will now bubble up to PostItem and open the modal */}
-            {thumbnailUrl ? (
-              <div className="video-thumbnail-container">
-                <img
-                  src={thumbnailUrl}
-                  alt="Video thumbnail"
-                  className="post-media video-thumbnail"
-                  loading="lazy"
-                />
-                <PlayIcon />
               </div>
-            ) : mediaUrl ? (
-              <video
-                ref={videoRef}
-                src={mediaUrl}
-                controls
-                preload="metadata"
-                className="post-media"
-              />
-            ) : null}
-            {/* --- END FIX --- */}
-          </>
-        )}
-      </div>
-    );
+            );
+        } else {
+            // Feed view, but no thumbnail? Render nothing.
+            // Avoid rendering the <video> element here.
+            console.warn(`[PostMedia] Video post ${post.id.substring(0,10)}... has no thumbnail for feed view.`);
+            return null;
+        }
+    }
+    // --- END MODIFICATION ---
   }
 
   return null;
