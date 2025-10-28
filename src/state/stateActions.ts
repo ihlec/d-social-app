@@ -184,6 +184,9 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
     let uniqueMediaFileName: string | undefined;
     let uniqueThumbnailFileName: string | undefined;
     let originalFileNameForFiletype: string | undefined;
+    // --- START MODIFICATION: Add aspect ratio variable ---
+    let mediaAspectRatio: number | undefined;
+    // --- END MODIFICATION ---
 
     if (file) {
         if (file.type.startsWith("image/")) mediaType = 'image';
@@ -193,7 +196,12 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
             originalFileNameForFiletype = file.name;
         }
 
-        const thumbnailFile = await createThumbnail(file);
+        // --- START MODIFICATION: Destructure new return value ---
+        const { thumbnailFile, aspectRatio } = await createThumbnail(file);
+        if (aspectRatio) {
+            mediaAspectRatio = aspectRatio;
+        }
+        // --- END MODIFICATION ---
 
         const mediaUploadResult = await uploadFileToKubo(session.rpcApiUrl, file, userLabel, auth);
         mediaCid = mediaUploadResult.cid;
@@ -216,7 +224,10 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
         mediaType,
         fileName: originalFileNameForFiletype,
         mediaFileName: uniqueMediaFileName,
-        thumbnailFileName: uniqueThumbnailFileName
+        thumbnailFileName: uniqueThumbnailFileName,
+        // --- START MODIFICATION: Add to final post object ---
+        mediaAspectRatio: mediaAspectRatio
+        // --- END MODIFICATION ---
     };
 
     let finalPostCID: string;

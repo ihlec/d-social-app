@@ -1,3 +1,4 @@
+
 /* fileName: index.css */
 :root {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -522,9 +523,20 @@ content: "";
 }
 
 
+/* --- START MODIFICATION: Add rule for post-media-container --- */
+.post-media-container {
+    position: relative;
+    width: 100%;
+}
+/* --- END MODIFICATION --- */
+
+
 .post-media {
     display: block;
     width: 100%;
+    /* --- START MODIFICATION: Add height 100% --- */
+    height: 100%; /* Fill the aspect-ratio container */
+    /* --- END MODIFICATION --- */
     cursor: pointer;
     object-fit: cover;
 }
@@ -538,6 +550,15 @@ content: "";
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .5));
     transition: transform .2s ease-out
 }
+
+/* --- START MODIFICATION: Add base rule for video-thumbnail-container --- */
+.video-thumbnail-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    line-height: 0;
+}
+/* --- END MODIFICATION --- */
 
 .video-thumbnail-container:hover .play-icon-overlay {
     transform: translate(-50%, -50%) scale(1.1)

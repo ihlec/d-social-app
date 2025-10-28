@@ -52,6 +52,13 @@ const PostMedia: React.FC<PostMediaProps> = ({
 
   const thumbnailUrl = post.thumbnailCid ? getMediaUrl(post.thumbnailCid) : null;
   const mediaUrl = post.mediaCid ? getMediaUrl(post.mediaCid) : null;
+  // --- START MODIFICATION: Get aspect ratio ---
+  const aspectRatio = post.mediaAspectRatio;
+  // Apply style only in feed view when aspect ratio is available
+  const mediaContainerStyle = aspectRatio && !isExpandedView 
+    ? { aspectRatio: aspectRatio, overflow: 'hidden' } 
+    : { overflow: 'hidden' }; // Added overflow hidden for safety
+  // --- END MODIFICATION ---
 
   if (!mediaUrl && !thumbnailUrl && post.mediaType !== 'file') {
      return null;
@@ -78,7 +85,9 @@ const PostMedia: React.FC<PostMediaProps> = ({
     if (!displayUrl) return null;
 
     return (
-      <div ref={mediaRef} className="post-media-container">
+      // --- START MODIFICATION: Apply style ---
+      <div ref={mediaRef} className="post-media-container" style={mediaContainerStyle}>
+      {/* --- END MODIFICATION --- */}
         {isVisible && ( 
           <img
             src={displayUrl}
@@ -111,7 +120,9 @@ const PostMedia: React.FC<PostMediaProps> = ({
         // Only render the VIDEO element if in expanded view AND mediaUrl exists
         if (mediaUrl) {
             return (
-                 <div ref={mediaRef} className="post-media-container">
+                 // --- START MODIFICATION: Apply style (without aspect ratio) ---
+                 <div ref={mediaRef} className="post-media-container" style={mediaContainerStyle}>
+                 {/* --- END MODIFICATION --- */}
                     {isVisible && (
                         <video
                             ref={videoRef}
@@ -132,7 +143,9 @@ const PostMedia: React.FC<PostMediaProps> = ({
         // Feed view: ONLY render the THUMBNAIL if it exists
         if (thumbnailUrl) {
             return (
-              <div ref={mediaRef} className="post-media-container">
+              // --- START MODIFICATION: Apply style ---
+              <div ref={mediaRef} className="post-media-container" style={mediaContainerStyle}>
+              {/* --- END MODIFICATION --- */}
                 {isVisible && ( 
                   <div className="video-thumbnail-container">
                     <img

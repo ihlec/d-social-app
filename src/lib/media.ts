@@ -1,11 +1,20 @@
-// src/lib/media.ts
+// fileName: src/lib/media.ts
 // Constants for thumbnail dimensions and quality
 const THUMBNAIL_MAX_WIDTH = 400;
 const THUMBNAIL_MAX_HEIGHT = 300;
 const THUMBNAIL_QUALITY = 0.8; // JPEG quality
 
+// --- START MODIFICATION: Define return type ---
+interface ThumbnailCreationResult {
+  thumbnailFile: File | null;
+  aspectRatio: number | null;
+}
+// --- END MODIFICATION ---
+
 // Create a thumbnail for an image file
-function createImageThumbnail(file: File): Promise<File | null> {
+// --- START MODIFICATION: Update return type ---
+function createImageThumbnail(file: File): Promise<ThumbnailCreationResult> {
+// --- END MODIFICATION ---
   return new Promise((resolve, reject) => {
     const img = new Image();
     const canvas = document.createElement('canvas');
@@ -16,13 +25,15 @@ function createImageThumbnail(file: File): Promise<File | null> {
     }
 
     img.onload = () => {
-      const aspectRatio = img.width / img.height;
+      // --- START MODIFICATION: Capture aspect ratio ---
+      const aspectRatio = img.width > 0 && img.height > 0 ? img.width / img.height : null;
+      // --- END MODIFICATION ---
       let targetWidth = THUMBNAIL_MAX_WIDTH;
-      let targetHeight = targetWidth / aspectRatio;
+      let targetHeight = targetWidth / (aspectRatio || 1.77); // Default to 16:9 if invalid
 
       if (targetHeight > THUMBNAIL_MAX_HEIGHT) {
         targetHeight = THUMBNAIL_MAX_HEIGHT;
-        targetWidth = targetHeight * aspectRatio;
+        targetWidth = targetHeight * (aspectRatio || 1.77);
       }
 
       canvas.width = targetWidth;
@@ -32,7 +43,12 @@ function createImageThumbnail(file: File): Promise<File | null> {
       canvas.toBlob(
         (blob) => {
           if (blob) {
-            resolve(new File([blob], "thumbnail.jpg", { type: "image/jpeg" }));
+            // --- START MODIFICATION: Return object ---
+            resolve({
+              thumbnailFile: new File([blob], "thumbnail.jpg", { type: "image/jpeg" }),
+              aspectRatio: aspectRatio
+            });
+            // --- END MODIFICATION ---
           } else {
             reject(new Error("Canvas toBlob returned null."));
           }
@@ -53,12 +69,17 @@ function createImageThumbnail(file: File): Promise<File | null> {
 }
 
 // Create a thumbnail for a video file (capture first frame)
-function createVideoThumbnail(file: File): Promise<File | null> {
+// --- START MODIFICATION: Update return type ---
+function createVideoThumbnail(file: File): Promise<ThumbnailCreationResult> {
+// --- END MODIFICATION ---
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const objectUrl = URL.createObjectURL(file); // Create URL once
+    // --- START MODIFICATION: Capture aspect ratio in a ref ---
+    let aspectRatio: number | null = null;
+    // --- END MODIFICATION ---
 
     if (!ctx) {
        URL.revokeObjectURL(objectUrl); // Clean up on error
@@ -82,6 +103,11 @@ function createVideoThumbnail(file: File): Promise<File | null> {
     // --- START MODIFICATION: Define event handlers ---
     const onLoadedMetadata = () => {
        console.log("[createVideoThumbnail] Metadata loaded. Seeking...");
+       // --- START MODIFICATION: Capture aspect ratio ---
+       if (video.videoWidth > 0 && video.videoHeight > 0) {
+           aspectRatio = video.videoWidth / video.videoHeight;
+       }
+       // --- END MODIFICATION ---
        // Seek slightly into the video to avoid blank frames
       video.currentTime = 0.1;
     };
@@ -91,13 +117,13 @@ function createVideoThumbnail(file: File): Promise<File | null> {
        // Timeout needed for some browsers to render the frame correctly after seek
       setTimeout(() => {
         try { // Add try...catch for drawing errors
-            const aspectRatio = video.videoWidth / video.videoHeight;
+            const safeAspectRatio = aspectRatio || (video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 1.77); // Fallback
             let targetWidth = THUMBNAIL_MAX_WIDTH;
-            let targetHeight = targetWidth / aspectRatio;
+            let targetHeight = targetWidth / safeAspectRatio;
 
             if (targetHeight > THUMBNAIL_MAX_HEIGHT) {
               targetHeight = THUMBNAIL_MAX_HEIGHT;
-              targetWidth = targetHeight * aspectRatio;
+              targetWidth = targetHeight * safeAspectRatio;
             }
 
             canvas.width = targetWidth;
@@ -107,7 +133,12 @@ function createVideoThumbnail(file: File): Promise<File | null> {
             canvas.toBlob(
               (blob) => {
                 if (blob) {
-                  resolve(new File([blob], "thumbnail.jpg", { type: "image/jpeg" }));
+                  // --- START MODIFICATION: Return object ---
+                  resolve({
+                    thumbnailFile: new File([blob], "thumbnail.jpg", { type: "image/jpeg" }),
+                    aspectRatio: aspectRatio // Use the one captured at 'loadedmetadata'
+                  });
+                  // --- END MODIFICATION ---
                 } else {
                   reject(new Error("Canvas toBlob returned null."));
                 }
@@ -155,7 +186,9 @@ function createVideoThumbnail(file: File): Promise<File | null> {
 
 
 // Main function to create thumbnail based on file type
-export async function createThumbnail(file: File): Promise<File | null> {
+// --- START MODIFICATION: Update return type ---
+export async function createThumbnail(file: File): Promise<ThumbnailCreationResult> {
+// --- END MODIFICATION ---
     try {
         if (file.type.startsWith("image/")) {
             return await createImageThumbnail(file);
@@ -163,10 +196,14 @@ export async function createThumbnail(file: File): Promise<File | null> {
             return await createVideoThumbnail(file);
         } else {
             console.log("Thumbnail generation skipped: Unsupported file type", file.type);
-            return null; // Not an image or video
+            // --- START MODIFICATION: Return object ---
+            return { thumbnailFile: null, aspectRatio: null }; // Not an image or video
+            // --- END MODIFICATION ---
         }
     } catch (error) {
          console.error("Thumbnail generation failed:", error);
-         return null;
+         // --- START MODIFICATION: Return object ---
+         return { thumbnailFile: null, aspectRatio: null };
+         // --- END MODIFICATION ---
     }
 }

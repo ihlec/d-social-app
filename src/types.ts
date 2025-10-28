@@ -1,7 +1,8 @@
+// fileName: src/types/index.ts
 // src/types/index.ts
 // --- REMOVED: S3Client import ---
 
-// ... (keep UserProfile, Follow, Post, UserState, etc.) ...
+// ... (keep UserProfile, Follow, UserState, etc.) ...
 export interface UserProfile { name: string; bio?: string; }
 export interface Follow { ipnsKey: string; name?: string; lastSeenCid?: string; updatedAt?: number; }
 // --- START MODIFICATION: Add media/thumbnail filenames ---
@@ -17,6 +18,9 @@ export interface Post {
     fileName?: string; // Original filename for 'file' type OR generated unique name for media
     mediaFileName?: string; // Generated unique name for image/video
     thumbnailFileName?: string; // Generated unique name for thumbnail
+    // --- START MODIFICATION: Add aspect ratio ---
+    mediaAspectRatio?: number; // Added to preserve space
+    // --- END MODIFICATION ---
     replies?: string[]; 
 }
 // --- END MODIFICATION ---
