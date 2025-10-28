@@ -11,57 +11,48 @@ import { UserState, Post, UserProfile, NewPostData } from '../../types';
 import NewPostForm from '../feed/NewPostForm'; // Corrected path
 
 // --- Feed types, helpers, DisplayData interface remain the same ---
-// ... (helpers unchanged) ...
 type ProfileFeedType = 'posts' | 'likes' | 'dislikes';
 const profileFeedOptions: { label: string; value: ProfileFeedType }[] = [
     { label: 'Posts', value: 'posts' }, { label: 'Likes', value: 'likes' }, { label: 'Dislikes', value: 'dislikes' },
 ];
 const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
     const post = postsMap.get(postId);
-    // Ensure post exists before accessing properties
     if (!post || post.timestamp === 0) return 0;
     let latestTimestamp = post.timestamp;
-    // Check replies array exists before iterating
     if (post.replies && post.replies.length > 0) {
         for (const replyId of post.replies) {
-            // Check replyId is valid before recursive call
             if (replyId) {
                 const replyTimestamp = getLatestActivityTimestamp(replyId, postsMap);
-                // Ensure replyTimestamp is valid before comparing
                 if (replyTimestamp > 0 && replyTimestamp > latestTimestamp) {
                     latestTimestamp = replyTimestamp;
                 }
             }
         }
     }
-    return latestTimestamp; // Ensure return value
+    return latestTimestamp;
 };
 
 const buildPostTree = (postMap: Map<string, Post>): { topLevelIds: string[], postsWithReplies: Map<string, Post> } => {
     const postsWithReplies = new Map<string, Post>();
     const topLevelIds = new Set<string>();
     postMap.forEach((post, id) => {
-        // Ensure post is valid before processing
         if (post && id) {
-            postsWithReplies.set(id, { ...post, replies: [] }); // Initialize replies
-            topLevelIds.add(id); // Assume all are top-level initially
+            postsWithReplies.set(id, { ...post, replies: [] });
+            topLevelIds.add(id);
         }
     });
     postsWithReplies.forEach(post => {
-        // Ensure post and referenceCID exist before processing
         if (post && post.referenceCID && postsWithReplies.has(post.referenceCID)) {
             const parent = postsWithReplies.get(post.referenceCID);
             if (parent) {
                 if (!parent.replies) parent.replies = [];
-                 // Ensure post.id exists before pushing
                 if (post.id) {
                     parent.replies.push(post.id);
-                    topLevelIds.delete(post.id); // It's a reply, not top-level
+                    topLevelIds.delete(post.id);
                 }
             }
         }
     });
-    // Ensure return statement is outside loops
     return { topLevelIds: Array.from(topLevelIds), postsWithReplies };
 };
 interface DisplayData {
@@ -84,11 +75,11 @@ const ProfilePage: React.FC = () => {
     const location = useLocation();
     const {
         myIpnsKey, userState: currentUserState,
-        allPostsMap, // Still needed for displayData and ensurePostsAreFetched
+        allPostsMap,
         userProfilesMap,
         likePost, dislikePost,
         addPost, isProcessing, isCoolingDown, countdown,
-        ensurePostsAreFetched, // Still needed
+        ensurePostsAreFetched,
     } = useAppState();
 
     const [profileData, setProfileData] = useState<UserProfile | null>(null);
@@ -102,6 +93,10 @@ const ProfilePage: React.FC = () => {
     const [isLoaderVisible, setIsLoaderVisible] = useState(false);
     const [initialPostFetchComplete, setInitialPostFetchComplete] = useState(false);
 
+    // --- START SCROLL LOCK ---
+    const [isScrollLocked, setIsScrollLocked] = useState(false);
+    // --- END SCROLL LOCK ---
+
     // --- START SCROLL RESTORATION ---
     const feedContainerRef = useRef<HTMLDivElement>(null);
     const scrollAnchorRef = useRef<{ id: string | null; top: number }>({ id: null, top: 0 });
@@ -114,6 +109,21 @@ const ProfilePage: React.FC = () => {
 
     const handleAddPost = (postData: NewPostData) => { addPost(postData); };
 
+    // --- useEffect for scroll locking/unlocking ---
+    useEffect(() => {
+        if (isScrollLocked) {
+            document.body.style.overflowY = 'hidden';
+            const unlockTimeout = setTimeout(() => {
+                document.body.style.overflowY = 'auto';
+                setIsScrollLocked(false);
+            }, 200);
+            return () => clearTimeout(unlockTimeout);
+        } else {
+            document.body.style.overflowY = 'auto';
+        }
+    }, [isScrollLocked]);
+    // --- End scroll locking effect ---
+
     // --- useEffect for modal navigation remains the same ---
     useEffect(() => {
         // ... (effect logic unchanged) ...
@@ -125,7 +135,7 @@ const ProfilePage: React.FC = () => {
      }, [searchParams, navigate, location]);
 
     // --- useEffect for initial profile load remains the same ---
-    useEffect(() => {
+     useEffect(() => {
         // ... (effect logic unchanged) ...
         if (!profileKey) {
             setError("No profile key provided."); setIsProfileLoading(false); navigate("/"); return;
@@ -136,12 +146,12 @@ const ProfilePage: React.FC = () => {
         setNextChunkCid(null);
         setProfileData(null);
         setPaginatedCids({ postCIDs: [], likedPostCIDs: [], dislikedPostCIDs: [] });
-        setInitialPostFetchComplete(false); // Reset flag on profile change
+        setInitialPostFetchComplete(false);
         let isMounted = true;
 
         const loadInitialProfileChunk = async () => {
             let userStateChunk: Partial<UserState> | null = null;
-            let initialPostsToFetch: string[] = []; // Collect posts here
+            let initialPostsToFetch: string[] = [];
 
             try {
                 invalidateSpecificIpnsCacheEntry(profileKey);
@@ -150,7 +160,9 @@ const ProfilePage: React.FC = () => {
                 userStateChunk = await fetchUserStateChunk(profileStateCid, profileKey);
 
                 if (!isMounted) return;
-                if (!userStateChunk || !userStateChunk.profile) { throw new Error("Could not load user profile from head chunk."); }
+                if (!userStateChunk || !userStateChunk.profile) {
+                    throw new Error("Could not load user profile from head chunk.");
+                }
 
                 setProfileData(userStateChunk.profile);
                 setPaginatedCids({
@@ -161,12 +173,10 @@ const ProfilePage: React.FC = () => {
                 setNextChunkCid(userStateChunk.extendedUserState || null);
                 console.log(`[ProfilePage loadProfile] Initial nextChunkCid set to: ${userStateChunk.extendedUserState || null}`);
 
-                // --- Collect initial posts needed ---
                 const postCids = userStateChunk.postCIDs || [];
                 const likedCids = userStateChunk.likedPostCIDs || [];
                 const dislikedCids = userStateChunk.dislikedPostCIDs || [];
                 const allCids = [...new Set([...postCids, ...likedCids, ...dislikedCids])];
-                // Check against the *current* allPostsMap from context
                 initialPostsToFetch = allCids.filter(cid => cid && !cid.startsWith('temp-') && !allPostsMap.has(cid));
 
             } catch (err) {
@@ -178,37 +188,43 @@ const ProfilePage: React.FC = () => {
               }
              finally { if (isMounted) { setIsProfileLoading(false); } }
 
-            // --- Trigger initial post fetch ---
-            if (initialPostsToFetch.length > 0 && profileKey) {
+            // Trigger initial post fetch (don't await)
+            if (initialPostsToFetch.length > 0 && profileKey && isMounted) {
                  console.log(`[ProfilePage] Found ${initialPostsToFetch.length} initial posts to fetch (lazy)...`);
-                 // Don't await this, let it run in background
                  ensurePostsAreFetched(initialPostsToFetch, profileKey)
                      .catch(e => console.error(`[ProfilePage] Initial lazy post fetch failed: ${e}`))
                      .finally(() => {
-                          if(isMounted) setInitialPostFetchComplete(true);
-                          console.log("[ProfilePage] Initial post fetch complete flag set.");
+                          if(isMounted) {
+                              setInitialPostFetchComplete(true);
+                              console.log("[ProfilePage] Initial post fetch complete flag set.");
+                          }
                      });
             } else {
-                 if(isMounted) setInitialPostFetchComplete(true);
-                 console.log("[ProfilePage] No initial posts needed, complete flag set.");
+                 if(isMounted) {
+                     setInitialPostFetchComplete(true);
+                     console.log("[ProfilePage] No initial posts needed, complete flag set.");
+                 }
             }
         };
 
         loadInitialProfileChunk();
-        return () => { isMounted = false; }; // Cleanup function
+        return () => { isMounted = false; };
 
     }, [profileKey, navigate, allPostsMap, ensurePostsAreFetched]);
 
 
     // --- loadMoreProfileChunks useCallback ---
     const loadMoreProfileChunks = useCallback(async () => {
-        // ... (function logic largely unchanged, but set wasLoadingMore.current) ...
         if (!nextChunkCid || isLoadingMore || !profileKey) return;
 
         console.log(`[ProfilePage] Loading next chunk: ${nextChunkCid}`);
         setIsLoadingMore(true);
         wasLoadingMore.current = true; // Set flag for scroll restoration
-        let fetchedNextChunkSuccessfully = false; // Flag to track chunk fetch status
+        // --- START MODIFICATION: Add scroll lock ---
+        setIsScrollLocked(true); // Disable scrolling
+        // --- END MODIFICATION ---
+        let fetchedNextChunkSuccessfully = false;
+        let missingNewCids: string[] = [];
 
         try {
             const nextChunk = await fetchUserStateChunk(nextChunkCid, profileKey);
@@ -217,33 +233,35 @@ const ProfilePage: React.FC = () => {
                  console.error(`[ProfilePage] fetchUserStateChunk returned invalid data for CID: ${nextChunkCid}`);
                  throw new Error("Failed to fetch next valid chunk data.");
             }
-            fetchedNextChunkSuccessfully = true; // Mark as successful
+            fetchedNextChunkSuccessfully = true;
 
-            setPaginatedCids(prevCids => {
-                return {
-                    postCIDs: [...new Set([...(prevCids.postCIDs || []), ...(nextChunk.postCIDs || [])])],
-                    likedPostCIDs: [...new Set([...(prevCids.likedPostCIDs || []), ...(nextChunk.likedPostCIDs || [])])],
-                    dislikedPostCIDs: [...new Set([...(prevCids.dislikedPostCIDs || []), ...(nextChunk.dislikedPostCIDs || [])])],
-                };
-            });
+            // Immediately update the list of CIDs the UI knows about
+            setPaginatedCids(prevCids => ({
+                postCIDs: [...new Set([...(prevCids.postCIDs || []), ...(nextChunk.postCIDs || [])])],
+                likedPostCIDs: [...new Set([...(prevCids.likedPostCIDs || []), ...(nextChunk.likedPostCIDs || [])])],
+                dislikedPostCIDs: [...new Set([...(prevCids.dislikedPostCIDs || []), ...(nextChunk.dislikedPostCIDs || [])])],
+            }));
 
+            // Set the *next* cursor based ONLY on the successfully fetched chunk
             const nextCursor = nextChunk.extendedUserState || null;
             setNextChunkCid(nextCursor);
-            console.log(`[ProfilePage] Next chunk CID set to: ${nextCursor}`); // <-- Added log
+            console.log(`[ProfilePage] Next chunk CID set to: ${nextCursor}`);
 
-            // Fetch content for newly discovered posts from the VALID chunk
+            // Identify content needing fetch
             const allNewCids = [
                 ...(nextChunk.postCIDs || []),
                 ...(nextChunk.likedPostCIDs || []),
                 ...(nextChunk.dislikedPostCIDs || [])
             ];
-            const missingNewCids: string[] = [...new Set(allNewCids)].filter(
+            missingNewCids = [...new Set(allNewCids)].filter(
                 (cid): cid is string => !!cid && !cid.startsWith('temp-') && !allPostsMap.has(cid)
             );
 
+            // Await ensurePostsAreFetched
             if (missingNewCids.length > 0) {
-                 console.log(`[ProfilePage] Found ${missingNewCids.length} new posts in chunk to fetch...`);
-                await ensurePostsAreFetched(missingNewCids, profileKey);
+                 console.log(`[ProfilePage] Found ${missingNewCids.length} new posts in chunk to fetch... AWAITING FETCH.`);
+                await ensurePostsAreFetched(missingNewCids, profileKey); // Wait for content
+                 console.log(`[ProfilePage] Finished fetching ${missingNewCids.length} new posts.`);
             } else {
                  console.log("[ProfilePage] Load more checked, no new posts found in chunk.");
             }
@@ -256,14 +274,14 @@ const ProfilePage: React.FC = () => {
                  console.warn("[ProfilePage] Keeping existing nextChunkCid due to chunk fetch failure.");
             }
         } finally {
-            setIsLoadingMore(false);
-             console.log("[ProfilePage] Finished loading more attempt, isLoadingMore set to false."); // <-- Added log
+             setIsLoadingMore(false);
+             console.log("[ProfilePage] Finished loading more attempt, isLoadingMore set to false.");
         }
-    }, [nextChunkCid, isLoadingMore, profileKey, allPostsMap, ensurePostsAreFetched]); // Dependencies remain correct
+    }, [nextChunkCid, isLoadingMore, profileKey, allPostsMap, ensurePostsAreFetched]);
 
 
     // --- displayData useMemo remains the same ---
-    const displayData = useMemo((): DisplayData => {
+     const displayData = useMemo((): DisplayData => {
         // ... (memo logic unchanged) ...
         const profileMapToUse: Map<string, UserProfile> = userProfilesMap;
 
@@ -316,7 +334,7 @@ const ProfilePage: React.FC = () => {
      }, [paginatedCids, profileData, selectedFeed, profileKey, allPostsMap, userProfilesMap, currentUserState?.dislikedPostCIDs]);
 
     // --- Observer useEffect remains the same ---
-    useEffect(() => {
+     useEffect(() => {
         // ... (effect logic unchanged) ...
         const observer = new IntersectionObserver(
             (entries) => {
@@ -344,13 +362,16 @@ const ProfilePage: React.FC = () => {
         };
     }, [profileKey, isProfileLoading, profileData]);
 
-    // --- Trigger useEffect ---
-    useEffect(() => {
+    // --- Trigger useEffect remains the same ---
+     useEffect(() => {
+        // ... (effect logic unchanged, including anchor capture) ...
         if (isLoaderVisible && initialPostFetchComplete) {
             const canLoadMoreNow = nextChunkCid !== null;
             console.log(`[LoadMore Trigger Check ProfilePage] Loader is visible! canLoadMoreNow: ${canLoadMoreNow}, isLoadingMore: ${isLoadingMore}`);
 
-            if (canLoadMoreNow && !isLoadingMore) {
+            // --- START MODIFICATION: Add scroll lock condition ---
+            if (canLoadMoreNow && !isLoadingMore && !isScrollLocked) {
+            // --- END MODIFICATION ---
                 // --- START SCROLL RESTORATION: Capture anchor before loading ---
                 if (feedContainerRef.current) {
                     const posts = feedContainerRef.current.querySelectorAll('.post[data-post-id]');
@@ -381,17 +402,16 @@ const ProfilePage: React.FC = () => {
         } else if (isLoaderVisible) {
              console.log(`[LoadMore Trigger Check ProfilePage] Loader visible but initialPostFetchComplete is ${initialPostFetchComplete}`);
         }
-    }, [isLoaderVisible, isLoadingMore, loadMoreProfileChunks, initialPostFetchComplete, nextChunkCid]);
+    }, [isLoaderVisible, isLoadingMore, loadMoreProfileChunks, initialPostFetchComplete, nextChunkCid, isScrollLocked]);
 
-    // --- START SCROLL RESTORATION: useLayoutEffect to restore position ---
-    useLayoutEffect(() => {
-        // Only run if we *were* loading, are not *anymore*, have an anchor ID, and are not *currently* restoring
+    // --- Scroll Restoration useLayoutEffect remains the same ---
+     useLayoutEffect(() => {
+        // ... (effect logic unchanged, using requestAnimationFrame) ...
         if (wasLoadingMore.current && !isLoadingMore && scrollAnchorRef.current.id && !isRestoringScroll.current) {
             const anchorId = scrollAnchorRef.current.id;
             const storedTop = scrollAnchorRef.current.top;
             console.log(`[Scroll Restore Attempt - Profile] Anchor ID: ${anchorId}, Stored Top: ${storedTop}`);
 
-            // --- Wrap in requestAnimationFrame ---
             const rafId = requestAnimationFrame(() => {
                 const anchorElement = feedContainerRef.current?.querySelector(`[data-post-id="${anchorId}"]`);
 
@@ -402,9 +422,8 @@ const ProfilePage: React.FC = () => {
 
                     if (Math.abs(scrollOffset) > 1) {
                         isRestoringScroll.current = true;
-                        window.scrollBy({ top: scrollOffset, left: 0, behavior: 'instant' }); // Use instant behavior
+                        window.scrollBy({ top: scrollOffset, left: 0, behavior: 'instant' });
                         console.log(`[Scroll Restore Action - Profile] Scrolled by ${scrollOffset}px`);
-                        // Use another rAF to release the lock
                         requestAnimationFrame(() => { isRestoringScroll.current = false; });
                     } else {
                         isRestoringScroll.current = false;
@@ -414,7 +433,6 @@ const ProfilePage: React.FC = () => {
                     isRestoringScroll.current = false;
                 }
             });
-            // --- End wrap ---
 
             wasLoadingMore.current = false;
             scrollAnchorRef.current = { id: null, top: 0 };
@@ -427,8 +445,8 @@ const ProfilePage: React.FC = () => {
              wasLoadingMore.current = false;
              scrollAnchorRef.current = { id: null, top: 0 };
         }
-    }, [isLoadingMore, displayData.topLevelIds, paginatedCids]); // Rerun when loading or data changes
-    // --- END SCROLL RESTORATION ---
+    }, [isLoadingMore, displayData.topLevelIds, paginatedCids]);
+
 
     // --- Loading/Error checks remain the same ---
     if (!profileKey) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: No profile key provided.</p></div>;

@@ -1,5 +1,5 @@
 // fileName: src/pages/HomePage.tsx
-import React, { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useLayoutEffect, useCallback } from 'react'; // ADDED useCallback
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../state/useAppStorage';
 import Sidebar from '../components/Sidebar';
@@ -57,11 +57,29 @@ const HomePage: React.FC = () => {
     const loaderRef = useRef<HTMLDivElement>(null);
     const [isLoaderVisible, setIsLoaderVisible] = useState(false);
 
-    // --- START SCROLL RESTORATION ---
-    const feedContainerRef = useRef<HTMLDivElement>(null); // Ref for the feed container itself
+    // --- START SCROLL LOCK & RESTORATION STATE ---
+    const [isScrollLocked, setIsScrollLocked] = useState(false);
+    const feedContainerRef = useRef<HTMLDivElement>(null);
     const scrollAnchorRef = useRef<{ id: string | null; top: number }>({ id: null, top: 0 });
-    const isRestoringScroll = useRef(false); // Flag to prevent effect loops
-    // --- END SCROLL RESTORATION ---
+    const isRestoringScroll = useRef(false);
+    const wasLoadingMore = useRef(false);
+    // --- END SCROLL LOCK & RESTORATION STATE ---
+
+    // --- useEffect for scroll locking/unlocking ---
+    useEffect(() => {
+        if (isScrollLocked) {
+            document.body.style.overflowY = 'hidden';
+            const unlockTimeout = setTimeout(() => {
+                document.body.style.overflowY = 'auto';
+                setIsScrollLocked(false);
+            }, 200);
+            return () => clearTimeout(unlockTimeout);
+        } else {
+            document.body.style.overflowY = 'auto';
+        }
+    }, [isScrollLocked]);
+    // --- End scroll locking effect ---
+
 
     // --- useEffect for feed switching remains the same ---
     useEffect(() => {
@@ -151,12 +169,44 @@ const HomePage: React.FC = () => {
 
     // --- loading/canLoadMore logic ---
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
-     const wasLoadingMore = useRef(false);
      const isLoadingMore = selectedFeed === 'myFeed' ? isLoadingFeed : isLoadingExplore;
      const canLoadMore =
         (selectedFeed === 'myFeed' && canLoadMoreMyFeed) ||
         (selectedFeed === 'explore' && canLoadMoreExplore);
-     const loadMoreHandler = selectedFeed === 'myFeed' ? loadMoreMyFeed : loadMoreExplore;
+     
+     // --- START MODIFICATION: Load More Handler with Scroll Lock ---
+     const wrappedLoadMoreHandler = useCallback(() => {
+        if (canLoadMore && !isLoadingMore) {
+            // 1. Capture Anchor
+            if (feedContainerRef.current) {
+                const posts = feedContainerRef.current.querySelectorAll('.post[data-post-id]');
+                let bestCandidate: { id: string | null, top: number } = { id: null, top: Infinity };
+                posts.forEach(postElement => {
+                    const rect = postElement.getBoundingClientRect();
+                    if (rect.bottom > -50 && rect.top < bestCandidate.top) {
+                        bestCandidate = { id: postElement.getAttribute('data-post-id'), top: rect.top };
+                    }
+                });
+                 if (bestCandidate.id) {
+                     scrollAnchorRef.current = bestCandidate;
+                     console.log(`[Scroll Anchor Set] ID: ${bestCandidate.id}, Top: ${bestCandidate.top}`);
+                 } else {
+                     scrollAnchorRef.current = { id: null, top: 0 };
+                 }
+            } else {
+                 scrollAnchorRef.current = { id: null, top: 0 };
+            }
+
+            // 2. Start Lock and Loading
+            wasLoadingMore.current = true;
+            setIsScrollLocked(true); // Disable scrolling for 1 second
+            
+            console.log("[LoadMore Trigger HomePage] Conditions met, calling loadMoreHandler...");
+            (selectedFeed === 'myFeed' ? loadMoreMyFeed : loadMoreExplore)();
+        }
+     }, [canLoadMore, isLoadingMore, loadMoreMyFeed, loadMoreExplore, selectedFeed]);
+     // --- END MODIFICATION ---
+
 
     // --- Observer useEffect remains the same (sets visibility) ---
     useEffect(() => {
@@ -179,41 +229,16 @@ const HomePage: React.FC = () => {
             if (currentLoaderRef) { observer.unobserve(currentLoaderRef); }
             setIsLoaderVisible(false);
         };
-    }, [selectedFeed]); // Re-observe when feed type changes
+    }, [selectedFeed]);
 
-    // --- Trigger useEffect (calls loadMoreHandler) ---
+    // --- Trigger useEffect (calls wrappedLoadMoreHandler) ---
     useEffect(() => {
         console.log(`[LoadMore Trigger Check HomePage] isLoaderVisible: ${isLoaderVisible}, canLoadMore: ${canLoadMore}, isLoadingMore: ${isLoadingMore}, selectedFeed: ${selectedFeed}`);
-        if (isLoaderVisible && canLoadMore && !isLoadingMore) {
-            // --- START SCROLL RESTORATION: Capture anchor before loading ---
-            if (feedContainerRef.current) {
-                const posts = feedContainerRef.current.querySelectorAll('.post[data-post-id]'); // Find rendered posts with the attribute
-                let bestCandidate: { id: string | null, top: number } = { id: null, top: Infinity };
-                posts.forEach(postElement => {
-                    const rect = postElement.getBoundingClientRect();
-                    // Find the first post that is at least partially visible or just above the viewport top
-                    if (rect.bottom > -50 && rect.top < bestCandidate.top) { // Allow slightly above viewport
-                        bestCandidate = { id: postElement.getAttribute('data-post-id'), top: rect.top };
-                    }
-                });
-                 if (bestCandidate.id) {
-                     scrollAnchorRef.current = bestCandidate;
-                     console.log(`[Scroll Anchor Set] ID: ${bestCandidate.id}, Top: ${bestCandidate.top}`);
-                 } else {
-                     scrollAnchorRef.current = { id: null, top: 0 }; // Reset if no suitable anchor found
-                     console.log("[Scroll Anchor Set] No suitable anchor found.");
-                 }
-            } else {
-                 scrollAnchorRef.current = { id: null, top: 0 }; // Reset if container not found
-                 console.log("[Scroll Anchor Set] Feed container ref not found.");
-            }
-            // --- END SCROLL RESTORATION ---
-
-            console.log("[LoadMore Trigger HomePage] Conditions met, calling loadMoreHandler...");
-            wasLoadingMore.current = true; // Set flag *before* calling loadMore
-            loadMoreHandler();
+        // Call wrapped handler, checking scroll lock state
+        if (isLoaderVisible && canLoadMore && !isLoadingMore && !isScrollLocked) {
+             wrappedLoadMoreHandler();
         }
-    }, [isLoaderVisible, canLoadMore, isLoadingMore, loadMoreHandler, selectedFeed]);
+    }, [isLoaderVisible, canLoadMore, isLoadingMore, wrappedLoadMoreHandler, selectedFeed, isScrollLocked]);
 
     // --- START SCROLL RESTORATION: useLayoutEffect to restore position ---
     useLayoutEffect(() => {
@@ -262,7 +287,7 @@ const HomePage: React.FC = () => {
              wasLoadingMore.current = false;
              scrollAnchorRef.current = { id: null, top: 0 };
         }
-    }, [isLoadingMore, displayData.topLevelIds]); // Rerun when loading finishes OR the list changes
+    }, [isLoadingMore, displayData.topLevelIds]);
     // --- END SCROLL RESTORATION ---
 
 
