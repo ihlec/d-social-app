@@ -293,7 +293,7 @@ export async function loginToKubo(
                  console.warn(`Could not resolve initial state for existing user ${keyName}:`, e);
                  if (forceInitialize) {
                      console.log(`[loginToKubo] Force initializing existing user ${keyName}.`);
-                     
+
                      // --- START MODIFICATION: Ensure empty state is uploaded before publishing ---
                      initialState = createEmptyUserState({ name: keyName });
                      initialCid = await uploadJsonToIpfs(apiUrl, initialState, { username, password });
@@ -438,7 +438,9 @@ async function fetchCidViaGateways(cid: string): Promise<any> {
         let url: string;
         if (gw.type === 'path') url = `${gw.url}/ipfs/${cid}`;
         else url = gw.url.replace('{cid}', cid);
-        const ctrl = new AbortController(); const tId = setTimeout(() => ctrl.abort(), 15000); // 15s timeout for public gateways
+        // --- START MODIFICATION: Set timeout to 60000ms (60s) ---
+        const ctrl = new AbortController(); const tId = setTimeout(() => ctrl.abort(), 60000); // 60s timeout for public gateways
+        // --- END MODIFICATION ---
         try { const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' }); clearTimeout(tId); if (!res.ok) throw new Error(`${url} fail: ${res.status}`); return await res.json(); } catch (e) { clearTimeout(tId); throw e; }
     });
     try { return await Promise.any(promises); } catch (e) { const msgs = e instanceof AggregateError ? e.errors.map(er => er instanceof Error ? er.message : String(er)).join(', ') : (e instanceof Error ? e.message : String(e)); console.error(`Fetch CID ${cid} failed via public gateways. Errors: ${msgs}`); throw new Error(`Could not fetch CID ${cid} via public gateways.`); }
@@ -454,7 +456,7 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
         chunksProcessed++; console.log(`[fetchUserState] Processing chunk ${chunksProcessed}, CID: ${currentCid}`);
 
         try {
-            const chunk = await fetchUserStateChunk(currentCid); // Uses shorter timeout
+            const chunk = await fetchUserStateChunk(currentCid, profileNameHint); // Pass hint
             if (!chunk || (isHead && !chunk.profile)) { console.error(`[fetchUserState] Fetched data for chunk ${chunksProcessed} (CID: ${currentCid}) is not a valid UserState chunk. Stopping traversal.`); if (isHead) { console.error(`[fetchUserState] Head chunk ${currentCid} failed validation.`); throw new Error(`Head state chunk ${currentCid} is invalid or missing profile.`); } else { toast.error(`Could not load older state (CID: ${currentCid.substring(0, 8)}...). Some history may be missing.`); currentCid = null; continue; } }
             console.log(`[fetchUserState] Successfully fetched and validated chunk ${chunksProcessed}`, chunk);
             if (isHead) { aggregatedState.profile = chunk.profile; aggregatedState.updatedAt = typeof chunk.updatedAt === 'number' ? chunk.updatedAt : 0; isHead = false; }
@@ -490,10 +492,13 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
     };
 }
 
-export async function fetchUserStateChunk(cid: string): Promise<Partial<UserState>> {
+// --- START MODIFICATION: Add profileNameHint to chunk fetcher ---
+export async function fetchUserStateChunk(cid: string, profileNameHint?: string): Promise<Partial<UserState>> {
     if (cid === DEFAULT_USER_STATE_CID) {
-         return { profile: { name: "Default User" }, postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], updatedAt: 0, extendedUserState: null };
+         // Use the hint if available
+         return { profile: { name: profileNameHint || "Default User" }, postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], updatedAt: 0, extendedUserState: null };
     }
+// --- END MODIFICATION ---
     try {
         const data = await fetchPost(cid); // Uses shorter timeout
         if (!data) throw new Error(`No data found for CID ${cid}`);
@@ -519,12 +524,15 @@ export async function fetchPost(cid: string): Promise<Post | UserState | any > {
     try { return await fetchCidViaGateways(cid); } catch (e) { throw e; }
 }
 
+// --- START MODIFICATION: Update fetchPostLocal ---
 export async function fetchPostLocal(cid: string, authorHint: string): Promise<Post | UserState | any> {
     const session = getSession();
+    let data: any = null;
+
+    // 1. Try fetching from local Kubo node first (with short timeout)
     if (session.sessionType === 'kubo' && session.rpcApiUrl) {
         try {
-            // Use shorter timeout for cat
-            const data = await fetchKubo(
+            data = await fetchKubo(
                 session.rpcApiUrl,
                 '/api/v0/cat',
                 { arg: cid },
@@ -532,19 +540,44 @@ export async function fetchPostLocal(cid: string, authorHint: string): Promise<P
                 { username: session.kuboUsername, password: session.kuboPassword },
                 5000 // 5 seconds timeout
             );
+
+            // Basic validation
             if (data && typeof data === 'object' && (data.authorKey || data.profile)) {
+                // Successfully fetched from local node
                 return data;
             } else {
-                 console.warn(`[fetchPostLocal] Kubo fetch ${cid} returned invalid data.`);
+                 console.warn(`[fetchPostLocal] Kubo fetch ${cid} returned invalid data. Falling back.`);
+                 data = null; // Ensure fallback happens
             }
         } catch (e) {
-            console.warn(`[fetchPostLocal] Kubo fetch ${cid} failed. Returning placeholder.`, e);
+            console.warn(`[fetchPostLocal] Kubo fetch ${cid} failed. Falling back.`, e);
+            data = null; // Ensure fallback happens
         }
     } else {
-        console.warn("[fetchPostLocal] No Kubo session available. Returning placeholder.");
+        console.warn("[fetchPostLocal] No Kubo session available. Attempting public gateways.");
     }
 
-    const errorMessage = "Content removed or unavailable locally.";
+    // 2. If local fetch failed or wasn't possible, try public gateways (with longer timeout)
+    if (data === null) {
+        try {
+            data = await fetchCidViaGateways(cid); // Uses 60s timeout internally
+             // Basic validation
+            if (data && typeof data === 'object' && (data.authorKey || data.profile)) {
+                // Successfully fetched from public gateway
+                return data;
+            } else {
+                 console.warn(`[fetchPostLocal] Public gateway fetch ${cid} returned invalid data.`);
+                 data = null; // Ensure placeholder is returned
+            }
+        } catch (e) {
+             console.error(`[fetchPostLocal] Public gateway fetch ${cid} failed.`, e);
+             data = null; // Ensure placeholder is returned
+        }
+    }
+
+    // 3. If both local and public failed, return placeholder
+    console.warn(`[fetchPostLocal] All fetch attempts failed for ${cid}. Returning placeholder.`);
+    const errorMessage = "Content unavailable.";
     const placeholderPost: Post = {
         id: cid,
         authorKey: authorHint,
@@ -554,6 +587,8 @@ export async function fetchPostLocal(cid: string, authorHint: string): Promise<P
     };
     return placeholderPost;
 }
+// --- END MODIFICATION ---
+
 
 export const invalidateIpnsCache = () => { console.log("Invalidating IPNS cache."); ipnsResolutionCache.clear(); };
 

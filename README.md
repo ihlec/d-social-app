@@ -97,3 +97,8 @@ Failicitas
     }
   }
 }
+
+
+## Algo sketching
+
+It takes too long until the user sees the first posts in such feeds. My proposal is to only load posts incrementally and in sync with the user scrolling through the feed. Initially I would like to load only one chunk per userState. Then I want to show the discovered posts in the current feed. Then I want to check if there are enough posts to fill the entire page. If not the next chunk of each userState is loaded. Once the page is populated entierly with posts, the user can scroll. If he scrolls and the there are not enough posts to fill the page anymore, the next userState chunk of each user is loaded, and so on.

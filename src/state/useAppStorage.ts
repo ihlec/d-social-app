@@ -35,9 +35,7 @@ export interface UseAppStateReturn {
 	refreshExploreFeed: () => Promise<void>;
     canLoadMoreExplore: boolean;
 	updateProfile: (profileData: Partial<UserProfile>) => Promise<void>;
-    // --- START MODIFICATION: Update signature ---
 	ensurePostsAreFetched: (postCids: string[], authorHint?: string) => Promise<void>;
-    // --- END MODIFICATION ---
 	unresolvedFollows: string[];
 	allPostsMap: Map<string, Post>;
 	userProfilesMap: Map<string, UserProfile>;
@@ -45,6 +43,10 @@ export interface UseAppStateReturn {
     isInitializeDialogOpen: boolean;
     onInitializeUser: (() => void) | null;
     onRetryLogin: (() => void) | null;
+    // --- START MODIFICATION: Add new state ---
+    loadMoreMyFeed: () => Promise<void>;
+    canLoadMoreMyFeed: boolean;
+    // --- END MODIFICATION ---
 }
 
 export const useAppStateInternal = (): UseAppStateReturn => {
@@ -56,6 +58,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
 	const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
 	const [otherUsers, setOtherUsers] = useState<OnlinePeer[]>([]);
+    // --- START MODIFICATION: Add cursor state ---
+    const [followCursors, setFollowCursors] = useState<Map<string, string | null>>(new Map());
+    // --- END MODIFICATION ---
     const [initializeDialog, setInitializeDialog] = useState<{
         isOpen: boolean;
         onInitialize: (() => void) | null;
@@ -68,6 +73,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         setUserState(null); setMyIpnsKey(''); setLatestStateCID(''); setIsLoggedIn(false);
         setAllPostsMap(new Map()); setUserProfilesMap(new Map());
         setUnresolvedFollows([]); setOtherUsers([]);
+        // --- START MODIFICATION: Reset cursor state ---
+        setFollowCursors(new Map());
+        // --- END MODIFICATION ---
         setInitializeDialog({ isOpen: false, onInitialize: null, onRetry: null });
         toast("Logged out.");
 	}, []);
@@ -82,9 +90,19 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 	const fetchMissingParentPost = useParentPostFetcher({
         allPostsMap, setAllPostsMap, userProfilesMap, setUserProfilesMap,
     });
-	const { isLoadingFeed, processMainFeed, ensurePostsAreFetched }: UseAppFeedReturn = useAppFeed({
-        allPostsMap, userProfilesMap, setAllPostsMap, setUserProfilesMap, setUnresolvedFollows, fetchMissingParentPost,
+    // --- START MODIFICATION: Pass cursor state to useAppFeed ---
+	const { 
+        isLoadingFeed, 
+        processMainFeed, 
+        ensurePostsAreFetched,
+        loadMoreMyFeed,
+        canLoadMoreMyFeed
+    }: UseAppFeedReturn = useAppFeed({
+        allPostsMap, userProfilesMap, setAllPostsMap, setUserProfilesMap, 
+        setUnresolvedFollows, fetchMissingParentPost,
+        followCursors, setFollowCursors // Pass state and setter
     });
+    // --- END MODIFICATION ---
 	const { loginWithKubo, logout }: UseAppAuthReturn = useAppAuth({
         setUserState, setMyIpnsKey, setLatestStateCID, setIsLoggedIn, resetAllState, currentUserState: userState, processMainFeed,
         openInitializeDialog, closeInitializeDialog
@@ -112,6 +130,11 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         }
         // --- END MODIFICATION ---
 
+        // --- START MODIFICATION: Reset cursors on refresh ---
+        console.log("[refreshFeed] Resetting follow cursors.");
+        setFollowCursors(new Map());
+        // --- END MODIFICATION ---
+
         if (userState) {
             console.log("[refreshFeed] User state exists. Calling processMainFeed..."); // <-- ADDED LOG
             await processMainFeed(userState, myIpnsKey);
@@ -119,7 +142,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         } else {
              console.warn("[refreshFeed] Cannot refresh, no user state available.");
         }
-	}, [ isLoggedIn, myIpnsKey, userState, processMainFeed ]);
+	}, [ isLoggedIn, myIpnsKey, userState, processMainFeed, setFollowCursors ]); // --- Added setFollowCursors ---
 
 
 	const {
@@ -146,6 +169,10 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         isInitializeDialogOpen: initializeDialog.isOpen,
         onInitializeUser: initializeDialog.onInitialize,
         onRetryLogin: initializeDialog.onRetry,
+        // --- START MODIFICATION: Expose new feed state ---
+        loadMoreMyFeed,
+        canLoadMoreMyFeed,
+        // --- END MODIFICATION ---
 	};
 };
 

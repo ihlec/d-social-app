@@ -10,6 +10,7 @@ import { Post, NewPostData, Follow } from '../types';
 import { RefreshIcon } from '../components/Icons';
 import logo from '/logo.png';
 
+// --- getLatestActivityTimestamp and buildPostTree remain the same ---
 const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
     const post = postsMap.get(postId);
     if (!post || post.timestamp === 0) return 0;
@@ -46,16 +47,19 @@ const HomePage: React.FC = () => {
         unresolvedFollows, allPostsMap, userProfilesMap,
         otherUsers,
         ensurePostsAreFetched,
+        loadMoreMyFeed,
+        canLoadMoreMyFeed,
     } = useAppState();
 
     const exploreInitialized = useRef(false);
     const prevSelectedFeedRef = useRef<FeedType | undefined>(undefined);
     const isInitialLoad = useRef(true);
+    const loaderRef = useRef<HTMLDivElement>(null);
+    const [isLoaderVisible, setIsLoaderVisible] = useState(false);
 
-    console.log("[HomePage Render] Component rendering..."); // <-- ADDED LOG
-
+    // --- useEffect for feed switching remains the same ---
     useEffect(() => {
-        console.log("[HomePage useEffect] Running effect. isInitialLoad:", isInitialLoad.current, "SelectedFeed:", selectedFeed); // <-- ADDED LOG
+        console.log("[HomePage useEffect] Running effect. isInitialLoad:", isInitialLoad.current, "SelectedFeed:", selectedFeed);
         const prevSelectedFeed = prevSelectedFeedRef.current;
         prevSelectedFeedRef.current = selectedFeed;
 
@@ -76,13 +80,12 @@ const HomePage: React.FC = () => {
             if (selectedFeed !== prevSelectedFeed && selectedFeed === 'myFeed') {
                 console.log(`[HomePage useEffect] Switched to ${selectedFeed}, triggering non-forced refresh...`);
                 if (userState) {
-                    // Pass force=false explicitly
                     refreshFeed(false);
                 } else {
                      console.warn("[HomePage useEffect] Skipping refresh on feed switch, no user state yet.");
                 }
             } else {
-                 console.log(`[HomePage useEffect] Feed is ${selectedFeed}, but didn't switch to it. No refresh triggered.`); // <-- ADDED LOG
+                 console.log(`[HomePage useEffect] Feed is ${selectedFeed}, but didn't switch to it. No refresh triggered.`);
             }
         } else { // selectedFeed === 'explore'
             if (userState && !exploreInitialized.current) {
@@ -90,10 +93,10 @@ const HomePage: React.FC = () => {
                 exploreInitialized.current = true;
                 refreshExploreFeed();
             } else {
-                 console.log(`[HomePage useEffect] Explore selected. Initialized: ${exploreInitialized.current}. Has userState: ${!!userState}`); // <-- MODIFIED LOG
+                 console.log(`[HomePage useEffect] Explore selected. Initialized: ${exploreInitialized.current}. Has userState: ${!!userState}`);
             }
         }
-        console.log("[HomePage useEffect] Effect finished."); // <-- ADDED LOG
+        console.log("[HomePage useEffect] Effect finished.");
     }, [selectedFeed, userState, refreshExploreFeed, refreshFeed]);
 
 
@@ -101,11 +104,12 @@ const HomePage: React.FC = () => {
     const handleSelectFeed = (feed: FeedType) => { setSelectedFeed(feed); };
     const handleAddPost = (postData: NewPostData) => { addPost(postData); };
 
+    // --- displayData useMemo remains the same ---
     const displayData = useMemo(() => {
-        console.log("[HomePage useMemo] Calculating displayData..."); // <-- ADDED LOG
+        console.log("[HomePage useMemo] Calculating displayData...");
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []);
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
-         console.log(`[HomePage useMemo] built tree. allTopLevelIds: ${allTopLevelIds.length}, postsWithReplies: ${postsWithReplies.size}`); // <-- ADDED LOG
+         console.log(`[HomePage useMemo] built tree. allTopLevelIds: ${allTopLevelIds.length}, postsWithReplies: ${postsWithReplies.size}`);
         const followedKeys = new Set(userState?.follows?.map((f: Follow) => f.ipnsKey) ?? []);
 
         let finalTopLevelIds: string[] = [];
@@ -129,73 +133,74 @@ const HomePage: React.FC = () => {
                 });
                 break;
         }
-         console.log(`[HomePage useMemo] Filtered topLevelIds for ${selectedFeed}: ${finalTopLevelIds.length}`); // <-- ADDED LOG
+         console.log(`[HomePage useMemo] Filtered topLevelIds for ${selectedFeed}: ${finalTopLevelIds.length}`);
 
         const sortedTopLevelIds = finalTopLevelIds.sort((a, b) => getLatestActivityTimestamp(b, postsWithReplies) - getLatestActivityTimestamp(a, postsWithReplies));
-         console.log("[HomePage useMemo] Sorting complete. Returning displayData."); // <-- ADDED LOG
+         console.log("[HomePage useMemo] Sorting complete. Returning displayData.");
 
         return { topLevelIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: userProfilesMap };
     }, [selectedFeed, allPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, userProfilesMap]);
 
+    // --- loading/canLoadMore logic remains the same ---
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
-     const showLoadMoreButton = selectedFeed === 'explore' && canLoadMoreExplore && !isLoadingExplore;
+     const isLoadingMore = selectedFeed === 'myFeed' ? isLoadingFeed : isLoadingExplore;
+     const canLoadMore =
+        (selectedFeed === 'myFeed' && canLoadMoreMyFeed) ||
+        (selectedFeed === 'explore' && canLoadMoreExplore);
+     const loadMoreHandler = selectedFeed === 'myFeed' ? loadMoreMyFeed : loadMoreExplore;
+
+    // --- Observer useEffect remains the same (sets visibility) ---
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const firstEntry = entries[0];
+                setIsLoaderVisible(firstEntry.isIntersecting);
+                console.log(`[IntersectionObserver HomePage] Visibility Changed: ${firstEntry.isIntersecting}`);
+            },
+            {
+                threshold: 0,
+                rootMargin: '200px 0px 0px 0px'
+            }
+        );
+
+        const currentLoaderRef = loaderRef.current;
+        if (currentLoaderRef) { observer.observe(currentLoaderRef); }
+
+        return () => {
+            if (currentLoaderRef) { observer.unobserve(currentLoaderRef); }
+            setIsLoaderVisible(false);
+        };
+    }, [selectedFeed]); // Re-observe when feed type changes
+
+    // --- Trigger useEffect remains the same (calls loadMoreHandler) ---
+    useEffect(() => {
+        console.log(`[LoadMore Trigger Check HomePage] isLoaderVisible: ${isLoaderVisible}, canLoadMore: ${canLoadMore}, isLoadingMore: ${isLoadingMore}, selectedFeed: ${selectedFeed}`);
+        if (isLoaderVisible && canLoadMore && !isLoadingMore) {
+            console.log("[LoadMore Trigger HomePage] Conditions met, calling loadMoreHandler...");
+            loadMoreHandler();
+        }
+    }, [isLoaderVisible, canLoadMore, isLoadingMore, loadMoreHandler, selectedFeed]);
 
 
     return (
         <div className="app-container">
-            <div className="logo-container" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                <img src={logo} alt="Logo" />
-            </div>
-            <Sidebar
-                isOpen={isSidebarOpen} userState={userState} ipnsKey={myIpnsKey} latestCid={latestStateCID} unresolvedFollows={unresolvedFollows} otherUsers={otherUsers} onFollow={followUser} onUnfollow={unfollowUser} onViewProfile={handleViewProfile} onLogout={logout}
-            />
+            {/* --- Sidebar and Logo remain the same --- */}
+             <div className="logo-container" onClick={() => setIsSidebarOpen(!isSidebarOpen)}> <img src={logo} alt="Logo" /> </div>
+             <Sidebar isOpen={isSidebarOpen} userState={userState} ipnsKey={myIpnsKey} latestCid={latestStateCID} unresolvedFollows={unresolvedFollows} otherUsers={otherUsers} onFollow={followUser} onUnfollow={unfollowUser} onViewProfile={handleViewProfile} onLogout={logout} />
+
             <div className={`main-content ${isSidebarOpen ? 'sidebar-open' : ''}`}>
-                 <>
-                    <div className="feed-header">
-                        {/* Explicitly pass force=true */}
-                        <button className="refresh-button" onClick={() => selectedFeed === 'explore' ? refreshExploreFeed() : refreshFeed(true)} disabled={isLoading || isProcessing} title={selectedFeed === 'explore' ? "Refresh Explore Feed" : "Refresh Feed"} > <RefreshIcon /> </button>
-                    </div>
-                    <FeedSelector selectedFeed={selectedFeed} onSelectFeed={handleSelectFeed} />
-                 </>
-                 {selectedFeed === 'myFeed' && userState && (
-                     <NewPostForm
-                        replyingToPost={null}
-                        replyingToAuthorName={null}
-                        onAddPost={handleAddPost}
-                        isProcessing={isProcessing}
-                        isCoolingDown={isCoolingDown}
-                        countdown={countdown}
-                     />
-                 )}
-                <Feed
-                    isLoading={isLoading}
-                    topLevelIds={displayData.topLevelIds || []} // Corrected prop name
-                    allPostsMap={displayData.allPostsMap}
-                    userProfilesMap={displayData.userProfilesMap}
-                    onViewProfile={handleViewProfile}
-                    onLikePost={likePost}
-                    onDislikePost={dislikePost}
-                    currentUserState={userState}
-                    myIpnsKey={myIpnsKey}
-                    ensurePostsAreFetched={ensurePostsAreFetched}
-                />
-                {selectedFeed === 'explore' && (
-                    <div style={{ padding: '1rem', textAlign: 'center' }}>
-                        {isLoadingExplore ? (
-                            <p className="loading">Loading More...</p>
-                        ) : showLoadMoreButton ? (
-                             <button
-                                onClick={loadMoreExplore}
-                                disabled={isLoadingExplore}
-                                className="new-post-button"
-                                style={{ width: 'auto', padding: '0.5em 1.5em' }}
-                             >
-                                Load More
-                             </button>
-                        ) : null
-                        }
-                    </div>
-                )}
+                 {/* --- Header, FeedSelector, NewPostForm remain the same --- */}
+                 <> <div className="feed-header"> <button className="refresh-button" onClick={() => selectedFeed === 'explore' ? refreshExploreFeed() : refreshFeed(true)} disabled={isLoading || isProcessing} title={selectedFeed === 'explore' ? "Refresh Explore Feed" : "Refresh Feed"} > <RefreshIcon /> </button> </div> <FeedSelector selectedFeed={selectedFeed} onSelectFeed={handleSelectFeed} /> </>
+                 {selectedFeed === 'myFeed' && userState && ( <NewPostForm replyingToPost={null} replyingToAuthorName={null} onAddPost={handleAddPost} isProcessing={isProcessing} isCoolingDown={isCoolingDown} countdown={countdown} /> )}
+
+                {/* --- Feed component remains the same --- */}
+                <Feed isLoading={isLoading && displayData.topLevelIds.length === 0} topLevelIds={displayData.topLevelIds || []} allPostsMap={displayData.allPostsMap} userProfilesMap={displayData.userProfilesMap} onViewProfile={handleViewProfile} onLikePost={likePost} onDislikePost={dislikePost} currentUserState={userState} myIpnsKey={myIpnsKey} ensurePostsAreFetched={ensurePostsAreFetched} />
+
+                {/* --- Loader ref and indicator remain the same --- */}
+                <div ref={loaderRef} style={{ height: '50px', marginTop: '1rem', width: '100%' }}>
+                    {isLoadingMore && ( <p className="loading">Loading More...</p> )}
+                    {!isLoadingMore && !canLoadMore && displayData.topLevelIds.length > 0 && ( null )}
+                </div>
             </div>
         </div>
     );

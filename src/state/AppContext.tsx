@@ -50,6 +50,10 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
     isInitializeDialogOpen: appState.isInitializeDialogOpen,
     onInitializeUser: appState.onInitializeUser,
     onRetryLogin: appState.onRetryLogin,
+    // --- START MODIFICATION: Add new props ---
+    loadMoreMyFeed: appState.loadMoreMyFeed,
+    canLoadMoreMyFeed: appState.canLoadMoreMyFeed,
+    // --- END MODIFICATION ---
   };
 
   return (
