@@ -1,30 +1,26 @@
 // fileName: src/features/feed/Feed.tsx
 import React from 'react';
-import Masonry, { ResponsiveMasonry } from 'react-responsive-masonry';
-import PostComponent from './PostItem';
+import Masonry, { ResponsiveMasonry } from "react-responsive-masonry";
+import PostComponent from './PostItem'; // Assuming this path is correct now
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
-
 
 interface FeedProps {
   isLoading: boolean;
   topLevelIds: string[];
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
-  onViewProfile: (ipnsKey: string) => void;
+  onViewProfile: (key: string) => void;
   onLikePost?: (postId: string) => void;
   onDislikePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myIpnsKey: string;
-  // --- START MODIFICATION: Update signature ---
-  ensurePostsAreFetched?: (postCids: string[], authorHint?: string) => Promise<void>;
-  // --- END MODIFICATION ---
-  footerComponent?: React.ReactNode;
+  ensurePostsAreFetched: (postCids: string[], authorHint?: string) => Promise<void>;
 }
 
 const Feed: React.FC<FeedProps> = ({
   isLoading,
-  topLevelIds = [], // Default added previously
+  topLevelIds,
   allPostsMap,
   userProfilesMap,
   onViewProfile,
@@ -33,55 +29,59 @@ const Feed: React.FC<FeedProps> = ({
   currentUserState,
   myIpnsKey,
   ensurePostsAreFetched,
-  footerComponent,
 }) => {
-    console.log(`[Feed Render] Rendering Feed. isLoading: ${isLoading}, Posts to render: ${topLevelIds.length}`);
 
-  if (isLoading) {
-    console.log("[Feed Render] Rendering LoadingSpinner.");
+  // Define breakpoints for react-responsive-masonry
+  // The keys are the minimum width, the values are the number of columns
+  const breakpointColumnsObj = {
+    500: 1,  // 1 column for screens < 700px wide
+    501: 2, // 2 columns for screens >= 700px and < 1100px wide
+    770: 3, // 3 columns for screens >= 1100px and < 1400px wide
+    992: 4  // 4 columns for screens >= 1400px wide (Adjust 1600 if needed)
+  };
+
+  if (isLoading && topLevelIds.length === 0) {
     return <LoadingSpinner />;
   }
 
-  const EmptyPlaceholder = () => (
-       <p style={{ color: 'var(--text-secondary-color)', padding: '2rem', textAlign: 'center' }}>
-         {'Your feed is empty. Follow users or explore to see posts!'}
-       </p>
-  );
+  if (topLevelIds.length === 0 && !isLoading) {
+    return <p style={{ marginTop: '2rem', color: 'var(--text-secondary-color)' }}>No posts to display.</p>;
+  }
 
   return (
-       <div className="feed-container">
-         {topLevelIds.length === 0 && !isLoading && <EmptyPlaceholder />}
-
-         <ResponsiveMasonry
-            columnsCountBreakPoints={{ 350: 1, 750: 2, 1100: 3 }}
-         >
-            <Masonry gutter="1rem">
-                {topLevelIds.map(postId => {
-                    console.log(`[Feed Render] Rendering PostItem for ID: ${postId.substring(0,10)}...`);
-                    return (
-                     // --- START MODIFICATION: Pass all required props ---
-                     <PostComponent
-                        key={postId}
-                        postId={postId}
-                        allPostsMap={allPostsMap}
-                        userProfilesMap={userProfilesMap}
-                        onViewProfile={onViewProfile}
-                        onLikePost={onLikePost}
-                        onDislikePost={onDislikePost}
-                        currentUserState={currentUserState}
-                        myIpnsKey={myIpnsKey}
-                        ensurePostsAreFetched={ensurePostsAreFetched}
-                        isExpandedView={false} // Keep explicitly false for feed view
-                        // No need to pass isReply or renderReplies from here
-                     />
-                     // --- END MODIFICATION ---
-                    );
-                })}
-            </Masonry>
-         </ResponsiveMasonry>
-
-         {footerComponent && footerComponent}
-        </div>
+    <ResponsiveMasonry
+        columnsCountBreakPoints={breakpointColumnsObj}
+    >
+      <Masonry
+          gutter="10px" // Spacing between columns
+      >
+          {topLevelIds.map(postId => {
+               const post = allPostsMap.get(postId);
+               if (!post) {
+                  console.warn(`[Feed] Post data not found for ID: ${postId}. Requesting fetch.`);
+                  ensurePostsAreFetched([postId]);
+                   // Render a temporary placeholder
+                   return <div key={postId} data-post-id={postId} className="post post-placeholder"><LoadingSpinner /></div>;
+               }
+               return (
+                  // Wrapper div for each post, includes data-post-id for scroll restoration
+                  <div key={post.id} data-post-id={post.id} style={{ marginBottom: "10px" }}> {/* Vertical spacing */}
+                      <PostComponent
+                          postId={postId} // Pass postId explicitly
+                          allPostsMap={allPostsMap}
+                          userProfilesMap={userProfilesMap}
+                          onViewProfile={onViewProfile}
+                          onLikePost={onLikePost}
+                          onDislikePost={onDislikePost}
+                          currentUserState={currentUserState}
+                          myIpnsKey={myIpnsKey}
+                          ensurePostsAreFetched={ensurePostsAreFetched}
+                      />
+                  </div>
+               );
+          })}
+      </Masonry>
+    </ResponsiveMasonry>
   );
 };
 

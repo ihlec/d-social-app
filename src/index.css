@@ -1,4 +1,3 @@
-
 /* fileName: index.css */
 :root {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -33,12 +32,13 @@ body {
 
 
 #root {
-    max-width: 1100px;
-    margin: 0 auto; /* --- Center the feed  --- */
-    text-align: center; /* --- Center Login Page Text  --- */
+    max-width: 1100px; /* Max container width */
+    margin: 0 auto; /* Center the feed */
+    text-align: center; /* Center Login Page Text */
     height: 100%;
     display: flex;
-  justify-content: center; /* Centers horizontally */
+    justify-content: center; /* Centers horizontally */
+    width: 100%; /* Ensure #root tries to take full width up to max-width */
 }
 
 h1 {
@@ -143,7 +143,8 @@ button:disabled {
 .app-container {
     flex-grow: 1;
     display: flex;
-    flex-direction: column
+    flex-direction: column;
+    width: 100%; /* Ensure app container takes full width */
 }
 
 .logo-container {
@@ -171,6 +172,7 @@ button:disabled {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    width: 100%; /* Ensure main content takes full width */
 }
 
 /* --- Start Sidebaer--- */
@@ -357,11 +359,18 @@ content: "";
     background-color: var(--border-color)
 }
 
-.feed-container {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
+/* Container for the masonry layout */
+/* .feed-container class is often applied by the component, adjust if needed */
+/* Ensure it spans the full width available within .main-content */
+.feed-container { /* Applied by ResponsiveMasonry wrapper likely */
+    width: 100%;
 }
+
+
+/* Individual columns created by react-responsive-masonry */
+/* The library adds inline styles for width, etc. */
+/* We just need to style the items *within* the columns */
+
 
 .post {
     background-color: var(--surface-color);
@@ -369,10 +378,15 @@ content: "";
     text-align: left;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* Removed fixed height */
+    /* --- START CORRECTION: Remove min-width --- */
+    /* min-width: 360px; */ /* Removed */
+    /* --- END CORRECTION --- */
     position: relative;
     overflow: hidden;
-    width: 100%; /* --- FIX: Ensure post fills its column --- */
+    width: 100%;
+    break-inside: avoid; /* Try to prevent posts splitting */
+    /* Add margin-bottom handled by the wrapper div in Feed.tsx */
 }
 
 /* --- ADDED: Styling for reply context --- */
@@ -380,7 +394,8 @@ content: "";
     font-size: 0.9em;
     color: var(--text-secondary-color);
     padding: 0.5rem 1rem 0 1rem;
-    margin-bottom: 0.5rem; /* Pull post content up slightly */
+    margin-bottom: 0.5rem;
+    width: 100%;
 }
 .reply-context em {
     font-style: italic;
@@ -388,19 +403,20 @@ content: "";
 }
 /* --- End Add --- */
 
-.post-no-media { /* Re-add padding specifically for non-media posts */
+.post-no-media { /* Padding specifically for non-media posts */
     padding: 1rem;
 }
 
 .post-no-media .post-footer {
-    margin-left: -1rem;  /* Counteract parent's left padding */
-    margin-right: -1rem; /* Counteract parent's right padding */
+    margin-left: -1rem;
+    margin-right: -1rem;
     margin-bottom: -1rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-top: 0.5rem;
     background-color: var(--bg-color);
+    width: calc(100% + 2rem); /* Account for negative margins */
 }
 
 
@@ -523,20 +539,17 @@ content: "";
 }
 
 
-/* --- START MODIFICATION: Add rule for post-media-container --- */
 .post-media-container {
     position: relative;
     width: 100%;
+    display: block; /* Ensure it behaves like a block element */
 }
-/* --- END MODIFICATION --- */
 
 
 .post-media {
     display: block;
     width: 100%;
-    /* --- START MODIFICATION: Add height 100% --- */
     height: 100%; /* Fill the aspect-ratio container */
-    /* --- END MODIFICATION --- */
     cursor: pointer;
     object-fit: cover;
 }
@@ -551,14 +564,13 @@ content: "";
     transition: transform .2s ease-out
 }
 
-/* --- START MODIFICATION: Add base rule for video-thumbnail-container --- */
 .video-thumbnail-container {
     position: relative;
     width: 100%;
     height: 100%;
     line-height: 0;
+    display: block; /* Ensure block behavior */
 }
-/* --- END MODIFICATION --- */
 
 .video-thumbnail-container:hover .play-icon-overlay {
     transform: translate(-50%, -50%) scale(1.1)
@@ -662,14 +674,19 @@ content: "";
 
 .post-header {
     padding: 0.5rem 0 0 1rem ;
+    width: 100%;
+    box-sizing: border-box; /* Include padding */
 }
 
 .post-no-media .post-header {
     padding: 0;
 }
 
+/* Paragraphs directly inside .post (excluding overlay) */
 .post > p {
-    padding: 0.5rem 0 0 1rem ;
+    padding: 0.5rem 1rem 0 1rem ; /* Adjust padding slightly */
+    width: 100%;
+    box-sizing: border-box; /* Include padding in width calculation */
 }
 
 .post-no-media p {
@@ -682,6 +699,8 @@ content: "";
     align-items: center;
     padding: 0 1rem 0rem 1rem;
     background-color: var(--bg-color);
+    width: 100%;
+    box-sizing: border-box; /* Include padding in width calculation */
 }
 
 
@@ -689,6 +708,7 @@ content: "";
 .post-no-media .post-footer {
     padding: 0;
     padding-left: 1rem;
+    width: calc(100% + 2rem); /* Recalculate width accounting for negative margins */
 }
 
 
@@ -957,4 +977,15 @@ content: "";
     text-align: left;
     flex-grow: 1;
     min-width: 100px;
+}
+
+
+/* --- ADDITION: Class for placeholder posts --- */
+.post-placeholder {
+    min-height: 100px; /* Give placeholders a minimum height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    width: 100%;
 }

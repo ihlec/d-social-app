@@ -1,5 +1,5 @@
 // fileName: src/features/profile/ProfilePage.tsx
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ProfileHeader from './ProfileHeader'; // Corrected path
@@ -11,6 +11,7 @@ import { UserState, Post, UserProfile, NewPostData } from '../../types';
 import NewPostForm from '../feed/NewPostForm'; // Corrected path
 
 // --- Feed types, helpers, DisplayData interface remain the same ---
+// ... (helpers unchanged) ...
 type ProfileFeedType = 'posts' | 'likes' | 'dislikes';
 const profileFeedOptions: { label: string; value: ProfileFeedType }[] = [
     { label: 'Posts', value: 'posts' }, { label: 'Likes', value: 'likes' }, { label: 'Dislikes', value: 'dislikes' },
@@ -69,13 +70,12 @@ interface DisplayData {
     userProfilesMap: Map<string, UserProfile>;
 }
 
-// --- START MODIFICATION: Define type for paginated CIDs state ---
 interface PaginatedCidState {
     postCIDs: string[];
     likedPostCIDs: string[];
     dislikedPostCIDs: string[];
 }
-// --- END MODIFICATION ---
+
 
 const ProfilePage: React.FC = () => {
     const { key: profileKey } = useParams<{ key: string }>();
@@ -91,10 +91,8 @@ const ProfilePage: React.FC = () => {
         ensurePostsAreFetched, // Still needed
     } = useAppState();
 
-    // --- START MODIFICATION: Split profileUserState into two variables ---
     const [profileData, setProfileData] = useState<UserProfile | null>(null);
     const [paginatedCids, setPaginatedCids] = useState<PaginatedCidState>({ postCIDs: [], likedPostCIDs: [], dislikedPostCIDs: [] });
-    // --- END MODIFICATION ---
     const [nextChunkCid, setNextChunkCid] = useState<string | null>(null);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isProfileLoading, setIsProfileLoading] = useState(true);
@@ -104,6 +102,12 @@ const ProfilePage: React.FC = () => {
     const [isLoaderVisible, setIsLoaderVisible] = useState(false);
     const [initialPostFetchComplete, setInitialPostFetchComplete] = useState(false);
 
+    // --- START SCROLL RESTORATION ---
+    const feedContainerRef = useRef<HTMLDivElement>(null);
+    const scrollAnchorRef = useRef<{ id: string | null; top: number }>({ id: null, top: 0 });
+    const isRestoringScroll = useRef(false);
+    const wasLoadingMore = useRef(false);
+    // --- END SCROLL RESTORATION ---
 
     const currentUserLabel = sessionStorage.getItem("currentUserLabel");
     const isMyProfile = profileKey === myIpnsKey || (!!currentUserLabel && profileKey === currentUserLabel);
@@ -112,6 +116,7 @@ const ProfilePage: React.FC = () => {
 
     // --- useEffect for modal navigation remains the same ---
     useEffect(() => {
+        // ... (effect logic unchanged) ...
         const modalPostId = searchParams.get('modal_post');
         if (modalPostId) {
             const backgroundLoc = { ...location, search: '', };
@@ -119,8 +124,9 @@ const ProfilePage: React.FC = () => {
         }
      }, [searchParams, navigate, location]);
 
-    // --- useEffect for initial profile load (sets profile & cursor, triggers initial post fetch) ---
+    // --- useEffect for initial profile load remains the same ---
     useEffect(() => {
+        // ... (effect logic unchanged) ...
         if (!profileKey) {
             setError("No profile key provided."); setIsProfileLoading(false); navigate("/"); return;
         }
@@ -128,10 +134,8 @@ const ProfilePage: React.FC = () => {
         setIsProfileLoading(true);
         setError(null);
         setNextChunkCid(null);
-        // --- START MODIFICATION: Reset split state ---
         setProfileData(null);
         setPaginatedCids({ postCIDs: [], likedPostCIDs: [], dislikedPostCIDs: [] });
-        // --- END MODIFICATION ---
         setInitialPostFetchComplete(false); // Reset flag on profile change
         let isMounted = true;
 
@@ -148,14 +152,12 @@ const ProfilePage: React.FC = () => {
                 if (!isMounted) return;
                 if (!userStateChunk || !userStateChunk.profile) { throw new Error("Could not load user profile from head chunk."); }
 
-                // --- START MODIFICATION: Set split state ---
                 setProfileData(userStateChunk.profile);
                 setPaginatedCids({
                     postCIDs: userStateChunk.postCIDs || [],
                     likedPostCIDs: userStateChunk.likedPostCIDs || [],
                     dislikedPostCIDs: userStateChunk.dislikedPostCIDs || []
                 });
-                // --- END MODIFICATION ---
                 setNextChunkCid(userStateChunk.extendedUserState || null);
                 console.log(`[ProfilePage loadProfile] Initial nextChunkCid set to: ${userStateChunk.extendedUserState || null}`);
 
@@ -200,11 +202,12 @@ const ProfilePage: React.FC = () => {
 
     // --- loadMoreProfileChunks useCallback ---
     const loadMoreProfileChunks = useCallback(async () => {
-        // Condition check at the beginning remains crucial
+        // ... (function logic largely unchanged, but set wasLoadingMore.current) ...
         if (!nextChunkCid || isLoadingMore || !profileKey) return;
 
         console.log(`[ProfilePage] Loading next chunk: ${nextChunkCid}`);
         setIsLoadingMore(true);
+        wasLoadingMore.current = true; // Set flag for scroll restoration
         let fetchedNextChunkSuccessfully = false; // Flag to track chunk fetch status
 
         try {
@@ -216,7 +219,6 @@ const ProfilePage: React.FC = () => {
             }
             fetchedNextChunkSuccessfully = true; // Mark as successful
 
-            // --- START MODIFICATION: Update only the paginatedCids state ---
             setPaginatedCids(prevCids => {
                 return {
                     postCIDs: [...new Set([...(prevCids.postCIDs || []), ...(nextChunk.postCIDs || [])])],
@@ -224,9 +226,7 @@ const ProfilePage: React.FC = () => {
                     dislikedPostCIDs: [...new Set([...(prevCids.dislikedPostCIDs || []), ...(nextChunk.dislikedPostCIDs || [])])],
                 };
             });
-            // --- END MODIFICATION ---
 
-            // Set the *next* cursor based ONLY on the successfully fetched chunk
             const nextCursor = nextChunk.extendedUserState || null;
             setNextChunkCid(nextCursor);
             console.log(`[ProfilePage] Next chunk CID set to: ${nextCursor}`); // <-- Added log
@@ -251,6 +251,7 @@ const ProfilePage: React.FC = () => {
         } catch (e) {
             console.error("[ProfilePage] Failed to load or process next chunk:", e);
             toast.error(e instanceof Error ? e.message : "Failed to load more content.");
+             wasLoadingMore.current = false; // Reset flag on error
             if (!fetchedNextChunkSuccessfully) {
                  console.warn("[ProfilePage] Keeping existing nextChunkCid due to chunk fetch failure.");
             }
@@ -261,15 +262,14 @@ const ProfilePage: React.FC = () => {
     }, [nextChunkCid, isLoadingMore, profileKey, allPostsMap, ensurePostsAreFetched]); // Dependencies remain correct
 
 
-    // --- displayData useMemo ---
+    // --- displayData useMemo remains the same ---
     const displayData = useMemo((): DisplayData => {
+        // ... (memo logic unchanged) ...
         const profileMapToUse: Map<string, UserProfile> = userProfilesMap;
 
-        // --- START MODIFICATION: Check profileData instead of profileUserState ---
         if (!profileData) {
             return { topLevelIds: [], postsWithReplies: new Map(), userProfilesMap: profileMapToUse };
         }
-        // --- END MODIFICATION ---
 
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
 
@@ -283,24 +283,18 @@ const ProfilePage: React.FC = () => {
                 allPostsMap.forEach((post, cid) => {
                     if (post.authorKey === profileKey) { targetCids.add(cid); }
                 });
-                // --- START MODIFICATION: Use paginatedCids ---
                 filteredTopLevelIds = allTopLevelIds.filter(id =>
                     (paginatedCids.postCIDs || []).includes(id) && targetCids.has(id)
                 );
-                // --- END MODIFICATION ---
                 break;
             case 'likes':
-                // --- START MODIFICATION: Use paginatedCids ---
                 targetCids = new Set(paginatedCids.likedPostCIDs || []);
-                // --- END MODIFICATION ---
                 filteredTopLevelIds = allTopLevelIds
                     .filter(id => targetCids.has(id))
                     .filter(id => !dislikedSet.has(id));
                 break;
             case 'dislikes':
-                // --- START MODIFICATION: Use paginatedCids ---
                 targetCids = new Set(paginatedCids.dislikedPostCIDs || []);
-                // --- END MODIFICATION ---
                 filteredTopLevelIds = allTopLevelIds.filter(id => targetCids.has(id));
                 break;
             default:
@@ -313,49 +307,42 @@ const ProfilePage: React.FC = () => {
             return latestB - latestA;
         });
 
-        // --- START MODIFICATION: Check and use profileData ---
         if (profileKey && !profileMapToUse.has(profileKey) && profileData) {
             const newProfileMap = new Map(profileMapToUse);
             newProfileMap.set(profileKey, profileData);
             return { topLevelIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: newProfileMap };
         }
         return { topLevelIds: sortedTopLevelIds, postsWithReplies, userProfilesMap: profileMapToUse };
-        // --- END MODIFICATION ---
-     // --- START MODIFICATION: Update dependencies ---
      }, [paginatedCids, profileData, selectedFeed, profileKey, allPostsMap, userProfilesMap, currentUserState?.dislikedPostCIDs]);
-     // --- END MODIFICATION ---
 
-    // --- Observer useEffect ---
+    // --- Observer useEffect remains the same ---
     useEffect(() => {
+        // ... (effect logic unchanged) ...
         const observer = new IntersectionObserver(
             (entries) => {
                 const firstEntry = entries[0];
                 setIsLoaderVisible(firstEntry.isIntersecting);
                 console.log(`[IntersectionObserver ProfilePage] Visibility Changed: ${firstEntry.isIntersecting}`);
             },
-            // --- START MODIFICATION: Correct rootMargin to expand bottom ---
-            { threshold: 0, rootMargin: '0px 0px 200px 0px' }
-            // --- END MODIFICATION ---
+            { threshold: 0 }
         );
 
         const currentLoaderRef = loaderRef.current;
-        if (currentLoaderRef) { 
+        if (currentLoaderRef) {
             console.log("[IntersectionObserver ProfilePage] Attaching observer...");
-            observer.observe(currentLoaderRef); 
+            observer.observe(currentLoaderRef);
         } else {
              console.log("[IntersectionObserver ProfilePage] Ref not ready, not attaching observer.");
         }
 
         return () => {
-            if (currentLoaderRef) { 
+            if (currentLoaderRef) {
                 console.log("[IntersectionObserver ProfilePage] Detaching observer...");
-                observer.unobserve(currentLoaderRef); 
+                observer.unobserve(currentLoaderRef);
             }
             setIsLoaderVisible(false);
         };
-    // --- START MODIFICATION: Depend on profileData ---
     }, [profileKey, isProfileLoading, profileData]);
-    // --- END MODIFICATION ---
 
     // --- Trigger useEffect ---
     useEffect(() => {
@@ -364,34 +351,101 @@ const ProfilePage: React.FC = () => {
             console.log(`[LoadMore Trigger Check ProfilePage] Loader is visible! canLoadMoreNow: ${canLoadMoreNow}, isLoadingMore: ${isLoadingMore}`);
 
             if (canLoadMoreNow && !isLoadingMore) {
+                // --- START SCROLL RESTORATION: Capture anchor before loading ---
+                if (feedContainerRef.current) {
+                    const posts = feedContainerRef.current.querySelectorAll('.post[data-post-id]');
+                    let bestCandidate: { id: string | null, top: number } = { id: null, top: Infinity };
+                    posts.forEach(postElement => {
+                        const rect = postElement.getBoundingClientRect();
+                        if (rect.bottom > -50 && rect.top < bestCandidate.top) { // Allow slightly above viewport
+                            bestCandidate = { id: postElement.getAttribute('data-post-id'), top: rect.top };
+                        }
+                    });
+                     if (bestCandidate.id) {
+                         scrollAnchorRef.current = bestCandidate;
+                         console.log(`[Scroll Anchor Set - Profile] ID: ${bestCandidate.id}, Top: ${bestCandidate.top}`);
+                     } else {
+                         scrollAnchorRef.current = { id: null, top: 0 };
+                         console.log("[Scroll Anchor Set - Profile] No suitable anchor found.");
+                     }
+                } else {
+                     scrollAnchorRef.current = { id: null, top: 0 };
+                     console.log("[Scroll Anchor Set - Profile] Feed container ref not found.");
+                }
+                // --- END SCROLL RESTORATION ---
+
                 console.log("[LoadMore Trigger ProfilePage] Conditions met, calling loadMoreProfileChunks...");
+                // wasLoadingMore.current is set inside loadMoreProfileChunks now
                 loadMoreProfileChunks();
             }
         } else if (isLoaderVisible) {
              console.log(`[LoadMore Trigger Check ProfilePage] Loader visible but initialPostFetchComplete is ${initialPostFetchComplete}`);
         }
-    }, [isLoaderVisible, isLoadingMore, loadMoreProfileChunks, initialPostFetchComplete, nextChunkCid]); // Re-added nextChunkCid to be safe
+    }, [isLoaderVisible, isLoadingMore, loadMoreProfileChunks, initialPostFetchComplete, nextChunkCid]);
 
+    // --- START SCROLL RESTORATION: useLayoutEffect to restore position ---
+    useLayoutEffect(() => {
+        // Only run if we *were* loading, are not *anymore*, have an anchor ID, and are not *currently* restoring
+        if (wasLoadingMore.current && !isLoadingMore && scrollAnchorRef.current.id && !isRestoringScroll.current) {
+            const anchorId = scrollAnchorRef.current.id;
+            const storedTop = scrollAnchorRef.current.top;
+            console.log(`[Scroll Restore Attempt - Profile] Anchor ID: ${anchorId}, Stored Top: ${storedTop}`);
 
-    // --- Loading/Error checks ---
+            // --- Wrap in requestAnimationFrame ---
+            const rafId = requestAnimationFrame(() => {
+                const anchorElement = feedContainerRef.current?.querySelector(`[data-post-id="${anchorId}"]`);
+
+                if (anchorElement) {
+                    const newRect = anchorElement.getBoundingClientRect();
+                    const scrollOffset = newRect.top - storedTop;
+                    console.log(`[Scroll Restore Calc - Profile] New Top: ${newRect.top}, Diff: ${scrollOffset}`);
+
+                    if (Math.abs(scrollOffset) > 1) {
+                        isRestoringScroll.current = true;
+                        window.scrollBy({ top: scrollOffset, left: 0, behavior: 'instant' }); // Use instant behavior
+                        console.log(`[Scroll Restore Action - Profile] Scrolled by ${scrollOffset}px`);
+                        // Use another rAF to release the lock
+                        requestAnimationFrame(() => { isRestoringScroll.current = false; });
+                    } else {
+                        isRestoringScroll.current = false;
+                    }
+                } else {
+                    console.warn(`[Scroll Restore Failed - Profile] Anchor element ${anchorId} not found after load.`);
+                    isRestoringScroll.current = false;
+                }
+            });
+            // --- End wrap ---
+
+            wasLoadingMore.current = false;
+            scrollAnchorRef.current = { id: null, top: 0 };
+
+            return () => {
+                cancelAnimationFrame(rafId);
+                 isRestoringScroll.current = false;
+            };
+        } else if (!isLoadingMore && wasLoadingMore.current) {
+             wasLoadingMore.current = false;
+             scrollAnchorRef.current = { id: null, top: 0 };
+        }
+    }, [isLoadingMore, displayData.topLevelIds, paginatedCids]); // Rerun when loading or data changes
+    // --- END SCROLL RESTORATION ---
+
+    // --- Loading/Error checks remain the same ---
     if (!profileKey) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: No profile key provided.</p></div>;
-    // --- START MODIFICATION: Check profileData ---
     if (isProfileLoading && !profileData) return <LoadingSpinner />;
     if (error) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Error: {error}</p></div>;
     if (!profileData) return <div className="public-view-container"><Link to="/" className="back-to-feed-button">← Back</Link><p>Profile not found.</p></div>;
-    // --- END MODIFICATION ---
 
     const canLoadMore = nextChunkCid !== null;
 
     return (
         <div className="app-container">
-            <div className="main-content">
+            {/* --- Add ref to main content --- */}
+            <div ref={feedContainerRef} className="main-content">
                 <Link to="/" className="back-to-feed-button">← Back to Feed</Link>
-                {/* --- START MODIFICATION: Use profileData --- */}
                 {profileData && (
                     <ProfileHeader profileKey={profileKey} profile={profileData} isMyProfile={isMyProfile} />
                 )}
-                {/* --- END MODIFICATION --- */}
                 {isMyProfile && ( <NewPostForm
                     replyingToPost={null} replyingToAuthorName={null}
                     onAddPost={handleAddPost}

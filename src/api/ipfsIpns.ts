@@ -287,8 +287,8 @@ export async function loginToKubo(
              resolvedIpnsKey = keyInfo.Id;
              console.log(`[loginToKubo] Found existing key "${keyName}" with ID: ${resolvedIpnsKey}`);
              try {
-                 initialCid = await resolveIpns(resolvedIpnsKey); // Uses shorter timeout
-                 initialState = await fetchUserState(initialCid, keyName); // Uses shorter timeout
+                 initialCid = await resolveIpns(resolvedIpnsKey); // Uses shorter timeout for local, 25s for public
+                 initialState = await fetchUserState(initialCid, keyName); // Uses shorter timeout for local cat, 60s for public
              } catch (e) {
                  console.warn(`Could not resolve initial state for existing user ${keyName}:`, e);
                  if (forceInitialize) {
@@ -374,7 +374,9 @@ async function resolveIpnsViaGateways(ipnsKey: string): Promise<string> {
         }
 
         const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 10000); // 10s timeout for public gateways
+        // --- START MODIFICATION: Increase timeout to 25 seconds ---
+        const tId = setTimeout(() => ctrl.abort(), 25000); // 25s timeout for public gateways
+        // --- END MODIFICATION ---
         try {
             const res = await fetch(url, { method: 'HEAD', signal: ctrl.signal, cache: 'no-store' });
             clearTimeout(tId);
@@ -406,51 +408,82 @@ async function resolveIpnsViaGateways(ipnsKey: string): Promise<string> {
 export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
     const cached = ipnsResolutionCache.get(ipnsIdentifier);
     if (cached && (Date.now() - cached.timestamp < IPNS_CACHE_TTL)) {
-         console.log(`[resolveIpns] Returning cached CID for ${ipnsIdentifier}: ${cached.cid}`); // Added logging
+         console.log(`[resolveIpns] Returning cached CID for ${ipnsIdentifier}: ${cached.cid}`);
          return cached.cid;
     }
-    console.log(`[resolveIpns] Cache miss or expired for ${ipnsIdentifier}. Attempting fetch...`); // Added logging
+    console.log(`[resolveIpns] Cache miss or expired for ${ipnsIdentifier}. Attempting fetch...`);
     const session = getSession();
     let keyToResolve: string | null = ipnsIdentifier;
 
+    // Check if it's the user's own key and they have a Kubo session
     if (session.sessionType === 'kubo' && session.rpcApiUrl && session.resolvedIpnsKey && (ipnsIdentifier === session.ipnsKeyName || ipnsIdentifier === session.resolvedIpnsKey)) {
         keyToResolve = session.resolvedIpnsKey;
         try {
-            console.log(`[resolveIpns] Attempting Kubo resolve for ${keyToResolve}...`); // Added logging
+            console.log(`[resolveIpns] Attempting Kubo resolve for own key ${keyToResolve} (allowing cache)...`); // Log change
             const res = await fetchKubo(
                 session.rpcApiUrl,
                 '/api/v0/name/resolve',
-                { arg: keyToResolve, nocache: 'true' },
+                // --- START MODIFICATION: Remove nocache=true ---
+                { arg: keyToResolve }, // Allow Kubo's internal caching for own key
+                // --- END MODIFICATION ---
                 undefined,
                 { username: session.kuboUsername, password: session.kuboPassword },
-                5000 // 5 seconds timeout
+                5000 // Keep the 5-second timeout for the local attempt
             );
             if (res?.Path?.startsWith('/ipfs/')) {
                  const cid = res.Path.replace('/ipfs/', '');
-                 console.log(`[resolveIpns] Kubo success for ${keyToResolve}. Resolved to: ${cid}. Caching.`); // Added logging
+                 console.log(`[resolveIpns] Kubo success for ${keyToResolve}. Resolved to: ${cid}. Caching.`);
                  ipnsResolutionCache.set(ipnsIdentifier, { cid, timestamp: Date.now() });
                  ipnsResolutionCache.set(keyToResolve, { cid, timestamp: Date.now() });
                  return cid;
             }
             throw new Error("Kubo resolve returned invalid path.");
-        } catch (e) { console.warn(`Kubo resolve failed for ${ipnsIdentifier}, falling back to public gateways.`, e); }
+        } catch (e) {
+             console.warn(`Kubo resolve failed for own key ${ipnsIdentifier}, falling back to public gateways.`, e);
+             // Ensure keyToResolve is set correctly for the fallback
+             keyToResolve = ipnsIdentifier.startsWith('k51') ? ipnsIdentifier : null;
+        }
     }
-    else if (!ipnsIdentifier.startsWith('k51')) { keyToResolve = null; }
+    // If it wasn't the user's own key, or the local attempt failed, proceed to public gateways
+    else if (!ipnsIdentifier.startsWith('k51')) {
+        // Cannot resolve non-PeerIDs via public gateways without a session link
+        keyToResolve = null;
+    } else {
+        // It's someone else's key (or local attempt failed), set keyToResolve for public attempt
+        keyToResolve = ipnsIdentifier;
+    }
 
-    if (!keyToResolve) { if (cached) { console.warn(`Could not resolve ${ipnsIdentifier} (not PeerID or no session), returning expired cache.`); return cached.cid; } throw new Error(`Cannot resolve identifier "${ipnsIdentifier}" without a Peer ID or Kubo session.`); }
 
+    if (!keyToResolve) {
+         // Handle cases where resolution isn't possible (e.g., non-PeerID, no session)
+         if (cached) {
+             console.warn(`Could not resolve ${ipnsIdentifier} (not PeerID or no session), returning expired cache.`);
+             return cached.cid;
+         }
+         throw new Error(`Cannot resolve identifier "${ipnsIdentifier}" without a Peer ID or Kubo session.`);
+    }
+
+    // Fallback to public gateways
     try {
-         console.log(`[resolveIpns] Attempting public gateway resolve for ${keyToResolve}...`); // Added logging
-         const cid = await resolveIpnsViaGateways(keyToResolve);
-         console.log(`[resolveIpns] Public gateway success for ${keyToResolve}. Resolved to: ${cid}. Caching.`); // Added logging
+         console.log(`[resolveIpns] Attempting public gateway resolve for ${keyToResolve}...`);
+         const cid = await resolveIpnsViaGateways(keyToResolve); // Uses 25s timeout internally
+         console.log(`[resolveIpns] Public gateway success for ${keyToResolve}. Resolved to: ${cid}. Caching.`);
          // Cache under both original identifier and the resolved key if different
          ipnsResolutionCache.set(ipnsIdentifier, { cid, timestamp: Date.now() });
-         if (keyToResolve !== ipnsIdentifier) {
+         if (keyToResolve !== ipnsIdentifier && ipnsIdentifier.startsWith('k51')) { // Also cache under original PeerID if different
              ipnsResolutionCache.set(keyToResolve, { cid, timestamp: Date.now() });
          }
          return cid;
      }
-    catch (e) { if (cached) { console.warn(`Public gateway resolve failed for ${ipnsIdentifier}, returning expired cache.`); return cached.cid; } throw e; }
+    catch (e) {
+        // If public gateways fail, return stale cache if available
+        if (cached) {
+            console.warn(`Public gateway resolve failed for ${ipnsIdentifier}, returning expired cache.`);
+            return cached.cid;
+        }
+        // Otherwise, re-throw the error
+        throw e;
+    }
 }
 
 
@@ -469,7 +502,7 @@ async function fetchCidViaGateways(cid: string): Promise<any> {
         let url: string;
         if (gw.type === 'path') url = `${gw.url}/ipfs/${cid}`;
         else url = gw.url.replace('{cid}', cid);
-        const ctrl = new AbortController(); const tId = setTimeout(() => ctrl.abort(), 60000); // 60s timeout
+        const ctrl = new AbortController(); const tId = setTimeout(() => ctrl.abort(), 60000); // 60s timeout for content fetch
         try { const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' }); clearTimeout(tId); if (!res.ok) throw new Error(`${url} fail: ${res.status}`); return await res.json(); } catch (e) { clearTimeout(tId); throw e; }
     });
     // --- START MODIFICATION: Ensure catch block re-throws ---
@@ -538,7 +571,7 @@ export async function fetchUserStateChunk(cid: string, profileNameHint?: string)
          return { profile: { name: profileNameHint || "Default User" }, postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], updatedAt: 0, extendedUserState: null };
     }
     try {
-        const data = await fetchPost(cid); // Uses shorter timeout
+        const data = await fetchPost(cid); // Uses shorter timeout for local cat, 60s for public
         if (!data) throw new Error(`No data found for CID ${cid}`);
         return data as Partial<UserState>;
     } catch (error) { console.error(`Failed to fetch UserState chunk ${cid}:`, error); return {}; }
@@ -555,7 +588,7 @@ export async function fetchPost(cid: string): Promise<Post | UserState | any > {
                 { arg: cid },
                 undefined,
                 { username: session.kuboUsername, password: session.kuboPassword },
-                5000 // 5 seconds timeout
+                5000 // 5 seconds timeout for cat
             );
         } catch (e) { console.warn(`Kubo fetch ${cid} failed, falling back to public gateways.`, e); }
     }

@@ -1,5 +1,5 @@
 // fileName: src/pages/HomePage.tsx
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../state/useAppStorage';
 import Sidebar from '../components/Sidebar';
@@ -57,8 +57,15 @@ const HomePage: React.FC = () => {
     const loaderRef = useRef<HTMLDivElement>(null);
     const [isLoaderVisible, setIsLoaderVisible] = useState(false);
 
+    // --- START SCROLL RESTORATION ---
+    const feedContainerRef = useRef<HTMLDivElement>(null); // Ref for the feed container itself
+    const scrollAnchorRef = useRef<{ id: string | null; top: number }>({ id: null, top: 0 });
+    const isRestoringScroll = useRef(false); // Flag to prevent effect loops
+    // --- END SCROLL RESTORATION ---
+
     // --- useEffect for feed switching remains the same ---
     useEffect(() => {
+        // ... (effect logic unchanged) ...
         console.log("[HomePage useEffect] Running effect. isInitialLoad:", isInitialLoad.current, "SelectedFeed:", selectedFeed);
         const prevSelectedFeed = prevSelectedFeedRef.current;
         prevSelectedFeedRef.current = selectedFeed;
@@ -106,6 +113,7 @@ const HomePage: React.FC = () => {
 
     // --- displayData useMemo remains the same ---
     const displayData = useMemo(() => {
+        // ... (memo logic unchanged) ...
         console.log("[HomePage useMemo] Calculating displayData...");
         const dislikedSet = new Set(userState?.dislikedPostCIDs || []);
         const { topLevelIds: allTopLevelIds, postsWithReplies } = buildPostTree(allPostsMap);
@@ -141,16 +149,18 @@ const HomePage: React.FC = () => {
         return { topLevelIds: sortedTopLevelIds, allPostsMap: postsWithReplies, userProfilesMap: userProfilesMap };
     }, [selectedFeed, allPostsMap, myIpnsKey, userState?.dislikedPostCIDs, userState?.follows, userProfilesMap]);
 
-    // --- loading/canLoadMore logic remains the same ---
+    // --- loading/canLoadMore logic ---
      const isLoading = isLoadingFeed || (selectedFeed === 'explore' && isLoadingExplore);
+     const wasLoadingMore = useRef(false);
      const isLoadingMore = selectedFeed === 'myFeed' ? isLoadingFeed : isLoadingExplore;
      const canLoadMore =
         (selectedFeed === 'myFeed' && canLoadMoreMyFeed) ||
         (selectedFeed === 'explore' && canLoadMoreExplore);
      const loadMoreHandler = selectedFeed === 'myFeed' ? loadMoreMyFeed : loadMoreExplore;
 
-    // --- Observer useEffect (sets visibility) ---
+    // --- Observer useEffect remains the same (sets visibility) ---
     useEffect(() => {
+        // ... (effect logic unchanged) ...
         const observer = new IntersectionObserver(
             (entries) => {
                 const firstEntry = entries[0];
@@ -158,10 +168,7 @@ const HomePage: React.FC = () => {
                 console.log(`[IntersectionObserver HomePage] Visibility Changed: ${firstEntry.isIntersecting}`);
             },
             {
-                threshold: 0,
-                // --- START MODIFICATION: Correct rootMargin to expand bottom ---
-                rootMargin: '0px 0px 200px 0px'
-                // --- END MODIFICATION ---
+                threshold: 0
             }
         );
 
@@ -174,31 +181,107 @@ const HomePage: React.FC = () => {
         };
     }, [selectedFeed]); // Re-observe when feed type changes
 
-    // --- Trigger useEffect remains the same (calls loadMoreHandler) ---
+    // --- Trigger useEffect (calls loadMoreHandler) ---
     useEffect(() => {
         console.log(`[LoadMore Trigger Check HomePage] isLoaderVisible: ${isLoaderVisible}, canLoadMore: ${canLoadMore}, isLoadingMore: ${isLoadingMore}, selectedFeed: ${selectedFeed}`);
         if (isLoaderVisible && canLoadMore && !isLoadingMore) {
+            // --- START SCROLL RESTORATION: Capture anchor before loading ---
+            if (feedContainerRef.current) {
+                const posts = feedContainerRef.current.querySelectorAll('.post[data-post-id]'); // Find rendered posts with the attribute
+                let bestCandidate: { id: string | null, top: number } = { id: null, top: Infinity };
+                posts.forEach(postElement => {
+                    const rect = postElement.getBoundingClientRect();
+                    // Find the first post that is at least partially visible or just above the viewport top
+                    if (rect.bottom > -50 && rect.top < bestCandidate.top) { // Allow slightly above viewport
+                        bestCandidate = { id: postElement.getAttribute('data-post-id'), top: rect.top };
+                    }
+                });
+                 if (bestCandidate.id) {
+                     scrollAnchorRef.current = bestCandidate;
+                     console.log(`[Scroll Anchor Set] ID: ${bestCandidate.id}, Top: ${bestCandidate.top}`);
+                 } else {
+                     scrollAnchorRef.current = { id: null, top: 0 }; // Reset if no suitable anchor found
+                     console.log("[Scroll Anchor Set] No suitable anchor found.");
+                 }
+            } else {
+                 scrollAnchorRef.current = { id: null, top: 0 }; // Reset if container not found
+                 console.log("[Scroll Anchor Set] Feed container ref not found.");
+            }
+            // --- END SCROLL RESTORATION ---
+
             console.log("[LoadMore Trigger HomePage] Conditions met, calling loadMoreHandler...");
+            wasLoadingMore.current = true; // Set flag *before* calling loadMore
             loadMoreHandler();
         }
     }, [isLoaderVisible, canLoadMore, isLoadingMore, loadMoreHandler, selectedFeed]);
 
+    // --- START SCROLL RESTORATION: useLayoutEffect to restore position ---
+    useLayoutEffect(() => {
+        // Only run if we *were* loading, are not *anymore*, have an anchor ID, and are not *currently* restoring
+        if (wasLoadingMore.current && !isLoadingMore && scrollAnchorRef.current.id && !isRestoringScroll.current) {
+            const anchorId = scrollAnchorRef.current.id;
+            const storedTop = scrollAnchorRef.current.top;
+            console.log(`[Scroll Restore Attempt] Anchor ID: ${anchorId}, Stored Top: ${storedTop}`);
+
+            // --- Wrap in requestAnimationFrame ---
+            const rafId = requestAnimationFrame(() => {
+                const anchorElement = feedContainerRef.current?.querySelector(`[data-post-id="${anchorId}"]`);
+
+                if (anchorElement) {
+                    const newRect = anchorElement.getBoundingClientRect();
+                    const scrollOffset = newRect.top - storedTop;
+                    console.log(`[Scroll Restore Calc] New Top: ${newRect.top}, Diff: ${scrollOffset}`);
+
+                    if (Math.abs(scrollOffset) > 1) { // Avoid tiny adjustments
+                        isRestoringScroll.current = true; // Prevent triggering effect again
+                        window.scrollBy({ top: scrollOffset, left: 0, behavior: 'instant' }); // Use instant behavior
+                        console.log(`[Scroll Restore Action] Scrolled by ${scrollOffset}px`);
+                        // Use another rAF to release the lock after the scroll should have happened
+                        requestAnimationFrame(() => { isRestoringScroll.current = false; });
+                    } else {
+                        isRestoringScroll.current = false; // Release lock if no scroll needed
+                    }
+                } else {
+                    console.warn(`[Scroll Restore Failed] Anchor element ${anchorId} not found after load.`);
+                    isRestoringScroll.current = false; // Release lock if element not found
+                }
+            });
+            // --- End wrap ---
+
+            // Reset wasLoadingMore immediately, anchor reset happens inside rAF logic implicitly
+            wasLoadingMore.current = false;
+            scrollAnchorRef.current = { id: null, top: 0 }; // Reset anchor ref after scheduling
+
+            // Cleanup function for the effect to cancel the frame if component unmounts
+            return () => {
+                cancelAnimationFrame(rafId);
+                 isRestoringScroll.current = false; // Ensure lock is released on unmount/re-run
+            };
+        } else if (!isLoadingMore && wasLoadingMore.current) {
+             // If loading finished but we didn't have an anchor or were already restoring, reset the flag
+             wasLoadingMore.current = false;
+             scrollAnchorRef.current = { id: null, top: 0 };
+        }
+    }, [isLoadingMore, displayData.topLevelIds]); // Rerun when loading finishes OR the list changes
+    // --- END SCROLL RESTORATION ---
+
 
     return (
         <div className="app-container">
-            {/* --- Sidebar and Logo remain the same --- */}
+            {/* --- Sidebar and Logo --- */}
              <div className="logo-container" onClick={() => setIsSidebarOpen(!isSidebarOpen)}> <img src={logo} alt="Logo" /> </div>
              <Sidebar isOpen={isSidebarOpen} userState={userState} ipnsKey={myIpnsKey} latestCid={latestStateCID} unresolvedFollows={unresolvedFollows} otherUsers={otherUsers} onFollow={followUser} onUnfollow={unfollowUser} onViewProfile={handleViewProfile} onLogout={logout} />
 
-            <div className={`main-content ${isSidebarOpen ? 'sidebar-open' : ''}`}>
-                 {/* --- Header, FeedSelector, NewPostForm remain the same --- */}
+            {/* --- Add ref to main content --- */}
+            <div ref={feedContainerRef} className={`main-content ${isSidebarOpen ? 'sidebar-open' : ''}`}>
+                 {/* --- Header, FeedSelector, NewPostForm --- */}
                  <> <div className="feed-header"> <button className="refresh-button" onClick={() => selectedFeed === 'explore' ? refreshExploreFeed() : refreshFeed(true)} disabled={isLoading || isProcessing} title={selectedFeed === 'explore' ? "Refresh Explore Feed" : "Refresh Feed"} > <RefreshIcon /> </button> </div> <FeedSelector selectedFeed={selectedFeed} onSelectFeed={handleSelectFeed} /> </>
                  {selectedFeed === 'myFeed' && userState && ( <NewPostForm replyingToPost={null} replyingToAuthorName={null} onAddPost={handleAddPost} isProcessing={isProcessing} isCoolingDown={isCoolingDown} countdown={countdown} /> )}
 
-                {/* --- Feed component remains the same --- */}
+                {/* --- Feed component --- */}
                 <Feed isLoading={isLoading && displayData.topLevelIds.length === 0} topLevelIds={displayData.topLevelIds || []} allPostsMap={displayData.allPostsMap} userProfilesMap={displayData.userProfilesMap} onViewProfile={handleViewProfile} onLikePost={likePost} onDislikePost={dislikePost} currentUserState={userState} myIpnsKey={myIpnsKey} ensurePostsAreFetched={ensurePostsAreFetched} />
 
-                {/* --- Loader ref and indicator remain the same --- */}
+                {/* --- Loader ref and indicator --- */}
                 <div ref={loaderRef} style={{ height: '50px', marginTop: '1rem', width: '100%' }}>
                     {isLoadingMore && ( <p className="loading">Loading More...</p> )}
                     {!isLoadingMore && !canLoadMore && displayData.topLevelIds.length > 0 && ( null )}

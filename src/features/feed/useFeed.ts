@@ -1,4 +1,4 @@
-// src/hooks/useAppFeed.ts
+// fileName: src/hooks/useAppFeed.ts
 import { useState, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { Post, UserProfile, Follow, UserState } from '../../types';
@@ -158,7 +158,7 @@ export const useAppFeed = ({
         if (localPostsForBatch.size > 0) { onPostsReceived(localPostsForBatch); }
 	}, [allPostsMap, fetchMissingParentPost]);
 
-    // --- lazyLoadFeed remains the same ---
+    // --- lazyLoadFeed ---
     const lazyLoadFeed = useCallback(async (
         myIpnsKey: string,
         ownCidsToLazyFetch: string[],
@@ -170,7 +170,34 @@ export const useAppFeed = ({
         let collectedUnresolved: string[] = [];
         let collectedCursors = new Map<string, string | null>();
 
-        for (const cid of ownCidsToLazyFetch) { /* ... post fetching logic ... */ }
+        // --- START MODIFICATION: Fix unused variable errors ---
+        for (const cid of ownCidsToLazyFetch) {
+            allLazyPromises.push((async () => {
+                try {
+                    const existingPost = allPostsMap.get(cid);
+                    // Only fetch if it's not present, or if it's a placeholder
+                    if (!existingPost || existingPost.timestamp === 0) { 
+                        const postResult = await fetchPostLocal(cid, myIpnsKey); // Use myIpnsKey
+                        
+                        if (postResult && postResult.timestamp !== 0) {
+                            const finalPost = { ...postResult, authorKey: myIpnsKey, id: cid };
+                            // Update the global map
+                            setAllPostsMap(prev => new Map(prev).set(cid, finalPost)); 
+
+                            // If it's a reply, fetch its parent if missing
+                            if (finalPost.referenceCID && !allPostsMap.has(finalPost.referenceCID)) {
+                                // Don't await, let it run in parallel
+                                fetchMissingParentPost(finalPost.referenceCID);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[lazyLoadFeed] Error processing own post ${cid}:`, e);
+                }
+            })());
+        }
+        // --- END MODIFICATION ---
+
         console.log(`[lazyLoadFeed ${processId}] Created ${ownCidsToLazyFetch.length} promises for own posts.`);
 
         if (follows.length > 0) {
