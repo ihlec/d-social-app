@@ -33,7 +33,9 @@ const PostMedia: React.FC<PostMediaProps> = ({
           }
         }
       },
-      { threshold: 0 }
+      // --- START MODIFICATION: Add rootMargin to preload media 1 viewport height ahead ---
+      { threshold: 0, rootMargin: '0px 0px 100% 0px' }
+      // --- END MODIFICATION ---
     );
 
     const currentRef = mediaRef.current;

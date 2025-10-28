@@ -149,7 +149,7 @@ const HomePage: React.FC = () => {
         (selectedFeed === 'explore' && canLoadMoreExplore);
      const loadMoreHandler = selectedFeed === 'myFeed' ? loadMoreMyFeed : loadMoreExplore;
 
-    // --- Observer useEffect remains the same (sets visibility) ---
+    // --- Observer useEffect (sets visibility) ---
     useEffect(() => {
         const observer = new IntersectionObserver(
             (entries) => {
@@ -159,7 +159,9 @@ const HomePage: React.FC = () => {
             },
             {
                 threshold: 0,
-                rootMargin: '200px 0px 0px 0px'
+                // --- START MODIFICATION: Correct rootMargin to expand bottom ---
+                rootMargin: '0px 0px 200px 0px'
+                // --- END MODIFICATION ---
             }
         );
 
