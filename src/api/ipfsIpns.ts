@@ -293,11 +293,16 @@ export async function loginToKubo(
                  console.warn(`Could not resolve initial state for existing user ${keyName}:`, e);
                  if (forceInitialize) {
                      console.log(`[loginToKubo] Force initializing existing user ${keyName}.`);
-                     initialCid = DEFAULT_USER_STATE_CID;
+                     
+                     // --- START MODIFICATION: Ensure empty state is uploaded before publishing ---
                      initialState = createEmptyUserState({ name: keyName });
+                     initialCid = await uploadJsonToIpfs(apiUrl, initialState, { username, password });
+                     console.log(`[loginToKubo] Uploaded new empty state to CID: ${initialCid}`);
+
                      // Uses default (longer) timeout
                      await publishToIpns(apiUrl, initialCid, keyName, { username, password });
-                     console.log(`[loginToKubo] Force initialized and published default state for ${keyName}.`);
+                     console.log(`[loginToKubo] Force initialized and published NEW empty state for ${keyName}.`);
+                     // --- END MODIFICATION ---
 
                  } else {
                      throw new UserStateNotFoundError(`Failed to resolve initial state for ${keyName}`, keyName);

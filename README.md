@@ -46,7 +46,10 @@ A decentralized social media proof-of-concept application built with React, Type
 I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, and the full files you modified.
 
 ## TODO
-- double use of edit bio button edit-follow-button (rename)
+- smart incremental fetching. First Chunk of each user first. Then check if page is filled. If not, load more. Then load further chunks while scrolling. If manual refresh is clicked, start with first chunks again (resolved via IPNS-key)
+
+- myfeed is only properly refreshed when running explore
+- refresh button does not discover new recent posts
 
 - fix explore feed to show new content only
 - fix explore feed to explore multiple levels
@@ -57,8 +60,8 @@ I will share with you most of my project files. Please do not react until I am d
 
 - show the copied post also on Other Users Online
 
-- 
 
+- double use of edit bio button edit-follow-button (rename)
 
 ## Local test users
 

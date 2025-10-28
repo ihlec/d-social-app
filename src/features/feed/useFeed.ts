@@ -2,7 +2,7 @@
 import { useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Post, UserProfile, Follow, UserState } from '../../types';
-import { fetchPost, fetchUserState, fetchPostLocal } from '../../api/ipfsIpns';
+import { fetchUserState, fetchPostLocal } from '../../api/ipfsIpns';
 import { fetchUserStateByIpns } from './../../state/stateActions';
 
 const MAX_FOLLOWS_PER_STATE = 10;
