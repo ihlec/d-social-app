@@ -6,6 +6,8 @@ A decentralized social media proof-of-concept application built with React, Type
 
 -> Join a Social Network with it OR just use it for blogging. 
 
+You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51qzi5uqu5dl65eg14adz5ceu6k9dna2s55io6iyr1qpyd1wwxqf2g7wm3tf8/#/login
+
 ## You want to contribute?
 
 -> Read the [spec.md](spec.md)
@@ -45,9 +47,9 @@ A decentralized social media proof-of-concept application built with React, Type
 * Vite
 * React Router DOM
 * React Hot Toast (for notifications)
-* React Virtuoso (for efficient list rendering)
+* React Responsive Masonry (for space efficient feed rendering)
 * Kubo (for decentralized storage and identity)
-* AWS SDK for S3 (if using Filebase)
+
 
 ## TODO
 
