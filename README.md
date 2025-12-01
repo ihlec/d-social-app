@@ -6,6 +6,10 @@ A decentralized social media proof-of-concept application built with React, Type
 
 -> Join a Social Network with it OR just use it for blogging. 
 
+## You want to contribute?
+
+-> Read the [spec.md](spec.md)
+
 ## Getting Started
 
 1.  **Install Dependencies:**
@@ -45,9 +49,6 @@ A decentralized social media proof-of-concept application built with React, Type
 * Kubo (for decentralized storage and identity)
 * AWS SDK for S3 (if using Filebase)
 
-## AI Input for refactoring
-I will share with you most of my project files. Please do not react until I am done pasting. If you are asked, answer professional, in the role of a senior dev, with no social blabla, no sugar-coating and with the full files you modified.
-
 ## TODO
 
 - make one helia branch client with pubsub (currenlty NAT traversal issues in the browser)
@@ -55,13 +56,14 @@ I will share with you most of my project files. Please do not react until I am d
 - refresh button does not discover new recent posts
 - fix explore feed to show new content only
 - fix explore feed to explore multiple levels
-- introduce settings sidebar on the right
-- setting to pick gateway
+- introduce settings sidebar on the right with setting to pick gateway
 - moderator features
 - scale through users - the more users cache (view) and pin (like) content, the faster the network will become.
 
 ## Remote IPFS nodes need cors rules
 
-ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'
-ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET", "PUT", "OPTIONS"]'
-ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers '["Authorization", "Content-Type", "X-Requested-With"]'
+```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'```
+
+```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET", "PUT", "OPTIONS"]'```
+
+```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers '["Authorization", "Content-Type", "X-Requested-With"]'```
