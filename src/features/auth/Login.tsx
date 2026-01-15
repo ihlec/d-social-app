@@ -1,105 +1,132 @@
+// fileName: src/features/auth/Login.tsx
 import React, { useState } from 'react';
 import { Tooltip } from '../../components/Tooltip';
 import { InfoIcon } from '../../components/Icons';
 
 interface LoginProps {
-    // --- REMOVED: onLoginFilebase ---
-    // onLoginFilebase: (nameLabel: string, bucketCredential?: string) => Promise<void>;
     onLoginKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<void>;
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginKubo }) => {
-    // --- REMOVED: loginMethod state ---
-    // const [loginMethod, setLoginMethod] = useState<'filebase' | 'kubo'>('kubo'); // Default to Kubo
     const [isLoading, setIsLoading] = useState(false);
-    // --- ADDED: State for credential visibility ---
     const [showCredentials, setShowCredentials] = useState(false);
-    // --- END ADD ---
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setIsLoading(true);
         const formData = new FormData(event.currentTarget);
+        
         try {
-            // --- REMOVED: Filebase logic ---
             const apiUrl = formData.get('apiUrl') as string;
             const keyName = formData.get('keyName') as string;
-            // --- ADDED: Get optional credentials ---
             const username = formData.get('username') as string || undefined;
             const password = formData.get('password') as string || undefined;
-            // --- END ADD ---
-            await onLoginKubo(apiUrl, keyName, username, password); // Pass credentials
-        } catch (error) { console.error("Login submission error:", error); }
-        finally { setIsLoading(false); }
+
+            if (!apiUrl || !keyName) {
+                alert("API URL and Key Name are required.");
+                setIsLoading(false);
+                return;
+            }
+
+            await onLoginKubo(apiUrl, keyName, username, password);
+        } catch (error) {
+            console.error("Login failed", error);
+            setIsLoading(false);
+        }
     };
 
     return (
         <div className="login-container">
-            <h1>D. Social App</h1>
-            {/* --- REMOVED: Method selector --- */}
-            {/*
-            <div className="feed-selector login-method-selector">
-                <button className={loginMethod === 'filebase' ? 'active' : ''} onClick={() => setLoginMethod('filebase')} disabled={isLoading}>Login with Filebase</button>
-                <button className={loginMethod === 'kubo' ? 'active' : ''} onClick={() => setLoginMethod('kubo')} disabled={isLoading}>Login with Local Node</button>
-            </div>
-            */}
-
-            {/* --- REMOVED: Filebase form --- */}
-
-            {/* --- Kubo Form --- */}
-            <>
-                <h2>Login with Kubo Node</h2>
-                <form onSubmit={handleSubmit}>
-                    <div className="input-with-tooltip-container">
-                        <input type="text" name="apiUrl" defaultValue="http://127.0.0.1:5001" placeholder="Kubo RPC API URL" required disabled={isLoading} />
-                        <Tooltip text={<span> <h3>Kubo Node API URL.</h3> Enter your Kubo RPC API details. Typically <b>http://127.0.0.1:5001</b> for local nodes. For remote nodes, ensure CORS is configured correctly. </span>}>
-                            <InfoIcon />
-                        </Tooltip>
-                    </div>
-                    <div className="input-with-tooltip-container">
-                        <input type="text" name="keyName" placeholder="IPNS Key Name (e.g., 'my-profile')" required disabled={isLoading} />
-                        <Tooltip text={<span> <h3>IPNS key name.</h3> This is the name used to manage your profile key within Kubo. See <code>ipfs key list</code>. If it doesn't exist, it will be created.</span>}>
-                            <InfoIcon />
-                        </Tooltip>
-                    </div>
-
-                    {/* --- ADDED: Conditional Credential Fields --- */}
-                    {showCredentials && (
-                        <>
-                            <div className="input-with-tooltip-container">
-                                <input type="text" name="username" placeholder="Username (optional)" disabled={isLoading} />
-                                <Tooltip text={<span>Optional username for Kubo RPC API basic authentication.</span>}>
-                                    <InfoIcon />
-                                </Tooltip>
-                            </div>
-                            <div className="input-with-tooltip-container">
-                                <input type="password" name="password" placeholder="Password (optional)" disabled={isLoading} />
-                                <Tooltip text={<span>Optional password for Kubo RPC API basic authentication.</span>}>
-                                    <InfoIcon />
-                                </Tooltip>
-                            </div>
-                        </>
-                    )}
-                    {/* --- END ADD --- */}
-
-                    {/* --- ADDED: Toggle Button --- */}
-                    <button
-                        type="button"
-                        onClick={() => setShowCredentials(!showCredentials)}
+            <h1>Welcome to dSocial</h1>
+            <p style={{ color: '#888', margin: '1rem 0' }}>Connect to your local Kubo node to enter the decentralized social graph.</p>
+            
+            <form onSubmit={handleSubmit} className="login-form">
+                
+                {/* 1. API URL Input with Tooltip */}
+                <div className="input-with-tooltip-container">
+                    <input 
+                        type="text" 
+                        name="apiUrl" 
+                        placeholder="RPC API URL (e.g., http://127.0.0.1:5001)" 
+                        defaultValue="http://127.0.0.1:5001"
+                        className="login-input"
                         disabled={isLoading}
-                        style={{ background: 'none', border: '1px solid var(--border-color)', color: 'var(--text-secondary-color)', marginTop: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9em' }}
-                    >
-                        {showCredentials ? 'Hide Credentials' : 'Show Credentials (Optional)'}
-                    </button>
-                    {/* --- END ADD --- */}
+                    />
+                    <Tooltip text={
+                        <div style={{ textAlign: 'left' }}>
+                            <strong>Required CORS Config:</strong><br/>
+                            <code>ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'</code><br/><br/>
 
-                    <button type="submit" disabled={isLoading}>{isLoading ? 'Logging in...' : 'Login / Register'}</button>
-                </form>
-            </>
+                            <code>ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET"]'</code><br/><br/>
 
+                            <code>ipfs config --json Pubsub.Enabled true</code><br/><br/>
+
+                            <code>ipfs config --json Ipns.UsePubsub true</code>
+                        </div>
+                    }>
+                        <InfoIcon />
+                    </Tooltip>
+                </div>
+                
+                {/* 2. Key Name Input */}
+                <div className="input-with-tooltip-container">
+                    <input 
+                        type="text" 
+                        name="keyName" 
+                        placeholder="IPNS Key Name (Identity)" 
+                        className="login-input"
+                        disabled={isLoading}
+                    />
+                     <Tooltip text={<span>The name of the key in your Kubo node (e.g., 'self' or 'my-identity'). If it doesn't exist, it will be generated.</span>}>
+                        <InfoIcon />
+                    </Tooltip>
+                </div>
+
+                {/* 3. Advanced Credentials */}
+                {showCredentials && (
+                    <div className="login-credentials-section">
+                        <div className="input-with-tooltip-container" style={{ marginTop: '1rem' }}>
+                            <input 
+                                type="text" 
+                                name="username" 
+                                placeholder="Username (optional)" 
+                                className="login-input"
+                                disabled={isLoading} 
+                            />
+                             <Tooltip text={<span>Optional username for Kubo RPC API basic authentication.</span>}>
+                                <InfoIcon />
+                            </Tooltip>
+                        </div>
+                        <div className="input-with-tooltip-container" style={{ marginTop: '0.5rem' }}>
+                            <input 
+                                type="password" 
+                                name="password" 
+                                placeholder="Password (optional)" 
+                                className="login-input"
+                                disabled={isLoading} 
+                            />
+                            <Tooltip text={<span>Optional password for Kubo RPC API basic authentication.</span>}>
+                                <InfoIcon />
+                            </Tooltip>
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    type="button"
+                    onClick={() => setShowCredentials(!showCredentials)}
+                    disabled={isLoading}
+                    className="toggle-credentials-button"
+                >
+                    {showCredentials ? 'Hide Advanced Credentials' : 'Show Advanced Credentials'}
+                </button>
+
+                <button type="submit" disabled={isLoading} className="login-button">
+                    {isLoading ? 'Connecting...' : 'Connect'}
+                </button>
+            </form>
         </div>
     );
 };
 
 export default Login;
-

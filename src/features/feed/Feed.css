@@ -1,0 +1,18 @@
+/* fileName: src/features/feed/Feed.css */
+
+.feed-loading-container {
+    display: flex; 
+    justify-content: center; 
+    align-items: center;
+    padding: 2rem; 
+    width: 100%;
+}
+
+.feed-post-card-container {
+    margin-bottom: 0.5rem;
+    width: 100%;
+}
+
+.feed-post-placeholder {
+    margin-bottom: 0.5rem;
+}

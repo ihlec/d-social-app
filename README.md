@@ -1,12 +1,12 @@
 # D. Social App 
 
-A decentralized social media proof-of-concept application built with React, TypeScript, and integrating with IPFS (via Kubo or Filebase).
+A decentralized social media proof-of-concept application built with React, TypeScript, and integrating with IPFS (via Kubo).
 
 ## I have a IPFS node, what now?
 
 -> Join a Social Network with it OR just use it for blogging. 
 
-You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51qzi5uqu5dl65eg14adz5ceu6k9dna2s55io6iyr1qpyd1wwxqf2g7wm3tf8/#/login
+You can find the latest version of D. Social App here: https://ipfs.io/ipfs/bafybeiaashw34t6uogjoxvv5jrq2fdgwx7upukhfrjckp6w3dowl7kjtjm
 
 ## You want to contribute?
 
@@ -52,20 +52,25 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51q
 
 
 ## TODO
-
-- make one helia branch client with pubsub (currenlty NAT traversal issues in the browser)
-- myfeed is only properly refreshed when running explore
-- refresh button does not discover new recent posts
-- fix explore feed to show new content only
-- fix explore feed to explore multiple levels
-- introduce settings sidebar on the right with setting to pick gateway
-- moderator features
+- allow creating user aliases
+- export/import of user's private key
+- moderator features / filter disliked posts of followed users in the role of moderators
 - scale through users - the more users cache (view) and pin (like) content, the faster the network will become.
 
-## Remote IPFS nodes need cors rules
+## Remote IPFS nodes need CORS rules
+
+For remote IPFS nodes (not localhost), configure CORS to allow the application:
 
 ```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'```
 
 ```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET", "PUT", "OPTIONS"]'```
 
 ```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers '["Authorization", "Content-Type", "X-Requested-With"]'```
+
+## Future Enhancements
+
+* Allow creating user aliases
+* Export/import of user's private key
+* Moderator features / filter disliked posts of followed users in the role of moderators
+* Scale through users - the more users cache (view) and pin (like) content, the faster the network will become
+* Friend-pinning: When following a user, automatically pin their latest Profile CID to improve data availability 

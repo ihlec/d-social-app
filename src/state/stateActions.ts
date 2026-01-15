@@ -1,46 +1,21 @@
-// fileName: src/hooks/stateActions.ts
-import { getCookie, setCookie } from '../lib/utils';
+// fileName: src/state/stateActions.ts
+import { 
+    saveOptimisticCookie
+} from '../lib/utils';
 import {
     getSession,
     resolveIpns,
     fetchUserState,
     fetchUserStateChunk,
-    uploadJsonToIpfs, // Keep this import for Kubo uploads
+    uploadJsonToIpfs,
     publishToIpns,
-    fetchKubo, // Import fetchKubo
+    fetchKubo,
 } from '../api/ipfsIpns';
-// --- REMOVED: Filebase imports ---
 import { createThumbnail } from '../lib/media';
 import { UserProfile, UserState, OptimisticStateCookie, NewPostData, Post } from '../types';
 
-// --- Cookie Helpers ---
-const getOptimisticCookieName = (ipnsKey: string) => `dSocialOptimisticState_${ipnsKey}`;
-
-export const loadOptimisticCookie = (ipnsKey: string): OptimisticStateCookie | null => {
-    const cookieName = getOptimisticCookieName(ipnsKey);
-    const cookieValue = getCookie(cookieName);
-    if (cookieValue) {
-        try {
-            return JSON.parse(cookieValue) as OptimisticStateCookie;
-        } catch (e) {
-            console.error("Failed to parse optimistic cookie:", e);
-            return null;
-        }
-    }
-    return null;
-};
-
-export const saveOptimisticCookie = (ipnsKey: string, data: OptimisticStateCookie): void => {
-    const cookieName = getOptimisticCookieName(ipnsKey);
-    try {
-        setCookie(cookieName, JSON.stringify(data), 7); // Save for 7 days
-    } catch (e) {
-        console.error("Failed to save optimistic cookie:", e);
-    }
-};
-
 // --- Data Fetching Helpers ---
-export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> { // ...
+export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> {
     try {
         const profileCid = await resolveIpns(ipnsKey);
         const authorState = await fetchUserState(profileCid);
@@ -60,7 +35,7 @@ export async function fetchUserStateByIpns(ipnsKey: string): Promise<{ state: Us
     return { state, cid };
 }
 
-export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> { // ...
+export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> {
     const cid = await resolveIpns(ipnsKey);
     return await fetchUserStateChunk(cid);
 }
@@ -90,11 +65,9 @@ async function uploadFileToKubo(
     const targetPath = `/${directoryName}/${uniqueFileName}`;
 
     try {
-        // STEP 1: Add the file normally to get its CID
         const addFd = new FormData();
         addFd.append('file', file, uniqueFileName);
 
-        // Use default (longer) timeout for add
         const addResponse = await fetchKubo(apiUrl, '/api/v0/add',
             { pin: 'true', 'cid-version': '1', 'wrap-with-directory': 'false' },
             addFd,
@@ -110,54 +83,12 @@ async function uploadFileToKubo(
 
         if (!fileCid) throw new Error("Could not extract CID from 'add' response.");
 
-        // STEP 2: Copy the file (by CID) into the MFS path
         console.log(`[uploadFileToKubo] File added (CID: ${fileCid}). Copying to MFS path: ${targetPath}`);
 
-        // --- START MODIFICATION: Use 'arg' for both source and destination ---
-        // Construct parameters ensuring 'arg' appears twice
-        const cpParams = new URLSearchParams();
-        cpParams.append('arg', `/ipfs/${fileCid}`); // Source
-        cpParams.append('arg', targetPath);       // Destination
-        cpParams.append('parents', 'true');
-        cpParams.append('flush', 'true');
-        // Convert URLSearchParams to a Record<string, string> for fetchKubo
-        const finalCpParams: Record<string, string> = {};
-        for (const [key, value] of cpParams.entries()) {
-            // Note: If URLSearchParams has multiple 'arg', .entries() might only yield the first.
-            // However, fetchKubo's logic handles appending multiple keys with the same name.
-            // A more robust way might involve fetchKubo accepting URLSearchParams directly,
-            // but for now, we'll try passing the object derived from it.
-            // If issues persist, consider manually constructing the query string.
-            if (finalCpParams[key]) {
-                // If the key already exists (like 'arg'), create a temporary unique key
-                // This relies on fetchKubo reconstructing the URL correctly
-                 finalCpParams[`${key}_${Math.random().toString(36).substring(7)}`] = value;
-            } else {
-                finalCpParams[key] = value;
-            }
-        }
-         // Re-map unique keys back to 'arg' if needed by fetchKubo's reconstruction logic
-         const remappedParams: Record<string, string> = {};
-         Object.entries(finalCpParams).forEach(([key, value]) => {
-             if (key.startsWith('arg_')) {
-                 remappedParams['arg'] = value; // This will overwrite, need better handling in fetchKubo if this fails
-             } else if (key === 'arg') {
-                  remappedParams['arg'] = value; // Ensure the first 'arg' is kept
-             }
-              else {
-                 remappedParams[key] = value;
-             }
-         });
-         // Let's directly construct the query string to be sure
-         const queryString = `arg=${encodeURIComponent(`/ipfs/${fileCid}`)}&arg=${encodeURIComponent(targetPath)}&parents=true&flush=true`;
-         const cpUrlPath = `/api/v0/files/cp?${queryString}`;
-        // --- END MODIFICATION ---
-
-
-        // Use default (longer) timeout for cp
-        // --- START MODIFICATION: Pass reconstructed path instead of params object ---
-        await fetchKubo(apiUrl, cpUrlPath, undefined /* No params object */, undefined, auth);
-        // --- END MODIFICATION ---
+        const queryString = `arg=${encodeURIComponent(`/ipfs/${fileCid}`)}&arg=${encodeURIComponent(targetPath)}&parents=true&flush=true`;
+        const cpUrlPath = `/api/v0/files/cp?${queryString}`;
+       
+        await fetchKubo(apiUrl, cpUrlPath, undefined, undefined, auth);
 
         console.log(`[uploadFileToKubo] Successfully copied CID ${fileCid} to MFS path ${targetPath}`);
         return { cid: fileCid, uniqueFileName };
@@ -170,7 +101,7 @@ async function uploadFileToKubo(
 
 
 // --- Complex Action Helpers ---
-export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // ...
+export async function uploadPost(postData: NewPostData, authorPeerId: string) {
     const { content, referenceCID, file } = postData;
     const session = getSession();
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
@@ -184,9 +115,7 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
     let uniqueMediaFileName: string | undefined;
     let uniqueThumbnailFileName: string | undefined;
     let originalFileNameForFiletype: string | undefined;
-    // --- START MODIFICATION: Add aspect ratio variable ---
     let mediaAspectRatio: number | undefined;
-    // --- END MODIFICATION ---
 
     if (file) {
         if (file.type.startsWith("image/")) mediaType = 'image';
@@ -196,12 +125,10 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
             originalFileNameForFiletype = file.name;
         }
 
-        // --- START MODIFICATION: Destructure new return value ---
         const { thumbnailFile, aspectRatio } = await createThumbnail(file);
         if (aspectRatio) {
             mediaAspectRatio = aspectRatio;
         }
-        // --- END MODIFICATION ---
 
         const mediaUploadResult = await uploadFileToKubo(session.rpcApiUrl, file, userLabel, auth);
         mediaCid = mediaUploadResult.cid;
@@ -217,7 +144,7 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
     const finalPost: Omit<Post, 'id' | 'replies'> = {
         timestamp: Date.now(),
         content,
-        authorKey: myIpnsKey,
+        authorKey: authorPeerId, 
         referenceCID,
         mediaCid,
         thumbnailCid,
@@ -225,50 +152,65 @@ export async function uploadPost(postData: NewPostData, myIpnsKey: string) { // 
         fileName: originalFileNameForFiletype,
         mediaFileName: uniqueMediaFileName,
         thumbnailFileName: uniqueThumbnailFileName,
-        // --- START MODIFICATION: Add to final post object ---
         mediaAspectRatio: mediaAspectRatio
-        // --- END MODIFICATION ---
     };
 
     let finalPostCID: string;
-    // Pass auth to Kubo JSON upload (uses longer timeout internally now)
     finalPostCID = await uploadJsonToIpfs(session.rpcApiUrl, finalPost, auth);
-
 
     return { finalPost, finalPostCID };
 }
 
-
-export async function _uploadStateAndPublishToIpns(
-    stateToPublish: UserState | Partial<UserState>,
-    myIpnsKey: string
+// --- NEW: Phase 1 - Upload JSON to IPFS (Fast) ---
+export async function uploadStateToIpfs(
+    stateToUpload: UserState | Partial<UserState>,
+    myIpnsKeyLabel: string 
 ): Promise<string> {
     const session = getSession();
-    if (session.sessionType !== 'kubo' || !session.rpcApiUrl || !session.ipnsKeyName) {
-        throw new Error("Session is misconfigured for publishing state.");
+    if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
+        throw new Error("Session is misconfigured for state upload.");
+    }
+    const auth = { username: session.kuboUsername, password: session.kuboPassword };
+    const profileName = ('profile' in stateToUpload && stateToUpload.profile?.name) || sessionStorage.getItem("currentUserLabel") || '';
+    const timestamp = ('updatedAt' in stateToUpload && stateToUpload.updatedAt) || Date.now();
+
+    // 1. Upload to IPFS
+    const cid = await uploadJsonToIpfs(session.rpcApiUrl, stateToUpload, auth);
+    
+    // 2. Save Cookie (Optimistic Persistence)
+    const cookieData: OptimisticStateCookie = { cid, name: profileName, updatedAt: timestamp };
+    saveOptimisticCookie(myIpnsKeyLabel, cookieData);
+
+    console.log(`[uploadStateToIpfs] State uploaded: ${cid}`);
+    return cid;
+}
+
+// --- NEW: Phase 2 - Publish CID to IPNS (Slow) ---
+export async function publishStateToIpns(
+    cid: string, 
+    keyName: string
+): Promise<string> {
+    const session = getSession();
+    if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
+        throw new Error("Session is misconfigured for IPNS publish.");
     }
     const auth = { username: session.kuboUsername, password: session.kuboPassword };
 
-    const profileName = ('profile' in stateToPublish && stateToPublish.profile?.name) || sessionStorage.getItem("currentUserLabel") || '';
-    const timestamp = ('updatedAt' in stateToPublish && stateToPublish.updatedAt) || Date.now();
+    console.log(`[publishStateToIpns] Publishing ${cid} to key ${keyName}...`);
+    await publishToIpns(session.rpcApiUrl, cid, keyName, auth);
+    console.log(`[publishStateToIpns] Done.`);
+    
+    return cid;
+}
 
-    const finalStateToUpload = { ...stateToPublish };
-
-    console.log("[_uploadStateAndPublishToIpns] Publishing state with link:", finalStateToUpload.extendedUserState);
-
-    let headCID: string;
-
-    // Uses longer timeout
-    headCID = await uploadJsonToIpfs(session.rpcApiUrl, finalStateToUpload, auth);
-
-    // Uses longer timeout
-    await publishToIpns(session.rpcApiUrl, headCID, session.ipnsKeyName, auth);
-
-
-    const cookieData: OptimisticStateCookie = { cid: headCID, name: profileName, updatedAt: timestamp };
-    saveOptimisticCookie(myIpnsKey, cookieData);
-
-    return headCID;
+// --- Deprecated (kept for reference or manual use) ---
+export async function _uploadStateAndPublishToIpns(
+    stateToPublish: UserState | Partial<UserState>,
+    myIpnsKeyLabel: string 
+): Promise<string> {
+    const cid = await uploadStateToIpfs(stateToPublish, myIpnsKeyLabel);
+    await publishStateToIpns(cid, myIpnsKeyLabel);
+    return cid;
 }
 
 export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserState>): Promise<string> {
@@ -279,17 +221,11 @@ export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserSt
      const auth = { username: session.kuboUsername, password: session.kuboPassword };
 
     let cid: string;
-    // Uses longer timeout
     cid = await uploadJsonToIpfs(session.rpcApiUrl, stateToUpload, auth);
-
 
     return cid;
 }
 
-/**
- * Unpins CIDs, removes files from MFS using stored filenames, and runs GC.
- * @param postToPrune The Post object containing CIDs and unique filenames.
- */
 export async function pruneContentFromKubo(postToPrune: Post) {
     const session = getSession();
     if (session.sessionType !== 'kubo' || !session.rpcApiUrl) {
@@ -299,6 +235,7 @@ export async function pruneContentFromKubo(postToPrune: Post) {
     const myIpnsKey = session.resolvedIpnsKey;
     if (!myIpnsKey || postToPrune.authorKey !== myIpnsKey) {
         console.warn("[prune] Skipping MFS prune: Not the author.");
+        // We can still unpin if we want to clean local cache, but MFS is owner-only
         const cidsToUnpin: (string | undefined)[] = [postToPrune.id, postToPrune.mediaCid, postToPrune.thumbnailCid];
         await prunePinsAndGc(cidsToUnpin, [], session.rpcApiUrl, session.kuboUsername, session.kuboPassword);
         return;
@@ -331,7 +268,6 @@ export async function pruneContentFromKubo(postToPrune: Post) {
     await prunePinsAndGc(cidsToUnpin, mfsPathsToRemove, rpcApiUrl, auth.username, auth.password);
 }
 
-/** Helper to perform unpin, MFS removal, and GC */
 async function prunePinsAndGc(
     cidsToUnpin: (string | undefined)[],
     mfsPathsToRemove: (string | undefined)[],
@@ -341,7 +277,6 @@ async function prunePinsAndGc(
 ) {
     const auth = { username, password };
 
-    // Unpin CIDs (Use longer timeout)
     const unpinPromises = cidsToUnpin
         .filter((cid): cid is string => !!cid)
         .map(cid => {
@@ -352,7 +287,6 @@ async function prunePinsAndGc(
     await Promise.allSettled(unpinPromises);
     console.log("[prune] Unpinning complete.");
 
-    // Remove from MFS (Use longer timeout)
     if (mfsPathsToRemove.length > 0) {
         const mfsPromises = mfsPathsToRemove
              .filter((path): path is string => !!path)
@@ -367,8 +301,6 @@ async function prunePinsAndGc(
          console.log("[prune] No MFS paths to remove.");
     }
 
-
-    // Run Garbage Collector (Use longer timeout)
     try {
         console.log("[prune] Triggering garbage collection...");
         await fetchKubo(rpcApiUrl, '/api/v0/repo/gc', undefined, undefined, auth);

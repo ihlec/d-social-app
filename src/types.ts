@@ -1,44 +1,72 @@
-// fileName: src/types/index.ts
-// src/types/index.ts
-// --- REMOVED: S3Client import ---
-
-// ... (keep UserProfile, Follow, UserState, etc.) ...
-export interface UserProfile { name: string; bio?: string; }
-export interface Follow { ipnsKey: string; name?: string; lastSeenCid?: string; updatedAt?: number; }
-// --- START MODIFICATION: Add media/thumbnail filenames ---
-export interface Post { 
-    id: string; 
-    timestamp: number; 
-    content: string; 
-    authorKey: string; 
-    referenceCID?: string; 
-    mediaCid?: string; 
-    thumbnailCid?: string; 
-    mediaType?: 'image' | 'video' | 'file'; 
-    fileName?: string; // Original filename for 'file' type OR generated unique name for media
-    mediaFileName?: string; // Generated unique name for image/video
-    thumbnailFileName?: string; // Generated unique name for thumbnail
-    // --- START MODIFICATION: Add aspect ratio ---
-    mediaAspectRatio?: number; // Added to preserve space
-    // --- END MODIFICATION ---
-    replies?: string[]; 
+// fileName: src/types.ts
+export interface UserProfile {
+    name: string;
+    bio?: string;
 }
-// --- END MODIFICATION ---
-export interface UserState { profile: UserProfile; postCIDs: string[]; follows: Follow[]; likedPostCIDs?: string[]; dislikedPostCIDs?: string[]; updatedAt: number; extendedUserState?: string | null; }
-export interface OptimisticStateCookie { cid: string; name: string; updatedAt: number; }
-export interface OnlinePeer { ipnsKey: string; name: string; }
-export interface NewPostData { content: string; referenceCID?: string; file?: File; }
 
-// --- Modified Session type ---
+export interface Follow {
+    ipnsKey: string;
+    name?: string;
+    lastSeenCid?: string;
+    updatedAt?: number;
+}
+
+export interface Post {
+    id: string;
+    timestamp: number;
+    content: string;
+    authorKey: string;
+    referenceCID?: string;
+    mediaCid?: string;
+    thumbnailCid?: string;
+    mediaType?: 'image' | 'video' | 'file';
+    fileName?: string;
+    mediaFileName?: string;
+    thumbnailFileName?: string;
+    mediaAspectRatio?: number;
+    replies?: string[];
+}
+
+export interface UserState {
+    profile: UserProfile;
+    postCIDs: string[];
+    follows: Follow[];
+    // We stick to the existing schema:
+    likedPostCIDs?: string[];
+    dislikedPostCIDs?: string[]; 
+    blockedUsers?: string[]; // List of IPNS keys
+    updatedAt: number;
+    extendedUserState?: string | null;
+}
+
+export interface OptimisticStateCookie {
+    cid: string;
+    name: string;
+    updatedAt: number;
+}
+
+export interface OnlinePeer {
+    ipnsKey: string;
+    name: string;
+}
+
+export interface NewPostData {
+    content: string;
+    referenceCID?: string;
+    file?: File;
+}
+
 export interface Session {
-  sessionType: 'kubo' | null; // Only Kubo
-  rpcApiUrl?: string; // Kubo
-  ipnsKeyName?: string; // Kubo key name ('self', 'my-key')
-  resolvedIpnsKey?: string; // Actual Peer ID (Kubo)
-  // --- ADDED: Optional Kubo Auth ---
-  kuboUsername?: string; // Optional username for Kubo Basic Auth
-  kuboPassword?: string; // Optional password for Kubo Basic Auth
-  // --- END ADD ---
-  // --- REMOVED: Filebase properties ---
+    sessionType: 'kubo' | null;
+    rpcApiUrl?: string;
+    ipnsKeyName?: string;
+    resolvedIpnsKey?: string;
+    kuboUsername?: string;
+    kuboPassword?: string;
+    requiresPassword?: boolean;
 }
-// --- End Modified Session type ---
+
+export interface KuboAuth {
+    username?: string;
+    password?: string;
+}

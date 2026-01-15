@@ -1,991 +1,422 @@
-/* fileName: index.css */
+/* fileName: src/index.css */
+
+/* --- 1. Variables & Global Reset --- */
 :root {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
     line-height: 1.5;
     font-weight: 400;
     color-scheme: light dark;
+
+    /* Palette */
     --bg-color: #0e0e0e;
-    --surface-color: #141414;
+    --surface-color: #1a1a1a; 
     --primary-color: #a9f03c;
     --primary-color-hover: #689e2c;
-    --border-color: #656961;
-    --text-color: rgba(255, 255, 255, .87);
-    --text-secondary-color: rgba(255, 255, 255, .795);
-    --sidebar-width: 350px;
+    --border-color: #333;
+    --text-color: rgba(255, 255, 255, 0.9);
+    --text-secondary-color: rgba(255, 255, 255, 0.5);
+    --overlay-text-color: white;
+    --overlay-text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+    --danger-color: #ff4444;
+    
+    /* Layout Dimensions */
+    --sidebar-width: 300px;
+    
+    /* Font Settings */
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale
+    -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
     background-color: var(--bg-color);
+    color: var(--text-color);
     height: 100vh;
-    overflow-y: auto;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
 }
-
 
 #root {
-    max-width: 1100px; /* Max container width */
-    margin: 0 auto; /* Center the feed */
-    text-align: center; /* Center Login Page Text */
-    height: 100%;
-    display: flex;
-    justify-content: center; /* Centers horizontally */
-    width: 100%; /* Ensure #root tries to take full width up to max-width */
-}
-
-h1 {
-    margin-bottom: 1.5rem;
-}
-
-/* --- Themed Links  --- */
-a {
-    color: var(--primary-color);
-    text-decoration: inherit
-}
-
-a:hover {
-    color: var(--primary-color-hover)
-}
-
-h2, code, p, small {
-    color: var(--text-color);
-}
-
-.login-container {
-    flex-direction: column;
-    margin: auto
-}
-
-.login-container form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem
-}
-
-input[type=text],
-input[type=password],
-textarea {
     width: 100%;
-    padding: .8rem;
-    background-color: var(--surface-color);
-    border: 1px solid var(--border-color);
-    color: var(--text-color);
-    font-size: 1em;
+    min-height: 100vh;
 }
 
-input:focus,
-textarea:focus {
-    outline: none;
-    border-color: var(--primary-color)
-}
-
-.input-with-tooltip-container {
-    position: relative;
-    display: flex;
-    align-items: center
-}
-
-.input-with-tooltip-container input {
-    padding-right: 50px
-}
-
-.tooltip-wrapper {
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center
-}
-
-.tooltip-popup {
-    position: absolute;
-    bottom: 125%;
-    left: 50%;
-    transform: translate(-50%) translateY(5%);
-    background-color: #333;
-    color: #fff;
-    padding: 10px 15px;
-    border-radius: 8px; /* --- Radius Change --- */
-    z-index: 100;
-    min-width: 350px;
-    text-align: left;
-    font-size: .9em;
-    border: 1px solid #666;
-    box-shadow: 0 2px 8px #00000080
-}
-
-button {
-    border-radius: 4px;
-    border: 1px solid transparent;
-    padding: .6em 1.2em;
-    font-size: 1em;
-    font-weight: 700;
-    font-family: inherit;
-    background-color: var(--primary-color);
-    color: #fff;
-    cursor: pointer;
-}
-
-button:disabled {
-    opacity: .7;
-    cursor: not-allowed
-}
-
+/* --- 2. Main Layout --- */
 .app-container {
-    flex-grow: 1;
     display: flex;
-    flex-direction: column;
-    width: 100%; /* Ensure app container takes full width */
-}
-
-.logo-container {
-    position: fixed;
-    top: 15px;
-    left: 15px;
-    cursor: pointer;
-    z-index: 1001;
-    background: var(--bg-color);
-    border-radius: 50%; /* --- Exception: Circle --- */
-    width: 75px;
-    height: 75px;
-    box-shadow: 0 4px 6px #0000001a, 0 0 2px 1px #ffffffb3
-}
-
-.logo-container img {
-    width: 75px;
+    flex-direction: row;
+    width: 100%;
+    min-height: 100vh;
     position: relative;
-    height: 75px;
-    display: block;
-    object-fit: cover
 }
 
+/* --- Sidebar --- */
+/* Moved to src/components/Sidebar.css */
+
+/* --- Main Content Area --- */
 .main-content {
     flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    width: 100%; /* Ensure main content takes full width */
-}
-
-/* --- Start Sidebaer--- */
-.sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: var(--sidebar-width);
-    height: 100%;
-    background-color: var(--surface-color);
-    border-right: 1px solid var(--border-color);
-    transform: translate(-100%);
-    transition: transform .3s ease-in-out;
-    z-index: 1000;
-    overflow-y: auto
-}
-
-.sidebar.open {
-    transform: translate(0)
-}
-
-.sidebar-content {
-    padding: 80px 10px 0 15px;
-    text-align: left
-}
-
-.sidebar h2 {
-    margin: 1rem 0rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.info-item {
-    margin: 0.7rem 0
-}
-
-.info-item strong {
-    display: block;
-    color: var(--text-secondary-color)
-}
-
-.info-item code {
-    background-color: var(--bg-color);
-    padding: .5em;
-    word-break: break-all;
-    cursor: pointer;
-    display: block;
-    position: relative
-}
-
-.copy-feedback,
-.copy-feedback-inline {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    background: var(--primary-color);
-    color: #fff;
-    padding: 2px 6px;
-    font-size: .8em;
-    z-index: 5; /* --- ADDED: Ensure feedback is on top --- */
-}
-
-.copy-feedback {
-    right: 10px;
-}
-
-/* --- ADDED: Explicitly position inline feedback --- */
-.copy-feedback-inline {
-    left: 0;
-}
-/* --- END ADD --- */
-
-.follow-form {
-    display: flex;
-    gap: 2px
-}
-
-
-.followed-users-list {
-    list-style-type: none; /* Remove bullet points */
-    padding-left: 0; /* Remove default padding */
-    max-height: 140px;
-    overflow-y: scroll;
-}
-
-
-.followed-users-list li {
-    display: flex;
-    align-items: center;
-    text-align: left;
-    background-color: var(--bg-color);
-    margin-bottom: 3px;
-    padding: 4px 5px 4px 10px
-}
-
-.followed-users-list li.unresolved {
-    background-color: #4d4d00;
-    border-left: 3px solid #ffc107 /* Mark yellow if unresolved IPNS-Key */
-}
-
-.unfollow-button {
-    background-color: #c44;
-    padding: .2em .8em;
-    font-size: .8em;
-    /* Prevent button from shrinking */
-    flex-shrink: 0;
-}
-
-.user-details {
-    display: flex;
-    /* Align items vertically centered */
-    align-items: center;
-    gap: .5em;
-    overflow: hidden;
-    flex-grow: 1;
-    flex-wrap: nowrap;
-    /* Allow container to shrink */
     min-width: 0;
-    background-color: var(--bg-color);
-    margin-bottom: 1px;
+    padding: 3.5rem 2rem;
+    border-right: none; 
+    max-width: 1400px; 
+    margin: 0 auto; 
+    transition: max-width 0.3s ease; 
 }
 
-.user-name {
-    font-weight: 700;
-    cursor: pointer;
-    color: var(--primary-color);
-    white-space: nowrap;
-    flex-shrink: 0;
+/* Mobile: Sidebar behavior */
+@media (max-width: 768px) {
+    /* Sidebar styles moved to src/components/Sidebar.css */
+    .main-content {
+        padding: 5rem 1rem 1rem 1rem;
+        border-right: none;
+    }
 }
 
-.user-name:hover {
-    color: var(--primary-color-hover)
-}
+/* --- 3. Typography --- */
+h1 { font-size: clamp(2rem, 5vw, 2.2em); line-height: 1.2; white-space: normal; }
+h2 { font-size: 1.5rem; margin-bottom: 1rem;}
+h3 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary-color); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1.5rem;}
+a { color: var(--primary-color); text-decoration: inherit; }
+a:hover { color: var(--primary-color-hover); }
 
-.user-key {
-    /* Crucial for allowing it to shrink in flexbox */
-    min-width: 0;
-
-    /* Standard text-truncation properties */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    /* Allows the key to take up all remaining space */
-    flex-grow: 1;
-
-    /* Restored properties */
-    font-size: .85em;
-    color: var(--text-secondary-color);
-    cursor: pointer;
-    position: relative;
-} /* --- EO Sidebaer--- */
-
-.user-key::after { /* Fades to the background color on the right side */
-content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 70px; /* Width of the fade effect */
-  height: 100%;
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--bg-color) /* Match the list item background */
-  );
-  z-index: 1;
-} /* --- EO Sidebaer--- */
-
-/* --- Start Feed View --- */
-.refresh-button {
-    width: 100%;
-    border: 1px solid var(--border-color);
-    border-radius: 0 0 4px 4px; /* --- Standard (Partial) --- */
-    padding: .3em;
-    background-color: var(--surface-color);
-    opacity: 20%;
-    cursor: pointer;
-    transition: background-color .25s;
-    display: flex;
-    align-items: center;
-    justify-content: center
-}
-
-.refresh-button:hover {
-    background-color: var(--border-color)
-}
-
-/* Container for the masonry layout */
-/* .feed-container class is often applied by the component, adjust if needed */
-/* Ensure it spans the full width available within .main-content */
-.feed-container { /* Applied by ResponsiveMasonry wrapper likely */
-    width: 100%;
-}
-
-
-/* Individual columns created by react-responsive-masonry */
-/* The library adds inline styles for width, etc. */
-/* We just need to style the items *within* the columns */
-
-
-.post {
-    background-color: var(--surface-color);
-    border: 1px solid var(--border-color);
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    /* Removed fixed height */
-    /* --- START CORRECTION: Remove min-width --- */
-    /* min-width: 360px; */ /* Removed */
-    /* --- END CORRECTION --- */
-    position: relative;
-    overflow: hidden;
-    width: 100%;
-    break-inside: avoid; /* Try to prevent posts splitting */
-    /* Add margin-bottom handled by the wrapper div in Feed.tsx */
-}
-
-/* --- ADDED: Styling for reply context --- */
-.reply-context {
+/* --- 4. Buttons --- */
+button {
+    border-radius: 3px;
+    border: 1px solid transparent;
+    padding: 0.5em 1.2em;
     font-size: 0.9em;
-    color: var(--text-secondary-color);
-    padding: 0.5rem 1rem 0 1rem;
-    margin-bottom: 0.5rem;
-    width: 100%;
+    font-weight: 600;
+    font-family: inherit;
+    background-color: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
 }
-.reply-context em {
-    font-style: italic;
-    color: var(--border-color);
-}
-/* --- End Add --- */
+button:hover { background-color: rgba(255,255,255,0.1); }
+button:focus { outline: none; }
 
-.post-no-media { /* Padding specifically for non-media posts */
-    padding: 1rem;
-}
+/* --- 5. Sidebar Components --- */
+/* Moved to src/components/Sidebar.css */
 
-.post-no-media .post-footer {
-    margin-left: -1rem;
-    margin-right: -1rem;
-    margin-bottom: -1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 0.5rem;
-    background-color: var(--bg-color);
-    width: calc(100% + 2rem); /* Account for negative margins */
-}
+/* --- 6. Post Feed & Layout --- */
+/* Moved to src/features/feed/PostItem.css */
 
-
-
-.post strong {
-    color: var(--primary-color);
-    display: block
-}
-
-/* Styles for content p tag (both overlay and non-overlay) */
-.post p {
-    margin: .5rem 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    margin-bottom: 0;
-}
-
+/* --- 9. New Post Form --- */
 .new-post-form {
-    margin-bottom: .2rem;
-    position: relative
+    padding: 1.5rem; background-color: var(--surface-color);
+    border: 1px solid var(--border-color); border-radius: 3px;
+    margin: 0; display: flex; flex-direction: column; gap: 1rem;
+    margin-bottom: 0.7rem;
+}
+.new-post-input {
+    width: 100%; background: transparent; border: none;
+    color: var(--text-color); font-size: 1.25em;
+    resize: none; min-height: 80px; font-family: inherit;
+}
+.new-post-input:focus { outline: none; }
+
+.media-preview {
+    position: relative; max-height: 300px;
+    overflow: hidden; border-radius: 3px;
+    margin-bottom: 0.5rem; background: #000;
+}
+.media-preview img, .media-preview video { width: 100%; height: 100%; object-fit: contain; }
+
+/* --- UPDATED: Remove File Button --- */
+.remove-file-button {
+    position: absolute; top: 0px; right: 0px;
+    background: rgba(0,0,0,0.7); color: white;
+    border: none; border-radius: 3px; width: 25px; height: 25px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 
-.new-post-form > p {
-    opacity: 0.5;
-    background-color: var(--bg-color);
-    margin: 0;
+.file-input-hidden { display: none; }
+.file-input-label { 
+    cursor: pointer; color: var(--primary-color); 
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; 
+    border-radius: 3px;
+    transition: background 0.2s;
+    margin-right: 0; /* Ensure no margin in flex container */
 }
+.file-input-label:hover { background-color: rgba(169, 240, 60, 0.1); }
 
-
-
-.new-post-textarea {
-    min-height: 150px;
-    margin: 0;
-    resize: vertical;
-    padding-bottom: 50px;
+/* --- New Class for Button Alignment --- */
+.form-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 0.5rem;
 }
 
 .new-post-button {
-    width: 100%
-}
-
-.file-input-label {
-    position: absolute;
-    bottom: 45px;
-    left: 5px;
-    background: none;
-    border: none;
-    padding: 5px;
-    cursor: pointer;
-    color: var(--text-secondary-color);
-    transition: color .2s
-}
-
-.file-input-label:hover {
-    color: var(--primary-color)
-}
-
-.media-preview {
-    position: relative;
-    width: 100px;
-    height: 100px;
-    overflow-wrap: break-word;
-    border: 1px solid var(--border-color);
-    overflow: hidden;
-}
-
-.remove-file-button {
-    position: absolute;
-    top: -10px;
-    right: -10px;
-    background-color: rgba(0, 0, 0, 0);
-    color: #e4e4e4;
-    border: none;
-    border-radius: 20%; /* --- Exception: Squircle --- */
-    font-size: 1.2em;
-    cursor: pointer
-}
-
-/* Media wrapper and overlay styles */
-.post-media-wrapper {
-    position: relative; /* Anchor for the overlay */
-    width: 100%;
-    line-height: 0; /* Remove extra space below image/video */
-}
-
-.post-media-overlay { /* Pushes user name to the top*/
-    position: absolute;
-    inset: 0; /* Cover the entire wrapper */
-    padding: 0.75rem; /* Reduced padding */
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between; /* Push author to top, content towards bottom */
-    pointer-events: none; /* Allow clicks to pass through overlay background */
-}
-
-.author-name-overlay { /* Highlights User Name */
-    position: static; /* Let flexbox handle positioning */
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
-    pointer-events: auto; /* Make the button clickable */
-    align-self: flex-start; /* Align to the top left */
-}
-
-.author-name-overlay strong { /* Style the name itself */
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
-}
-
-/* Styling for the post text container inside the overlay */
-.post-content-overlay {
-    color: #fff;
-    text-shadow: 2px 1px 2px rgba(0, 0, 0, 0.9);
-    pointer-events: none; /* Text itself isn't clickable */
-    padding: 1rem; /* Keep user added padding */
-    width: 100%;
-    white-space: pre-wrap; /* Allow wrapping and preserve line breaks */
-    overflow-wrap: break-word; /* Help break long words if needed */
-    /* display: ; <-- REMOVED INVALID PROPERTY */
-    text-align: left; /* Explicitly set text alignment */
-    line-height: 1.4; /* Ensure reasonable line height */
-    overflow: hidden; /* Hide any text exceeding max-height */
-}
-
-
-.post-media-container {
-    position: relative;
-    width: 100%;
-    display: block; /* Ensure it behaves like a block element */
-}
-
-
-.post-media {
-    display: block;
-    width: 100%;
-    height: 100%; /* Fill the aspect-ratio container */
-    cursor: pointer;
-    object-fit: cover;
-}
-
-.play-icon-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #fffc;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .5));
-    transition: transform .2s ease-out
-}
-
-.video-thumbnail-container {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    line-height: 0;
-    display: block; /* Ensure block behavior */
-}
-
-.video-thumbnail-container:hover .play-icon-overlay {
-    transform: translate(-50%, -50%) scale(1.1)
-}
-
-.feed-selector {
-    display: flex;
-    justify-content: center;
-    border-bottom: 1px solid #2f3336
-}
-
-.feed-selector button {
-    flex-grow: 1;
-    padding: 1rem;
-    background-color: transparent;
-    border: none;
-    color: #888;
-    font-size: 1rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: color .2s, background-color .2s;
-    position: relative
-}
-
-.feed-selector button:hover {
-    background-color: #ffffff0d
-}
-
-.feed-selector button.active {
-    color: #fff
-}
-
-.feed-selector button.active:after { /* --- Green Underline --- */
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 10%;
-    right: 10%;
-    height: 2px;
+    /* align-self: flex-end; -- Removed in favor of Flexbox parent alignment */
     background-color: var(--primary-color);
+    color: #000; border-radius: 3px;
+    padding: 0.6em 1.5em; font-weight: bold;
 }
+.new-post-button:disabled { background-color: #333; color: #888; cursor: not-allowed; }
+.reply-to-indicator { color: var(--text-secondary-color); font-size: 0.9em; margin-bottom: 0.5rem; }
 
-/* --- REMOVED OBSOLETE .login-method-selector --- */
-
-.comment {
-    position: relative;
-    display: flex;
-    margin-bottom: 1rem;
-    padding-left: 20px
+/* --- 10. Profile & Login --- */
+.login-container {
+    max-width: 450px; margin: 10rem auto; padding: 2rem; text-align: center;
 }
-
-.comment-line {
-    position: absolute;
-    left: 8px;
-    top: 10px;
-    bottom: 10px;
-    width: 2px;
-    background-color: var(--border-color)
+.login-form { display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2rem;}
+.login-input {
+    padding: 1rem; border-radius: 3px; border: 1px solid #333;
+    background-color: var(--surface-color); color: white; font-size: 1rem;
 }
+.input-with-tooltip-container { display: flex; align-items: center; gap: 0.5rem; }
+.input-with-tooltip-container input { flex: 1; }
 
-.comment-content {
-    flex-grow: 1
+.toggle-credentials-button {
+    background: none; border: none; color: var(--primary-color);
+    font-size: 0.9em; text-decoration: underline;
 }
-
-.comment p {
-    font-size: .95em;
-    color: var(--text-secondary-color);
-    margin: .25rem 0
-}
-
-.comment small {
-    font-size: .8em
-}
-
-/* --- Refactor: Combine common bordered button styles --- */
-.back-to-feed-button,
-.edit-bio-button {
-    background-color: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary-color);
-}
-
-.back-to-feed-button:hover,
-.edit-bio-button:hover {
-    background-color: var(--surface-color);
-    border-color: var(--primary-color);
-}
-
-.back-to-feed-button {
-    width: auto;
-    padding: .5em 1em;
-    margin: 1rem 0;
-    align-self: flex-start;
-    text-align: left
-}
-
-/* Specific hover color for edit-bio-button */
-.edit-bio-button:hover {
-    color: var(--primary-color)
-}
-
-.post-header {
-    padding: 0.5rem 0 0 1rem ;
-    width: 100%;
-    box-sizing: border-box; /* Include padding */
-}
-
-.post-no-media .post-header {
-    padding: 0;
-}
-
-/* Paragraphs directly inside .post (excluding overlay) */
-.post > p {
-    padding: 0.5rem 1rem 0 1rem ; /* Adjust padding slightly */
-    width: 100%;
-    box-sizing: border-box; /* Include padding in width calculation */
-}
-
-.post-no-media p {
-    padding: 0 1rem 0 0.75rem;
-}
-
-.post-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 1rem 0rem 1rem;
-    background-color: var(--bg-color);
-    width: 100%;
-    box-sizing: border-box; /* Include padding in width calculation */
-}
-
-
-/* Only apply footer padding in media posts */
-.post-no-media .post-footer {
-    padding: 0;
-    padding-left: 1rem;
-    width: calc(100% + 2rem); /* Recalculate width accounting for negative margins */
-}
-
-
-/* Consolidated Action Button Base and Hover */
-.action-button,
-.comment-button,
-.share-profile-button {
-    background: none;
-    border: none;
-    color: var(--text-secondary-color);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 50%; /* --- Exception: Circle --- */
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color .2s, color .2s;
-}
-
-.action-button:hover,
-.comment-button:hover,
-.share-profile-button:hover {
-    background-color: #646cff1a;
-    color: var(--primary-color);
-}
-
-/* Specific overrides */
-.action-button.liked {
-    color: #ff4d6d
-}
-
-.action-button.disliked {
-    color: #8d99ae
-}
-
-.share-profile-button {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-}
-
-.post-actions {
-    display: flex;
-    align-items: center;
-    gap: .5rem
-}
-
-.author-name-button {
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    font-family: inherit;
-    font-size: inherit;
-    cursor: pointer;
-    text-align: left;
-    width: auto;
-    pointer-events: auto;
-}
-
-.author-name-button:hover strong {
-    text-decoration: underline;
-    color: var(--primary-color-hover);
-    background-color: #646cff1a
-}
-
-.public-view-container {
-    display: flex;
-    flex-direction: column;
-    padding: 1rem;
-    margin: 0 auto; /* --- Center the feed  --- */
+.login-button {
+    background-color: white; color: black; font-weight: bold;
+    padding: 1rem; border-radius: 3px; margin-top: 1rem;
 }
 
 .profile-header {
-    position: relative;
-    text-align: left;
-    padding: 1rem;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 1rem;
-    background-color: var(--surface-color);
+    background-color: transparent; padding: 1rem 0; margin-bottom: 1rem; 
+    border-bottom: 1px solid var(--border-color); position: relative;
 }
-
-.profile-header h2 {
-    font-size: 1.8em;
-    color: var(--primary-color)
+.edit-bio-textarea {
+    width: 100%; min-height: 80px; margin-bottom: 1rem; padding: 0.5rem;
+    background: #000; color: white;
+    border: 1px solid var(--border-color); border-radius: 3px;
 }
-
-.profile-header p {
-    position: relative;
-    color: var(--text-secondary-color);
-    font-size: 1.1em;
-    margin-top: .5rem;
-    padding-bottom: 35px;
-    min-height: 70px
-}
-
+.bio-editor-actions { display: flex; gap: 0.5rem; }
 .edit-bio-button {
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    padding: .2em .8em;
-    font-size: .8em;
-    border-radius: 4px;
+    margin-left: 1rem; padding: 0.3em 0.8em; font-size: 0.8em;
+    border: 1px solid var(--border-color); background: transparent;
+    color: white; border-radius: 3px;
+}
+.share-profile-button {
+    position: absolute; top: 1rem; right: 0;
+    background: none; border: none; color: #888;
+    cursor: pointer; padding: 0.5rem;
 }
 
-.bio-editor textarea {
-    margin-bottom: .5rem
-}
-
-.bio-editor-actions {
+/* --- 11. Feed Selector --- */
+.feed-selector {
     display: flex;
-    justify-content: flex-end;
-    gap: .5rem
-}
-
-/* --- FIX: Standardize replies container styling --- */
-.replies-container {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-top: 1rem;
-    padding-top: 1rem; /* Add top padding */
-    /* Apply padding to all instances */
-    padding-left: 0;
-    padding-right: 1rem;
-    padding-bottom: 1rem;
-    /* --- ADD: Position relative for line anchoring --- */
-    position: relative;
-}
-/* --- End Fix --- */
-
-/* --- REMOVED: .post-no-media .replies-container --- */
-
-/* --- FIX: Style replies with indent and thread line --- */
-.replies-container .post {
-    /* Add padding for content indent */
-    padding-left: 1.5rem;
-    padding-top: 1rem;
-    margin-bottom: 1rem;
-    /* Add position relative to anchor the line */
-    position: relative;
-
-}
-
-.replies-container .post::before {
-    content: "";
-    position: absolute;
-    /* Position line inside the padding */
-    left: 0.75rem;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background-color: var(--border-color);
-    opacity: 0.6; /* Make it a bit more subtle */
-
-}
-
-.replies-container .post-header {
-  margin: 0;
-  padding: 0;
-  position: absolute;
-  top: -0.2rem;
-}
-
-.replies-container .post-footer {
- margin-top: 0.5rem;
- margin-left: 0;
-}
-
-/* --- ADDED: Expanded Post Overlay Styles --- */
-.expanded-post-backdrop {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.85);
-    z-index: 2000;
-    display: flex;
-    align-items: center;
+    border-bottom: 1px solid var(--border-color); 
+    background: rgba(14, 14, 14, 0.9); backdrop-filter: blur(10px); z-index: 50;
     justify-content: center;
-    cursor: pointer;
+    padding: 0 20%;
+    margin-bottom: 0.7rem;
+}
+.feed-selector button {
+    flex: 1; background: transparent; border: none;
+    color: var(--text-secondary-color); position: relative; padding: 1.2rem;
+    border-radius: 0; font-size: 1rem;
+}
+.feed-selector button:hover { color: white; background-color: rgba(255,255,255,0.03); }
+.feed-selector button.active { color: #fff; font-weight: bold;}
+.feed-selector button.active::after {
+    content: ""; position: absolute; bottom: 0; left: 0; right: 0;
+    height: 3px; background-color: var(--primary-color);
+}
+
+.refresh-button {
+    position: absolute;
+    top: 18px;
+    left: 8%;
+    z-index: 99;
+    background: transparent; border: none;
+    color: var(--text-secondary-color); font-size: 1em;
+    cursor: pointer; margin-bottom: 0rem; padding: 1rem;
+
+}
+.refresh-button:hover { color: var(--primary-color); }
+.refresh-button span { font-weight: normal; }
+
+.center-screen-loader {
+    display: flex; justify-content: center;
+    align-items: center; height: 100vh; width: 100%;
+}
+.feed-loader-container { height: 50px; margin-top: 1rem; width: 100%; text-align: center; }
+
+/* --- 12. Modal / Expanded View --- */
+.expanded-post-backdrop {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0,0,0,0.85); 
+    display: flex; 
+    justify-content: center;
+    align-items: flex-start; /* <--- ADD THIS LINE */
+    z-index: 1000; 
+    overflow-y: auto; 
+    padding: 2rem 0;
 }
 
 .expanded-post-container {
-    background-color: var(--surface-color);
-    max-width: 980px;
-    width: auto;
-    overflow-y: auto;
-    cursor: default;
+    width: 90%; 
+    max-width: 850px;
+    height: fit-content; 
+    border-radius: 3px; 
+    padding: 1.5rem; 
     position: relative;
-    display: flex;
-    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    background-color: transparent; /* Ensure it has a background color */
+}
+.close-modal-button {
+    position: absolute; top: 10px; right: 10px;
+    background: var(--surface-color); color: white;
+    border: none; border-radius: 3px; width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; z-index: 1001;
 }
 
-.expanded-post-container .post {
-    border: none;
-    max-height: none;
-    height: auto;
-    overflow: visible;
+/* Replies styles moved to PostItem.css */
+
+.reply-form-container { 
+    margin-top: 0.5rem; /* CHANGED: Reduced from 2rem */
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem; width: 100%;
 }
 
-/* Ensure media in expanded view takes appropriate space */
-.expanded-post-container .post-media,
-.expanded-post-container .video-thumbnail-container img.post-media {
-    max-height: 90vh;
+/* --- 14. Loading Spinner --- */
+.loading-spinner-container {
+    display: flex; justify-content: center; align-items: center;
+    padding: 2rem; width: 100%;
 }
+.loading-spinner {
+    /* Existing styles */
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
 
-.expanded-post-close-button {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    background: rgba(0, 0, 0, 0.5);
-    color: white;
-    border: none;
-    border-radius: 50%; /* --- Exception: Circle --- */
-    width: 30px;
-    height: 30px;
-    font-size: 1.5em;
-    line-height: 1;
-    cursor: pointer;
-    z-index: 2001;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-/* --- End Expanded Post Overlay Styles --- */
-
-.post-file-container {
-    display: flex;
-    align-items: center;
-    margin-top: 2.5rem;
-}
-
-.file-download-link {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: center;
+    /* Add this to center */
+    display: block;
     margin: 0 auto;
-    gap: 0.5em;
-    text-decoration: none;
-    color: var(--text-secondary-color);
-    padding: 0 1rem;
-    border-radius: 4px; /* --- Radius Change --- */
-    background-color: var(--bg-color);
-    transition: background-color 0.2s, color 0.2s;
-    width: 90%;
-    padding: 1rem;
+}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+/* --- 15. Tooltip --- */
+.tooltip-wrapper { position: relative; display: inline-flex; align-items: center; }
+.tooltip-popup {
+    position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%); margin-bottom: -4px;
+    padding: 0.8rem; background-color: #222;
+    color: white; font-size: 0.8rem;
+    border-radius: 4px; white-space: normal;
+    z-index: 200; width: max-content; max-width: 250px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid #444;
 }
 
-.file-download-link:hover {
-    background-color: var(--surface-color);
-    color: var(--primary-color);
-}
-
-.file-download-link svg {
-    width: 80px;
-    height: 80px;
-    fill: currentColor;
-    flex-shrink: 0;
-}
-
-.file-download-link span {
-    white-space: normal;
-    word-break: break-word;
-    text-align: left;
-    flex-grow: 1;
-    min-width: 100px;
-}
-
-
-/* --- ADDITION: Class for placeholder posts --- */
-.post-placeholder {
-    min-height: 100px; /* Give placeholders a minimum height */
+/* --- 16. Profile Tabs --- */
+.profile-tabs {
     display: flex;
-    align-items: center;
     justify-content: center;
-    opacity: 0.5;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 10%;
+}
+
+.profile-tabs button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary-color);
+    position: relative;
+    padding: 1rem;
+    border-radius: 0;
+    font-size: 0.95rem;
+    transition: color 0.2s;
+}
+
+.profile-tabs button:hover {
+    color: white;
+    background-color: rgba(255,255,255,0.03);
+}
+
+.profile-tabs button.active {
+    color: #fff;
+    font-weight: bold;
+}
+
+.profile-tabs button.active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: var(--primary-color);
+}
+
+/* ... existing styles ... */
+
+/* Settings Modal Styles */
+.settings-backdrop {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0,0,0,0.7);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 2000;
+    backdrop-filter: blur(2px);
+}
+
+.settings-container {
+    background-color: var(--surface-color);
+    padding: 2rem;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border: 1px solid var(--border-color);
+}
+
+.settings-container textarea, 
+.settings-container input {
     width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg-color);
+    border: 1px solid #444;
+    color: var(--text-color);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+}
+
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.save-button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none; 
+    padding: 0.6rem 1.2rem; 
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.cancel-button {
+    background: transparent;
+    color: var(--text-color);
+    border: 1px solid #666; 
+    padding: 0.6rem 1.2rem; 
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.cancel-button:hover {
+    background-color: rgba(255,255,255,0.05);
 }

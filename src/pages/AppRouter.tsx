@@ -1,58 +1,56 @@
 // fileName: src/pages/AppRouter.tsx
-// fileName: src/pages/AppRouter.tsx
-// src/router/AppRouter.tsx
+import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import HomePage from './HomePage';
-import ProfilePage from 'src/features/profile/ProfilePage';
-import PostPage from 'src/components/PostPage';
-import Login from 'src/features/auth/Login';
-import { useAppState } from '@/state/useAppStorage'; // Import the context hook
-import LoadingSpinner from 'src/components/LoadingSpinner';
-import InitializeUserDialog from 'src/components/InitializeUserDialog';
+import { useAppState } from '../state/useAppStorage';
+import LoadingSpinner from '../components/LoadingSpinner';
+import InitializeUserDialog from '../components/InitializeUserDialog';
+
+const HomePage = lazy(() => import('./HomePage'));
+const ProfilePage = lazy(() => import('./ProfilePage'));
+const PostPage = lazy(() => import('./PostPage'));
+const Login = lazy(() => import('../features/auth/Login'));
 
 function AppRouter() {
   const { 
     isLoggedIn, 
-    // --- REMOVED: loginWithFilebase ---
-    // loginWithFilebase, 
     loginWithKubo,
     isInitializeDialogOpen,
     onInitializeUser,
     onRetryLogin
   } = useAppState();
+  
   const location = useLocation();
   const backgroundLocation = location.state?.backgroundLocation;
 
-  // --- FIX: The dialog must be rendered *outside* the conditional loading spinner return ---
   return (
     <>
       {isLoggedIn === null && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="center-screen-loader">
           <LoadingSpinner />
         </div>
       )}
 
       {isLoggedIn !== null && (
-        <Routes location={backgroundLocation || location}>
+        <Suspense fallback={<div className="center-screen-loader"><LoadingSpinner /></div>}>
+            <Routes location={backgroundLocation || location}>
+          {/* PUBLIC ROUTES (Accessible without login) */}
           <Route path="/profile/:key" element={<ProfilePage />} />
+          <Route path="/profile/:key/:tab" element={<ProfilePage />} />
+          <Route path="/post/:cid" element={<PostPage />} />
 
-          {/* LOGIN ROUTE: */}
+          {/* LOGIN ROUTE */}
           <Route
             path="/login"
             element={
               !isLoggedIn ? (
-                <Login
-                  // --- REMOVED: onLoginFilebase prop ---
-                  // onLoginFilebase={loginWithFilebase}
-                  onLoginKubo={loginWithKubo}
-                />
+                <Login onLoginKubo={loginWithKubo} />
               ) : (
                 <Navigate to="/" replace />
               )
             }
           />
 
-          {/* PROTECTED ROUTES: */}
+          {/* PROTECTED ROUTES */}
           <Route
             path="/"
             element={
@@ -60,25 +58,28 @@ function AppRouter() {
             }
           />
 
+          {/* Catch-all: Redirect based on auth status */}
           <Route path="*" element={<Navigate to={isLoggedIn ? "/" : "/login"} replace />} />
-        </Routes>
+            </Routes>
+        </Suspense>
       )}
 
-      {/* Render the modal route *only* if backgroundLocation exists */}
+      {/* Render the modal route *only* if backgroundLocation exists (Modal View) */}
       {backgroundLocation && isLoggedIn !== null && (
-        <Routes>
-          <Route path="/post/:cid" element={<PostPage />} />
-        </Routes>
+        <Suspense fallback={null}>
+            <Routes>
+              <Route path="/post/:cid" element={<PostPage />} />
+            </Routes>
+        </Suspense>
       )}
 
       <InitializeUserDialog
         isOpen={isInitializeDialogOpen}
-        onInitialize={onInitializeUser || (() => {})} // Pass handlers
+        onInitialize={onInitializeUser || (() => {})}
         onRetry={onRetryLogin || (() => {})}
       />
     </>
   );
-  // --- END FIX ---
 }
 
 export default AppRouter;

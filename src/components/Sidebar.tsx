@@ -1,49 +1,96 @@
 // fileName: src/components/Sidebar.tsx
-// src/components/Layout/Sidebar.tsx
-import React, { useState } from 'react';
-import { UserState, Follow, OnlinePeer } from '../types';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { UserState, OnlinePeer } from '../types';
+import { useAppState } from '../state/useAppStorage';
+import { SettingsIcon } from './Icons';
+import { HomeIcon } from './Icons';
+import './Sidebar.css';
+
+const SettingsDialog = lazy(() => import('./SettingsDialog'));
+const UnlockSessionDialog = lazy(() => import('./UnlockSessionDialog'));
+
+// --- Helper Component for Copy Logic ---
+interface CopyableTextProps {
+    value: string;
+    displayValue?: string;
+    className?: string;
+    style?: React.CSSProperties;
+    title?: string;
+}
+
+const CopyableText: React.FC<CopyableTextProps> = ({ value, displayValue, className, style, title }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!value) return;
+        navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    if (copied) {
+        return (
+            <span 
+                className={className} 
+                style={{ ...style, color: 'var(--primary-color)', cursor: 'default', fontWeight: 'bold' }}
+            >
+                Copied!
+            </span>
+        );
+    }
+
+    return (
+        <span 
+            className={className} 
+            onClick={handleCopy} 
+            title={title || "Click to copy"} 
+            style={{ ...style, cursor: 'pointer' }}
+        >
+            {displayValue || value || 'N/A'}
+        </span>
+    );
+};
+
 
 interface InfoItemProps {
   label: string;
-  value: string;
+  children: React.ReactNode;
 }
 
-const InfoItem: React.FC<InfoItemProps> = ({ label, value }) => {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    if (!value) return;
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+const InfoItem: React.FC<InfoItemProps> = ({ label, children }) => {
   return (
     <div className="info-item">
       <strong>{label}</strong>
-      <code onClick={handleCopy} title={value ? "Click to copy" : ""} style={{ cursor: value ? 'pointer' : 'default' }}>
-        {value || 'N/A'}
-        {copied && <span className="copy-feedback">Copied!</span>}
-      </code>
+      <div style={{ display: 'block', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.85em', color: 'var(--primary-color)' }}>
+         {children}
+      </div>
     </div>
   );
 };
 
 interface SidebarProps {
   isOpen: boolean;
+  onClose: () => void; 
   userState: UserState | null;
-  ipnsKey: string;
+  ipnsKey: string; 
+  peerId: string;
   latestCid: string;
   unresolvedFollows: string[];
-   otherUsers: OnlinePeer[];
+  otherUsers: OnlinePeer[];
   onFollow: (ipnsKey: string) => Promise<void>;
   onUnfollow: (ipnsKey: string) => Promise<void>;
   onViewProfile: (ipnsKey: string) => void;
   onLogout: () => void;
+  onRefreshHome?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
+  onClose,
   userState,
-  ipnsKey,
+  peerId,
   latestCid,
   unresolvedFollows,
   otherUsers,
@@ -51,101 +98,270 @@ const Sidebar: React.FC<SidebarProps> = ({
   onUnfollow,
   onViewProfile,
   onLogout,
+  onRefreshHome
 }) => {
-  const [followInput, setFollowInput] = useState('');
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const { userProfilesMap, fetchUser, isSessionLocked, unlockSession } = useAppState();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleFollowSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (followInput.trim()) {
-      onFollow(followInput.trim());
-      setFollowInput('');
-    }
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isUnlockOpen, setIsUnlockOpen] = useState(false);
+  const [manualFollowKey, setManualFollowKey] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
+  // FIX: Track attempted fetches to prevent "hammering" the API on re-renders
+  const attemptedAutoFetch = useRef<Set<string>>(new Set());
+
+  // 2. AUTO-RESOLVE NAMES: If a friend is missing from cache, fetch them.
+  useEffect(() => {
+      if (!userState || !isOpen) return;
+
+      userState.follows.forEach(follow => {
+          // Check if missing from cache AND not yet attempted in this session
+          if (!userProfilesMap.has(follow.ipnsKey) && !attemptedAutoFetch.current.has(follow.ipnsKey)) {
+              
+              // Mark as attempted immediately
+              attemptedAutoFetch.current.add(follow.ipnsKey);
+              
+              // console.log(`[Sidebar] Auto-fetching profile for ${follow.ipnsKey}`);
+              fetchUser(follow.ipnsKey); 
+          }
+      });
+  }, [isOpen, userState, userProfilesMap, fetchUser]);
+
+
+  const handleManualFollow = async () => {
+      if (!manualFollowKey.trim()) return;
+      setIsAdding(true);
+      try {
+          await onFollow(manualFollowKey.trim());
+          setManualFollowKey('');
+      } catch (error) {
+          console.error("Manual follow failed", error);
+      } finally {
+          setIsAdding(false);
+      }
   };
 
-   const handleCopyKey = (key: string) => {
-        if (!key) return;
-        navigator.clipboard.writeText(key);
-        setCopiedKey(key);
-        setTimeout(() => setCopiedKey(null), 2000);
-    };
-
-    const displayName = userState?.profile?.name || sessionStorage.getItem("currentUserLabel") || 'Loading...';
+  const handleHomeClick = () => {
+      // Check if we are already at the home root (or hash root)
+      if (location.pathname === '/' || location.hash === '#/') {
+          if (onRefreshHome) onRefreshHome();
+      } else {
+          navigate('/');
+      }
+      onClose();
+  };
 
   return (
-    <div className={`sidebar ${isOpen ? 'open' : ''}`}>
-      <div className="sidebar-content">
-        <h2>Profile Info</h2>
-         <div className="info-item">
-             <strong>Your Name / Label</strong>
-             <span
-                 className="user-name"
-                 style={{cursor: 'pointer'}}
-                 onClick={() => ipnsKey && onViewProfile(ipnsKey)}
-                 title="View your profile"
-             >
-                {displayName} {/* Display the name/label here */}
-             </span>
+    <>
+    <div 
+        className={`sidebar-overlay ${isOpen ? 'open' : ''}`} 
+        onClick={onClose}
+    />
+
+    <div className={`sidebar ${isOpen ? 'open' : 'closed'}`}>
+      
+      <div className="sidebar-header">
+        <h2 
+            onClick={handleHomeClick} 
+            className="sidebar-home-icon"
+            title="Go to Home Feed"
+        >
+            <HomeIcon/>
+        </h2>
+        <div className="sidebar-actions">
+            {isSessionLocked && (
+                <button
+                    onClick={() => setIsUnlockOpen(true)}
+                    className="icon-button sidebar-action-btn sidebar-lock-btn"
+                    title="Session Locked (Read-Only). Click to Unlock."
+                >
+                    🔒
+                </button>
+            )}
+            <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="icon-button sidebar-action-btn"
+                title="Settings"
+            >
+                <SettingsIcon />
+            </button>
         </div>
-        <InfoItem label="Your IPNS Key (Peer ID)" value={ipnsKey} />
-        <InfoItem label="Latest State CID" value={latestCid} />
+      </div>
 
-        <h2>Follow a User</h2>
-        <form onSubmit={handleFollowSubmit} className="follow-form">
-          <input type="text" value={followInput} onChange={(e) => setFollowInput(e.target.value)} placeholder="Enter IPNS Key (Peer ID)"/>
-          <button type="submit">Follow</button>
-        </form>
+      <InfoItem label="Display Name">
+          <span 
+            onClick={() => { onViewProfile(peerId); onClose(); }}
+            className="sidebar-link"
+            title="Go to my profile"
+          >
+            {userState?.profile.name || "Anonymous"}
+          </span>
+      </InfoItem>
+      
+      <InfoItem label="My IPNS Key">
+          <CopyableText value={peerId} />
+      </InfoItem>
 
-        <h2>Following ({userState?.follows?.length || 0})</h2>
-        <ul className="followed-users-list">
-          {userState?.follows?.map((follow: Follow, index: number) => {
-              if (!follow?.ipnsKey) return null;
-              const isUnresolved = unresolvedFollows.includes(follow.ipnsKey);
-              return (
-                 <li key={follow.ipnsKey || `follow-${index}`} className={isUnresolved ? 'unresolved' : ''}>
-                     <div className="user-details">
-                         <span className="user-name" onClick={() => onViewProfile(follow.ipnsKey)} title={isUnresolved ? "Unresolved" : `View ${follow.name || 'user'}'s profile`}>
-                            {follow.name || 'Unknown User'} {isUnresolved ? '(?)': ''}
-                         </span>
-                         {/* --- FIX: Render full key --- */}
-                         <span className="user-key" title={follow.ipnsKey} onClick={() => handleCopyKey(follow.ipnsKey)}>
-                            {/* --- FIX: Moved feedback to start of span --- */}
-                             {copiedKey === follow.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
-                            {follow.ipnsKey}
-                        </span>
-                        {/* --- END FIX --- */}
-                        <button className="unfollow-button" onClick={() => onUnfollow(follow.ipnsKey)}>Unfollow</button>
-                     </div>
-                 </li>
-              );
-            })}
-          {(!userState?.follows || userState.follows.length === 0) && <li style={{ background: 'none', paddingLeft: '0' }}><small>Not following anyone yet.</small></li>}
-        </ul>
+      <InfoItem label="Latest State CID">
+          <CopyableText value={latestCid} />
+      </InfoItem>
+      
+      {/* 1. Following List Section */}
+      {userState && (
+          <div className="sidebar-section">
+              <h3>Following ({userState.follows.length})</h3>
+              
+              {userState.follows.length > 0 ? (
+                  <ul className="peer-list">
+                      {userState.follows.map(follow => {
+                          // PRIORITY: 1. Live Cache, 2. Saved Snapshot, 3. Fallback
+                          const cachedProfile = userProfilesMap.get(follow.ipnsKey);
+                          let displayName = cachedProfile?.name;
+                          
+                          if (!displayName) {
+                              displayName = follow.name;
+                              if (!displayName || displayName === follow.ipnsKey) {
+                                  displayName = follow.ipnsKey.substring(0, 8) + '...';
+                              }
+                          }
+                          
+                          return (
+                            <li key={follow.ipnsKey}>
+                                <div className="peer-item-content">
+                                    <span 
+                                        className="peer-name"
+                                        onClick={() => { onViewProfile(follow.ipnsKey); onClose(); }}
+                                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                        {displayName}
+                                    </span>
+                                    <CopyableText 
+                                        value={follow.ipnsKey} 
+                                        displayValue={follow.ipnsKey} 
+                                        className="peer-key"
+                                        title={follow.ipnsKey}
+                                    />
+                                </div>
+                                <button 
+                                    className="unfollow-button-small"
+                                    onClick={() => onUnfollow(follow.ipnsKey)}
+                                >
+                                    Unfollow
+                                </button>
+                            </li>
+                          );
+                      })}
+                  </ul>
+              ) : (
+                  <p className="sidebar-empty-msg">
+                      You are not following anyone yet.
+                  </p>
+              )}
 
-         <h2>Other Users Online</h2>
-         <ul className="followed-users-list">
-             {otherUsers.map((user: OnlinePeer) => (
-                 <li key={user.ipnsKey}>
-                      <div className="user-details">
-                         <span className="user-name" onClick={() => user.ipnsKey && onViewProfile(user.ipnsKey)} title={`View ${user.name}'s profile`}>{user.name}</span>
-                         {/* --- FIX: Render full key --- */}
-                         <span className="user-key" title={user.ipnsKey} onClick={() => handleCopyKey(user.ipnsKey)}>
-                             {/* --- FIX: Moved feedback to start of span --- */}
-                             {copiedKey === user.ipnsKey && <span className="copy-feedback-inline">Copied!</span>}
-                             {user.ipnsKey}
-                         </span>
-                         {/* --- END FIX --- */}
-                      </div>
-                 </li>
-             ))}
-             {otherUsers.length === 0 && <li style={{ background: 'none', paddingLeft: '0' }}><small>No other users found online.</small></li>}
+              <div className="sidebar-add-row">
+                  <input
+                      type="text"
+                      placeholder="Add Key (k51...)"
+                      value={manualFollowKey}
+                      onChange={(e) => setManualFollowKey(e.target.value)}
+                      className="sidebar-add-input"
+                  />
+                  <button
+                      onClick={handleManualFollow}
+                      disabled={!manualFollowKey.trim() || isAdding}
+                      className="follow-button-small sidebar-add-btn"
+                      title="Follow this IPNS Key"
+                  >
+                      {isAdding ? '...' : '+'}
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {unresolvedFollows.length > 0 && (
+          <div className="info-item" style={{ borderColor: 'orange', marginTop: '1rem' }}>
+              <strong>Resolving Follows...</strong>
+              <code>{unresolvedFollows.length} pending</code>
+          </div>
+      )}
+
+      {/* 2. Online Peers Section */}
+      <div className="sidebar-section">
+         <h3>Online Peers ({otherUsers.length})</h3>
+         <ul className="peer-list">
+             {otherUsers.map(user => {
+                 const isFollowing = userState?.follows.some(f => f.ipnsKey === user.ipnsKey);
+                 return (
+                     <li key={user.ipnsKey}>
+                          <div className="peer-item-content">
+                            <span 
+                                className="peer-name" 
+                                onClick={() => { onViewProfile(user.ipnsKey); onClose(); }}
+                                style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                                {user.name || user.ipnsKey.substring(0,8) + '...'}
+                            </span>
+                            {user.ipnsKey ? (
+                                <CopyableText 
+                                    value={user.ipnsKey}
+                                    displayValue={user.ipnsKey}
+                                    className="peer-key"
+                                    title={user.ipnsKey}
+                                />
+                             ) : (
+                                 <span className="peer-key">ID Unavailable</span>
+                             )}
+                          </div>
+                          
+                          {userState && user.ipnsKey && (
+                              isFollowing ? (
+                                <button 
+                                    className="unfollow-button-small" 
+                                    onClick={() => onUnfollow(user.ipnsKey)} 
+                                >
+                                    Unfollow
+                                </button>
+                              ) : (
+                                <button 
+                                    className="follow-button-small" 
+                                    onClick={() => onFollow(user.ipnsKey)} 
+                                >
+                                    Follow
+                                </button>
+                              )
+                          )}
+                     </li>
+                 );
+             })}
+             {otherUsers.length === 0 && <li className="sidebar-empty-list-item"><small>No other users found online.</small></li>}
          </ul>
 
-        <div className="info-item" style={{ marginTop: '2rem' }}>
-          <button onClick={onLogout} className="new-post-button">Logout</button>
+        <div className="sidebar-logout-container">
+          <button onClick={onLogout} className="new-post-button sidebar-logout-btn">Logout</button>
         </div>
       </div>
     </div>
+    
+    <Suspense fallback={null}>
+        {isSettingsOpen && (
+            <SettingsDialog 
+                isOpen={isSettingsOpen} 
+                onClose={() => setIsSettingsOpen(false)} 
+            />
+        )}
+        
+        {isUnlockOpen && (
+            <UnlockSessionDialog
+                isOpen={isUnlockOpen}
+                onClose={() => setIsUnlockOpen(false)}
+                onUnlock={unlockSession}
+                onLogout={() => { setIsUnlockOpen(false); onLogout(); }}
+            />
+        )}
+    </Suspense>
+    </>
   );
 };
 
