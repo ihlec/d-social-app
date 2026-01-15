@@ -1,68 +1,127 @@
 // fileName: src/state/AppContext.tsx
-// src/context/AppContext.tsx
-import React, { createContext } from 'react';
-import { UseAppStateReturn, useAppStateInternal } from './useAppStorage'; // Assuming the internal hook is exported from here
+import React, { createContext, useContext } from 'react';
+import { UseAppStateReturn } from './useAppStorage'; // Type def only
+import { AuthProvider, useAuthContext } from './AuthContext';
+import { FeedProvider, useFeedContext } from './FeedContext';
 
-// Create the context with a default value of null or a specific structure
-// The default value should match the shape of UseAppStateReturn but can be null initially
-// --- FIX: Use named export instead of default ---
+// We want to maintain compatibility for now, so we expose the aggregated state via the old Context name
+// But internally, we will assume consumers should ideally migrate.
+// For now, AppStateContext will be a "facade" context or we just provide a hook that aggregates.
+
 export const AppStateContext = createContext<UseAppStateReturn | null>(null);
-// --- END FIX ---
 
-interface AppStateProviderProps {
-  children: React.ReactNode;
-}
+// Wrapper that combines the two contexts into the legacy shape
+const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const auth = useAuthContext();
+    const feed = useFeedContext();
 
-export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) => {
-  const appState = useAppStateInternal(); // Use the internal hook
+    // Map to Legacy Interface
+    const aggregated: UseAppStateReturn = {
+        // Auth
+        isLoggedIn: auth.isLoggedIn,
+        userState: auth.userState,
+        myIpnsKey: auth.myIpnsKey,
+        myPeerId: auth.myPeerId,
+        latestStateCID: auth.latestStateCID,
+        loginWithKubo: async (apiUrl: string, keyName: string, username?: string, password?: string) => {
+            await auth.loginWithKubo(apiUrl, keyName, username, password);
+        },
+        logout: auth.logout,
+        isInitializeDialogOpen: auth.isInitializeDialogOpen,
+        onInitializeUser: auth.onInitializeUser,
+        onRetryLogin: auth.onRetryLogin,
+        setLatestStateCID: auth.setLatestStateCID,
+        
+        // Feed / Data
+        allPostsMap: feed.allPostsMap,
+        userProfilesMap: feed.userProfilesMap,
+        unresolvedFollows: feed.unresolvedFollows,
+        otherUsers: feed.otherUsers,
+        isLoadingFeed: feed.isLoadingFeed,
+        isProcessing: feed.isProcessing,
+        isCoolingDown: feed.isCoolingDown,
+        countdown: feed.countdown,
+        addPost: feed.addPost,
+        deletePost: feed.deletePost,
+        likePost: feed.likePost,
+        dislikePost: feed.dislikePost,
+        followUser: feed.followUser,
+        unfollowUser: feed.unfollowUser,
+        blockUser: feed.blockUser,
+        unblockUser: feed.unblockUser,
+        updateProfile: feed.updateProfile,
+        refreshFeed: feed.refreshFeed,
+        isLoadingExplore: feed.isLoadingExplore,
+        loadMoreExplore: feed.loadMoreExplore,
+        refreshExploreFeed: feed.refreshExploreFeed,
+        canLoadMoreExplore: feed.canLoadMoreExplore,
+        loadMoreMyFeed: feed.loadMoreMyFeed,
+        canLoadMoreMyFeed: feed.canLoadMoreMyFeed,
+        ensurePostsAreFetched: feed.ensurePostsAreFetched,
+        fetchUser: feed.fetchUser,
+        myFeedPosts: feed.myFeedPosts,
+        exploreFeedPosts: feed.exploreFeedPosts,
+        getReplyCount: feed.getReplyCount,
+        unifiedIds: feed.unifiedIds,
+        loadMoreFeed: feed.loadMoreFeed,
+        
+        // setters (Less used in consumers, but maintained for compatibility if needed)
+        // These are actually problematic because FeedContext doesn't expose raw setters usually.
+        // But for 'useAppStateInternal' return type, they were there.
+        // We might need to mock them or update the interface.
+        // FeedContext exposes the STATE, but maybe not the raw setState.
+        // Checking FeedContextState... it has map but not setAllPostsMap.
+        // FIX: Add setters to FeedContext if consumers heavily rely on them, OR cast as any if unused.
+        setAllPostsMap: feed.setAllPostsMap || (() => console.warn("setAllPostsMap deprecated")),
+        setUserProfilesMap: feed.setUserProfilesMap || (() => console.warn("setUserProfilesMap deprecated")),
+        
+        // Session Unlock
+        isSessionLocked: auth.isSessionLocked,
+        unlockSession: auth.unlockSession,
+    } as UseAppStateReturn;
 
-  // Prepare the value to be passed down, ensure it matches UseAppStateReturn
-  // Make sure all properties returned by useAppStateInternal are included here
-  const contextValue: UseAppStateReturn = {
-    isLoggedIn: appState.isLoggedIn,
-    userState: appState.userState,
-    myIpnsKey: appState.myIpnsKey,
-    latestStateCID: appState.latestStateCID,
-    isLoadingFeed: appState.isLoadingFeed,
-    isProcessing: appState.isProcessing,
-    isCoolingDown: appState.isCoolingDown,
-    countdown: appState.countdown,
-    // --- REMOVED: loginWithFilebase from context value ---
-    // loginWithFilebase: appState.loginWithFilebase,
-    loginWithKubo: appState.loginWithKubo,
-    logout: appState.logout,
-    addPost: appState.addPost,
-    likePost: appState.likePost,
-    dislikePost: appState.dislikePost,
-    followUser: appState.followUser,
-    unfollowUser: appState.unfollowUser,
-    refreshFeed: appState.refreshFeed,
-    isLoadingExplore: appState.isLoadingExplore,
-    loadMoreExplore: appState.loadMoreExplore,
-    refreshExploreFeed: appState.refreshExploreFeed,
-    canLoadMoreExplore: appState.canLoadMoreExplore,
-    updateProfile: appState.updateProfile,
-    ensurePostsAreFetched: appState.ensurePostsAreFetched,
-    unresolvedFollows: appState.unresolvedFollows,
-    allPostsMap: appState.allPostsMap,
-    userProfilesMap: appState.userProfilesMap,
-    otherUsers: appState.otherUsers,
-    isInitializeDialogOpen: appState.isInitializeDialogOpen,
-    onInitializeUser: appState.onInitializeUser,
-    onRetryLogin: appState.onRetryLogin,
-    // --- START MODIFICATION: Add new props ---
-    loadMoreMyFeed: appState.loadMoreMyFeed,
-    canLoadMoreMyFeed: appState.canLoadMoreMyFeed,
-    // --- END MODIFICATION ---
-  };
+    return (
+        <AppStateContext.Provider value={aggregated}>
+            {children}
+        </AppStateContext.Provider>
+    );
+};
 
+// Bridge Component: AuthenticatedFeedProvider
+// Need to extract auth state to pass to FeedProvider
+const FeedProviderBridge: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const auth = useAuthContext();
+    return (
+        <FeedProvider authState={{
+            isLoggedIn: auth.isLoggedIn,
+            userState: auth.userState,
+            myIpnsKey: auth.myIpnsKey,
+            myPeerId: auth.myPeerId,
+            latestStateCID: auth.latestStateCID,
+            setLatestStateCID: auth.setLatestStateCID,
+            setUserState: auth.setUserState,
+        }}>
+            <LegacyStateAggregator>
+                {children}
+            </LegacyStateAggregator>
+        </FeedProvider>
+    );
+};
+
+export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
-    <AppStateContext.Provider value={contextValue}>
-      {children}
-    </AppStateContext.Provider>
+    <AuthProvider>
+        <FeedProviderBridge>
+            {children}
+        </FeedProviderBridge>
+    </AuthProvider>
   );
 };
 
-// --- FIX: Removed default export ---
-// export default AppStateContext;
-// --- END FIX ---
+export const useAppContext = (): UseAppStateReturn => {
+    const context = useContext(AppStateContext);
+    if (!context) {
+        throw new Error("useAppContext must be used within an AppStateProvider");
+    }
+    return context;
+};

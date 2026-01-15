@@ -1,184 +1,227 @@
-// fileName: src/hooks/useAuth.ts
-// src/hooks/useAppAuth.ts
-import { useCallback, useEffect } from 'react';
+// fileName: src/features/auth/useAuth.ts
+import { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { UserState } from '../../types';
 import {
     getSession,
     loginToKubo,
     logoutSession,
-    createEmptyUserState,
     resolveIpns,
     fetchUserState,
     UserStateNotFoundError,
-    saveOptimisticCookie
+    fetchKubo,
+    loadOptimisticCookie
 } from '../../api/ipfsIpns';
 
-
-const POST_COOLDOWN_MS = 300 * 1000;
-
-interface UseAppAuthArgs {
-	setUserState: React.Dispatch<React.SetStateAction<UserState | null>>;
-	setMyIpnsKey: React.Dispatch<React.SetStateAction<string>>;
-	setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
-	setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean | null>>;
-	resetAllState: () => void;
-    currentUserState: UserState | null;
-    processMainFeed: (state: UserState, myIpnsKey: string) => Promise<void>;
-    openInitializeDialog: (onInitialize: () => void, onRetry: () => void) => void;
-    closeInitializeDialog: () => void;
-}
-
 export interface UseAppAuthReturn {
-	loginWithKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<void>;
-	logout: () => void;
+    isLoggedIn: boolean | null;
+    myIpnsKey: string;
+    myPeerId: string;
+    setMyIpnsKey: React.Dispatch<React.SetStateAction<string>>;
+    userState: UserState | null;
+    setUserState: React.Dispatch<React.SetStateAction<UserState | null>>;
+    latestStateCID: string;
+    setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
+    loginWithKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<{ success: boolean; state?: UserState; key?: string }>;
+    logout: () => void;
+    resetAllState: () => void;
+    isInitializeDialogOpen: boolean;
+    onInitializeUser: () => void;
+    onRetryLogin: () => void;
+    openInitializeDialog: (onInit: () => void, onRetry: () => void) => void;
+    closeInitializeDialog: () => void;
+    isSessionLocked: boolean;
+    unlockSession: (password: string) => Promise<boolean>;
 }
 
-/**
- * Manages authentication state, session loading, login, and logout.
- */
-export const useAppAuth = ({
-	setUserState,
-	setMyIpnsKey,
-	setLatestStateCID,
-	setIsLoggedIn,
-	resetAllState,
-    currentUserState,
-    processMainFeed,
-    openInitializeDialog,
-    closeInitializeDialog
-}: UseAppAuthArgs): UseAppAuthReturn => {
+export const useAppAuth = (): UseAppAuthReturn => {
+    const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+    const [isSessionLocked, setIsSessionLocked] = useState<boolean>(false);
+    const [myIpnsKey, setMyIpnsKey] = useState<string>('');
+    const [myPeerId, setMyPeerId] = useState<string>(''); 
+    const [userState, setUserState] = useState<UserState | null>(null);
+    const [latestStateCID, setLatestStateCID] = useState<string>('');
+    
+    const [isInitializeDialogOpen, setInitializeDialogOpen] = useState(false);
+    const [dialogHandlers, setDialogHandlers] = useState<{ onInit: () => void; onRetry: () => void } | null>(null);
 
-    const refreshAuthState = useCallback(async (): Promise<UserState | null> => {
-        const session = getSession();
-        const ipnsKey = session.resolvedIpnsKey;
-        const identifierToResolve = ipnsKey;
+    const openInitializeDialog = useCallback((onInit: () => void, onRetry: () => void) => {
+        setDialogHandlers({ onInit, onRetry });
+        setInitializeDialogOpen(true);
+    }, []);
 
-        if (!ipnsKey || !identifierToResolve) {
-            console.warn("[refreshAuthState] No IPNS key/identifier found in Kubo session.");
-            setIsLoggedIn(false);
-            return null;
-        }
+    const closeInitializeDialog = useCallback(() => {
+        setInitializeDialogOpen(false);
+        setDialogHandlers(null);
+    }, []);
 
-        const timeSinceLastAction = Date.now() - (currentUserState?.updatedAt || 0);
-        if (currentUserState?.updatedAt && timeSinceLastAction < POST_COOLDOWN_MS) {
-            console.log(`[refreshAuthState] Skipping network fetch due to active cooldown (${Math.round((POST_COOLDOWN_MS - timeSinceLastAction)/1000)}s remaining).`);
-            return currentUserState;
-        }
+    const resetAllState = useCallback(() => {
+        setIsLoggedIn(false);
+        setMyIpnsKey('');
+        setMyPeerId(''); 
+        setUserState(null);
+        setLatestStateCID('');
+    }, []);
 
-        let headCid: string | null = null;
-        let state: UserState | null = null;
-        try {
-            console.log("[refreshAuthState] Attempting to resolve IPNS Key:", identifierToResolve);
-            headCid = await resolveIpns(identifierToResolve);
-            console.log(`[refreshAuthState] Resolved to CID: ${headCid}`);
+    useEffect(() => {
+        const checkSession = async () => {
+            const session = getSession();
+            
+            // Determine Lock Status
+            if (session.sessionType === 'kubo' && session.ipnsKeyName) {
+                 // Locked ONLY if password was required but is missing from memory
+                 if (session.requiresPassword && !session.kuboPassword) {
+                     setIsSessionLocked(true);
+                 } else {
+                     setIsSessionLocked(false);
+                 }
+            }
 
-            const profileNameHint = currentUserState?.profile?.name || session.ipnsKeyName || "";
-            state = await fetchUserState(headCid, profileNameHint);
-            console.log("[refreshAuthState] Fetched aggregated state:", state);
+            if (session.sessionType === 'kubo' && session.ipnsKeyName && session.rpcApiUrl) {
+                try {
+                    // 1. Verify Connection & GET Peer ID
+                    // FIX: Capture the response to get the ID
+                    const idResponse = await fetchKubo(session.rpcApiUrl, '/api/v0/id', undefined, undefined, { username: session.kuboUsername, password: session.kuboPassword });
+                    
+                    setMyIpnsKey(session.ipnsKeyName);
 
-            if (!state) throw new Error("Fetched state is null");
+                    // FIX: Use the ID from the Node if cookie is missing it
+                    if (session.resolvedIpnsKey) {
+                        setMyPeerId(session.resolvedIpnsKey);
+                    } else if (idResponse && idResponse.ID) {
+                        console.log("[useAuth] Recovered Peer ID from node:", idResponse.ID);
+                        setMyPeerId(idResponse.ID);
+                    }
 
-            setUserState(state);
-            setLatestStateCID(headCid);
-            setMyIpnsKey(ipnsKey);
-            setIsLoggedIn(true);
+                    // 2. Load User State with Fallback Strategy
+                    let cidToFetch = '';
+                    let source = 'network';
 
-            const userName = state.profile.name || session.ipnsKeyName || "";
-            saveOptimisticCookie(ipnsKey, { cid: headCid, name: userName, updatedAt: state.updatedAt });
+                    // A. Try Optimistic Cookie First
+                    const optimistic = loadOptimisticCookie(session.ipnsKeyName);
+                    if (optimistic && optimistic.cid) {
+                        console.log(`[useAuth] Found optimistic cookie: ${optimistic.cid}`);
+                        cidToFetch = optimistic.cid;
+                        source = 'cookie';
+                    }
 
-            return state;
+                    // B. If no cookie, resolve IPNS
+                    if (!cidToFetch) {
+                        try {
+                            cidToFetch = await resolveIpns(session.ipnsKeyName);
+                        } catch (e) {
+                            console.warn("Could not resolve IPNS during session check:", e);
+                        }
+                    }
 
-        } catch (error) {
-            console.error("[refreshAuthState] Error fetching own state:", error);
-            toast.error("Failed to refresh user state.");
-            setIsLoggedIn(false);
-            setUserState(prev => prev ? createEmptyUserState(prev.profile) : null);
-            setLatestStateCID('');
-            return null;
-        }
-    }, [currentUserState, setUserState, setLatestStateCID, setMyIpnsKey, setIsLoggedIn]);
+                    // 3. Fetch the State Data
+                    if (cidToFetch) {
+                        try {
+                            const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
+                            setUserState(state);
+                            setLatestStateCID(cidToFetch);
+                            setIsLoggedIn(true);
+                        } catch (e) {
+                            console.warn(`Failed to load state from ${source} (${cidToFetch}). Trying fallback...`, e);
+                            
+                            // C. Fallback
+                            if (source === 'cookie') {
+                                try {
+                                    const networkCid = await resolveIpns(session.ipnsKeyName);
+                                    const fallbackState = await fetchUserState(networkCid, session.ipnsKeyName);
+                                    setUserState(fallbackState);
+                                    setLatestStateCID(networkCid);
+                                    setIsLoggedIn(true);
+                                } catch (netErr) {
+                                    console.error("Fallback IPNS load also failed:", netErr);
+                                    setIsLoggedIn(true);
+                                }
+                            } else {
+                                setIsLoggedIn(true);
+                            }
+                        }
+                    } else {
+                         setIsLoggedIn(true);
+                    }
 
-	useEffect(() => {
-        console.log("[useAppAuth useEffect] Running effect."); // <-- ADDED LOG
-        const session = getSession();
-        if (session.sessionType === 'kubo' && session.resolvedIpnsKey) {
-            console.log("[useAppAuth useEffect] Session found. Attempting initial state fetch."); // <-- ADDED LOG
-            const ipnsKey = session.resolvedIpnsKey;
-            refreshAuthState().then(initialState => {
-                if (initialState && ipnsKey) {
-                    console.log("[useAppAuth useEffect] Initial state fetched. Calling processMainFeed..."); // <-- ADDED LOG
-                    processMainFeed(initialState, ipnsKey)
-                        .then(() => {
-                            console.log("[useAppAuth useEffect] processMainFeed completed successfully."); // <-- ADDED LOG
-                        })
-                        .catch(err => {
-                             console.error("[useAppAuth useEffect] processMainFeed failed:", err); // <-- ADDED LOG
-                        });
-                } else {
-                    console.warn("[useAppAuth useEffect] Initial state fetch failed or ipnsKey missing after refreshAuthState."); // <-- MODIFIED LOG
-                }
-            });
-        } else {
-            console.log("[useAppAuth useEffect] No session found. Setting logged out state."); // <-- MODIFIED LOG
-            setIsLoggedIn(false);
-            setMyIpnsKey(''); setUserState(null); setLatestStateCID('');
-        }
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []); // Keep dependencies minimal for initial load
-
-	const logout = useCallback(() => {
-		logoutSession(); resetAllState();
-	}, [resetAllState]);
-
-	const loginWithKubo = useCallback(async (apiUrl: string, keyName: string, username?: string, password?: string) => {
-        if (!apiUrl || !keyName) { toast.error("API URL/Key Name required."); return; }
-		resetAllState();
-		setIsLoggedIn(null);
-
-        const attemptLogin = async (forceInitialize: boolean = false) => {
-            toast.loading("Logging in...", { id: "login-toast" });
-            try {
-                const { session, state, cid } = await loginToKubo(apiUrl, keyName, forceInitialize, username, password);
-
-                sessionStorage.setItem("currentUserLabel", keyName);
-                setMyIpnsKey(session.resolvedIpnsKey!);
-                setUserState(state);
-                setLatestStateCID(cid);
-                setIsLoggedIn(true);
-                saveOptimisticCookie(session.resolvedIpnsKey!, { cid, name: keyName, updatedAt: state.updatedAt });
-
-                closeInitializeDialog();
-                toast.dismiss("login-toast");
-                toast.success("Welcome!");
-
-                 console.log("[loginWithKubo] Login successful. Calling processMainFeed..."); // <-- ADDED LOG
-                 await processMainFeed(state, session.resolvedIpnsKey!);
-                 console.log("[loginWithKubo] processMainFeed completed after login."); // <-- ADDED LOG
-            } catch (error) {
-                toast.dismiss("login-toast");
-                if (error instanceof UserStateNotFoundError || (error instanceof Error && error.name === 'UserStateNotFoundError')) {
-                    console.warn("[loginWithKubo] UserStateNotFoundError caught.");
-                    const onInitialize = () => {
-                        console.log("[loginWithKubo] User chose to initialize.");
-                        attemptLogin(true);
-                    };
-                    const onRetry = () => {
-                        console.log("[loginWithKubo] User chose to retry.");
-                        attemptLogin(false);
-                    };
-                    openInitializeDialog(onInitialize, onRetry);
-                } else {
+                } catch (e) {
+                    console.error("Session check failed (node unreachable?):", e);
+                    logoutSession();
                     setIsLoggedIn(false);
-                    closeInitializeDialog();
-                    toast.error(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
                 }
+            } else {
+                setIsLoggedIn(false);
             }
         };
-        await attemptLogin(false);
+        checkSession();
+    }, []);
 
-	}, [resetAllState, setMyIpnsKey, setUserState, setLatestStateCID, setIsLoggedIn, processMainFeed, openInitializeDialog, closeInitializeDialog]);
+    const loginWithKubo = useCallback(async (apiUrl: string, keyName: string, username?: string, password?: string) => {
+        const attemptLogin = async (forceInit: boolean) => {
+            try {
+                const { session, state, cid } = await loginToKubo(apiUrl, keyName, forceInit, username, password);
+                
+                setUserState(state);
+                setMyIpnsKey(keyName);
+                if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
+                
+                setLatestStateCID(cid);
+                setIsLoggedIn(true);
+                setIsSessionLocked(false); // Password provided, unlocked
+                closeInitializeDialog();
+                toast.success(`Connected as ${keyName}`);
+                return { success: true, state, key: keyName };
+            } catch (error) {
+                if (error instanceof UserStateNotFoundError || (error instanceof Error && error.name === 'UserStateNotFoundError')) {
+                    openInitializeDialog(
+                        () => attemptLogin(true), 
+                        () => attemptLogin(false)
+                    );
+                    return { success: false };
+                }
+                throw error;
+            }
+        };
+        return attemptLogin(false);
+    }, [closeInitializeDialog, openInitializeDialog]);
 
+    const logout = useCallback(() => {
+        logoutSession();
+        resetAllState();
+        window.location.reload();
+    }, [resetAllState]);
 
-	return { loginWithKubo, logout };
+    const unlockSession = useCallback(async (password: string) => {
+        const session = getSession();
+        if (!session.rpcApiUrl || !session.ipnsKeyName) {
+            toast.error("No active session found. Please login again.");
+            return false;
+        }
+        try {
+            await loginWithKubo(session.rpcApiUrl, session.ipnsKeyName, session.kuboUsername, password);
+            return true;
+        } catch (e) {
+            console.error("Unlock failed", e);
+            toast.error("Incorrect password.");
+            return false;
+        }
+    }, [loginWithKubo]);
+
+    return {
+        isLoggedIn,
+        isSessionLocked,
+        unlockSession,
+        myIpnsKey, setMyIpnsKey,
+        myPeerId, 
+        userState, setUserState,
+        latestStateCID, setLatestStateCID,
+        loginWithKubo,
+        logout,
+        resetAllState,
+        isInitializeDialogOpen,
+        onInitializeUser: dialogHandlers?.onInit || (() => {}),
+        onRetryLogin: dialogHandlers?.onRetry || (() => {}),
+        openInitializeDialog,
+        closeInitializeDialog
+    };
 };

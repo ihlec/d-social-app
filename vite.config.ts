@@ -18,4 +18,14 @@ export default defineConfig({
     },
   },
   base: '',
+  server: {
+    headers: {
+      'Permissions-Policy': 'browsing-topics=()'
+    }
+  },
+  preview: {
+    headers: {
+      'Permissions-Policy': 'browsing-topics=()'
+    }
+  }
 })

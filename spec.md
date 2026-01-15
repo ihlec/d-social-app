@@ -1,161 +1,211 @@
-Based on the code files provided and the architectural changes we have implemented, here is the comprehensive technical specification for the **D. Social App**.
+Based on our entire discussion and the documented iterations, here is the exhaustive `SPECIFICATION.md` file for your project. This document serves as the "single source of truth" for the application's architecture, logic, and requirements.
 
------
+---
 
-# Project Specification: D. Social App (Decentralized Social Graph)
+# **Project Specification: Decentralized Social Media (dSocial)**
 
-## 1\. Executive Summary
+**Version:** 1.0.0
+**Status:** Implementation Ready
+**Architecture:** Local-First / Serverless / IPFS-Based
 
-**D. Social App** is a fully decentralized, client-side social media application built on the InterPlanetary File System (IPFS). It operates without a central backend server. Instead, it leverages a local **Kubo (IPFS Go Daemon)** node via RPC for data storage, identity management, content retrieval, and peer-to-peer networking.
+---
 
-The application allows users to publish posts, share media, follow other users, and discover peers purely through the IPFS network using IPNS for mutable state and PubSub for real-time presence.
+## **1. Executive Summary**
 
-## 2\. System Architecture
+dSocial is a decentralized, censorship-resistant social media application built on the InterPlanetary File System (IPFS). Unlike traditional platforms, it has no central server or database. User data is self-sovereign, stored as immutable DAG (Directed Acyclic Graph) objects, and addressed via IPNS (InterPlanetary Name System) keys.
 
-### 2.1 Technology Stack
+The application runs entirely in the browser as a Single Page Application (SPA), connecting to a user's local IPFS node (Kubo) for write operations and public gateways for read-only access.
 
-  * **Frontend:** React (Vite), TypeScript.
-  * **Storage & Networking:** IPFS (Kubo Daemon) via RPC API (port 5001).
-  * **State Management:** React Context API + Local Optimistic Caching.
-  * **Styling:** Native CSS (Variables/Themes) + Responsive Masonry Layout.
-  * **Routing:** React Router (HashRouter).
+---
 
-### 2.2 Core Principles
+## **2. System Architecture**
 
-1.  **Client-Side Only:** The React app is a static site. All logic runs in the browser.
-2.  **Local-First / Local Node:** The app connects to `http://127.0.0.1:5001`. It relies on the user running their own IPFS node.
-3.  **Content Addressing:** All posts and media are immutable and referenced by CID (Content ID).
-4.  **Mutable Identity:** IPNS (InterPlanetary Name System) is used to point to the user's latest state.
+### **2.1 Core Principles**
 
------
+1. **Local-First:** The "Database" is the user's local IPFS node. The UI simply reflects the state of the network.
+2. **Append-Only Log:** Data is never overwritten. Updates (new posts, follows) create new DAG objects that point to previous states, creating a verifiable history chain.
+3. **Client-Side Aggregation:** There is no "Feed Server." The client application crawls the social graph in real-time to build timelines.
 
-## 3\. Data Structure & State Management
+### **2.2 Network Topology**
 
-### 3.1 User Identity
+* **Client (Browser):** React 18 Application.
+* **Local Node (Agent):** Kubo (go-ipfs) running on `localhost:5001` (RPC) and `localhost:8080` (Gateway).
+* **The Swarm:** Public IPFS Network for content replication and peer discovery.
+* **Gateways:** Public entry points (`ipfs.io`, `dweb.link`) for Guest Mode access.
 
-  * **Identity Key:** An IPNS Key (Ed25519) managed by the Kubo node.
-  * **Profile:** Stored within the `UserState` object (Name, Bio).
-  * **Resolution:** Resolving an IPNS Key returns the CID of the latest `UserState`.
+---
 
-### 3.2 The User State (Linked List)
+## **3. Data Models (Schema)**
 
-To handle history and pagination without a database, the user state is structured as a **reverse linked list** of "Chunks".
+The application relies on specific TypeScript interfaces representing the IPFS DAG nodes.
 
-**`UserState` Schema:**
+### **3.1 User Identity (`UserState`)**
+
+The root object pointed to by a user's IPNS key.
 
 ```typescript
 interface UserState {
-  profile: { name: string; bio?: string };
-  postCIDs: string[];        // Array of CIDs for posts in this chunk
-  likedPostCIDs: string[];   // Array of CIDs liked
+  profile: {
+    name: string;
+    bio: string;
+    avatarCid?: string;
+  };
+  postCIDs: string[];        // Array of Post CIDs authored by this user
+  follows: { ipnsKey: string }[]; // Social Graph
+  likedPostCIDs: string[];
   dislikedPostCIDs: string[];
-  follows: Follow[];         // Array of users followed
-  updatedAt: number;
-  extendedUserState: string | null; // CID of the PREVIOUS chunk (History)
+  updatedAt: number;         // Unix Timestamp
+  extendedUserState: string | null; // CID of the previous UserState (Linked List)
 }
+
 ```
 
-  * **Updates:** When data is added, a new chunk is created containing the new data. The `extendedUserState` pointer is set to the CID of the previous state. This new chunk is published to IPNS.
-  * **Traversal:** The app fetches the head CID via IPNS, then recursively fetches `extendedUserState` CIDs to load history lazily.
-
-### 3.3 Posts
-
-Posts are immutable JSON objects uploaded to IPFS.
-**`Post` Schema:**
+### **3.2 Content Unit (`Post`)**
 
 ```typescript
 interface Post {
-  id: string;             // The CID of the post itself
-  authorKey: string;      // The IPNS Key of the author
-  content: string;        // Text content
-  timestamp: number;
-  referenceCID?: string;  // CID of parent post (if reply)
-  mediaCid?: string;      // CID of attached image/video
+  id: string;             // The CID of this object (computed after upload)
+  authorKey: string;      // IPNS Key of the creator
+  content: string;        // Text body
+  timestamp: number;      // Creation time
+  mediaCid?: string;      // CID of attached file/image
   mediaType?: 'image' | 'video' | 'file';
-  thumbnailCid?: string;  // Optimized thumbnail
+  
+  // Threading Logic
+  referenceCID?: string;  // Parent Post CID (if reply)
+  replies?: string[];     // Denormalized list of child CIDs (optimistic)
 }
+
 ```
 
------
+---
 
-## 4\. Networking & Peer Discovery (PubSub)
+## **4. Technical Logic & Strategies**
 
-This module replaces centralized trackers. It relies on the **GossipSub** protocol enabled in the Kubo daemon.
+### **4.1 Network Layer (Modular API Architecture)**
 
-### 4.1 Transport
+The network layer is organized into focused modules:
 
-  * **Mechanism:** IPFS PubSub (RPC `/api/v0/pubsub/...`).
-  * **Topic Name:** `dsocial-peers-v1`.
-  * **Encoding:** Topic strings must be **Multibase encoded** (base64url with `u` prefix) when communicating with recent Kubo RPC versions.
+* **`src/api/session.ts`**: Session management, cookie handling, and in-memory password storage
+* **`src/api/resolution.ts`**: IPNS resolution, gateway racing, and tiered caching (memory + localStorage)
+* **`src/api/content.ts`**: UserState and Post fetching operations
+* **`src/api/auth.ts`**: Login/logout authentication logic
+* **`src/api/pubsub.ts`**: Peer discovery via IPFS PubSub
+* **`src/api/kuboClient.ts`**: Low-level RPC wrapper for Kubo API calls
+* **`src/api/ipfsIpns.ts`**: Barrel file that exports all API functionality
 
-### 4.2 Discovery Protocol
+**Key Strategies:**
 
-1.  **Presence (Heartbeat):**
+* **Race Strategy:** To minimize latency, fetch requests are sent to both the **Local Node** and a **Public Gateway** simultaneously.
+  * *Optimization:* The Gateway request is delayed by **300ms**. If the Local Node responds fast (cache hit), the Gateway request is aborted to save bandwidth.
+* **Guest Mode:** If no Local Node is detected (connection failure on port 5001), the app strictly uses Public Gateways for read-only access.
 
-      * Every **60 seconds**, the client publishes a JSON message to the topic.
-      * **Payload:** `{ ipnsKey: string, name: string, timestamp: number }`.
-      * **Trigger:** Sent immediately upon login/mount, then on interval.
-      * **Method:** HTTP POST to `/api/v0/pubsub/pub` (FormData body).
+### **4.2 Resilience & Caching (`src/lib/fetchBackoff.ts`)**
 
-2.  **Listening (Subscription):**
-
-      * The client opens a long-lived HTTP connection to `/api/v0/pubsub/sub?arg=<encoded-topic>&discover=true`.
-      * Incoming data streams as **NDJSON** (Newline Delimited JSON).
-      * **Parsing:**
-        1.  Decode NDJSON line.
-        2.  Extract `data` field (Base64).
-        3.  Decode Base64 to UTF-8 string.
-        4.  Parse inner JSON to get Peer Presence.
-
-3.  **Local Peer State:**
-
-      * The app maintains a `Map<IpnsKey, LastSeenTimestamp>`.
-      * **Pruning:** A local interval runs every **5 seconds**. Any peer not seen for **\> 90 seconds** is removed from the "Online Peers" list.
-
------
-
-## 5\. Functional Requirements
-
-### 5.1 Authentication
-
-  * **Login:** User provides Kubo RPC URL and IPNS Key Name.
-  * **Key Generation:** If the key name doesn't exist, the app instructs Kubo to generate an Ed25519 key.
-  * **State Initialization:** If no IPNS record exists, an empty `UserState` is created, pinned, and published.
-  * **Session:** Session details are stored in a secure cookie.
-
-### 5.2 Feeds
-
-  * **My Feed:** Aggregates posts from:
-    1.  The current user.
-    2.  Users in the `follows` list.
-  * **Explore Feed:** A Graph traversal mechanism.
-    1.  Fetches users followed by the people you follow (2nd degree connections).
-    2.  Aggregates posts from these discovered users.
-  * **Lazy Loading:** Feeds fetch the latest "Head" chunk first. Older posts are fetched via the `extendedUserState` pointer only when the user scrolls to the bottom (Infinite Scroll).
-
-### 5.3 Interactions
-
-  * **Posting:** Uploads media/thumbnail to IPFS (MFS/Pinning), creates Post JSON, pins it, updates UserState, and republishes IPNS.
-  * **Replying:** Creates a Post object with a `referenceCID`.
-  * **Follow/Unfollow:** Updates the local `follows` array in UserState and republishes IPNS.
-  * **Blocking:** Block undesired content via `dislikedPostCIDs` array in UserState.
-
------
-
-## 6\. Implementation Guidelines
-
-### 6.1 Critical Constraints
-
-1.  **IPNS Latency:** IPNS publishing is slow (can take 30s-1min). The UI uses **Optimistic Updates** (local state reflects changes immediately) while the network operation completes in the background.
-2.  **CORS:** The local Kubo node must be configured to allow CORS for the frontend origin.
-3.  **PubSub Flags:** The daemon must be launched with `--enable-pubsub-experiment` (or config `Pubsub.Enabled: true`).
-
-### 6.2 Error Handling
-
-  * **RPC Errors:** Network failures to localhost must be caught.
-  * **Stream Errors:** The PubSub stream may disconnect. The implementation must handle `AbortController` signals and JSON parse errors on malformed messages gracefully (as seen in recent debugging).
-  * **Base64 Padding:** Decode logic must handle unpadded Base64 strings returned by Kubo.
-
------
+* **Exponential Backoff:** Prevents retry loops on offline peers.
+* *Algorithm:* `Delay = 1min * 2^(failures)`. Max: 24h.
+* *Storage:* Persisted in `localStorage`.
 
 
+* **Tiered Caching:**
+1. **Memory (Map):** 10-minute TTL for fast UI switching.
+2. **Browser Storage:** Persists "Last Known CID" for offline support.
+
+
+
+### **4.3 Feed Generation (`src/features/feed/useFeed.ts`)**
+
+* **Mechanism:** Client-Side Crawl.
+* **Process:**
+1. Load `UserState` for current user.
+2. Iterate `follows` array -> Resolve IPNS for each -> Fetch their `postCIDs`.
+3. **Recursive Sorting:** Sort threads by "Latest Activity" (Timestamp of the post OR its most recent descendant).
+
+
+
+---
+
+## **5. Application State Management**
+
+### **5.1 Architecture**
+
+* **Store:** React Context + `useAppStorage` Hook.
+* **Mutability:** The State Object is immutable. Updates require generating a new state object and replacing the reference.
+
+### **5.2 Authentication Logic (`src/features/auth/useAuth.ts`)**
+
+* **Detection:** Checks for `dsocial_session` cookie on mount.
+* **Rehydration:** If cookie exists, fetches `UserState` from IPFS to restore session.
+* **Optimistic Login:** Sets cookie immediately on valid credentials to unblock UI while IPFS data loads.
+
+### **5.3 Mutation Actions (`src/state/useActions.ts`)**
+
+* **Create Post Flow:**
+1. Upload Media -> Get `MediaCID`.
+2. Create `Post` JSON -> Upload -> Get `PostCID`.
+3. Clone `UserState` -> Prepend `PostCID` -> Upload -> Get `StateCID`.
+4. **IPNS Publish:** Update IPNS Key to point to new `StateCID` (Slow, ~1 min).
+5. **Optimistic UI:** Update local React State immediately.
+
+
+
+---
+
+## **6. UI/UX Specification**
+
+### **6.1 Layout System**
+
+* **Responsive Grid:**
+* **Desktop:** Sidebar (Nav) | Feed (Main) | Widgets (Right)
+* **Mobile:** Feed (Full Width) | Bottom Nav (Future) or Hamburger Menu.
+
+
+* **Masonry Feed:** Posts are stacked dynamically based on height to eliminate gaps.
+
+### **6.2 Components**
+
+* **Post Item:**
+* **Recursive:** Capable of rendering itself inside itself to display threaded replies (`depth` prop).
+* **Context-Aware:** Renders differently for Root posts vs. Replies vs. Expanded View.
+
+
+* **New Post Form:**
+* **Spam Protection:** Integrates `useCooldown` hook. Displays countdown timer if user posts >1x/minute.
+* **Drag & Drop:** Native HTML5 DnD for media uploads.
+
+
+
+### **6.3 Theming**
+
+* **Engine:** Pure CSS Variables (`src/index.css`).
+* **Palette:**
+* `--bg-primary`: #0f0f0f (Dark Gray)
+* `--primary-color`: #3b82f6 (Blue)
+* `--text-primary`: #ffffff (White)
+
+
+
+---
+
+## **7. Infrastructure & Requirements**
+
+### **7.1 Development Environment**
+
+* **Runtime:** Node.js v16+
+* **Build Tool:** Vite
+* **Language:** TypeScript 5.0+
+
+### **7.2 IPFS Node Configuration (User Requirement)**
+
+Users must run a local IPFS daemon with the following CORS headers to allow browser access:
+
+```bash
+ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["http://localhost:5173", "http://127.0.0.1:5173"]'
+ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["PUT", "POST", "GET"]'
+
+```
+
+### **7.3 Routing**
+
+* **Router:** `HashRouter` (e.g., `/#/profile/k51...`).
+* **Reason:** Essential for compatibility with IPFS Gateways which treat paths like `/profile` as file system directories (resulting in 404s).

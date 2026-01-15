@@ -1,0 +1,32 @@
+/* fileName: src/pages/HomePage.css */
+
+/* Feed Loader Area */
+.feed-loader-container {
+    height: 50px; 
+    margin-top: 1rem; 
+    width: 100%; 
+    text-align: center;
+}
+
+/* Load More Button */
+.load-more-button {
+    display: block;
+    margin: 2rem auto;
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary-color);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.load-more-button:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* End of Feed Message */
+.end-of-feed {
+    margin-top: 2rem;
+    color: var(--text-secondary-color);
+    text-align: center;
+}

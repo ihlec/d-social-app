@@ -1,5 +1,5 @@
-// src/features/feed/NewPostForm.tsx
-import React, { useState, useRef } from 'react';
+// fileName: src/features/feed/NewPostForm.tsx
+import React, { useState, useRef, useEffect, useId } from 'react';
 import { Post } from '../../types';
 import { AddMediaIcon } from '../../components/Icons';
 
@@ -9,127 +9,132 @@ interface NewPostFormProps {
   isCoolingDown: boolean;
   countdown: number;
   replyingToPost: Post | null;
-  // --- FIX: Add prop for author name ---
   replyingToAuthorName?: string | null;
-  // --- End Fix ---
+  onCancel?: () => void; // Added onCancel prop
 }
 
 const NewPostForm: React.FC<NewPostFormProps> = ({
   onAddPost,
   isProcessing,
-  isCoolingDown, // Still needed for display text
-  countdown, // Still needed for display text
+  isCoolingDown,
+  countdown,
   replyingToPost,
-  // --- FIX: Destructure author name ---
   replyingToAuthorName,
-  // --- End Fix ---
+  onCancel, // Destructure onCancel
 }) => {
   const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const uniqueId = useId(); 
+  const fileInputId = `file-upload-${uniqueId}`;
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
-      const isPdf = file.type === 'application/pdf';
-      if (!isMedia && !isPdf) {
-        alert('Only image, video, and PDF files are supported.');
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        return;
-      }
       setSelectedFile(file);
-      if (isMedia && previewUrl) {
-          URL.revokeObjectURL(previewUrl); // Clean up previous preview
-      }
-      setPreviewUrl(isMedia ? URL.createObjectURL(file) : null);
-    } else {
-        resetFile();
+      setPreviewUrl(URL.createObjectURL(file));
     }
   };
 
-  const resetFile = () => {
-    setSelectedFile(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-    setPreviewUrl(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''; // Reset file input
-    }
-  };
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    // Keep the isProcessing check, and the check for empty content/no file
-    if (isProcessing || (!content.trim() && !selectedFile)) return;
+    if (!content.trim() && !selectedFile) return;
 
     onAddPost({
-      content: content,
-      referenceCID: replyingToPost ? replyingToPost.id : undefined,
+      content,
+      referenceCID: replyingToPost?.id,
       file: selectedFile || undefined,
     });
+
     setContent('');
     resetFile();
   };
 
-  // --- FIX: Modify isDisabled logic ---
-  // The button is disabled if processing OR if there's no content AND no file.
-  // The cooldown state no longer affects whether the button is *disabled*, only its text.
-  const isDisabled = isProcessing || (!content.trim() && !selectedFile);
-  // --- End Fix ---
+  const resetFile = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
-  // Button text *still* shows cooldown when relevant
-  const buttonText = replyingToPost
-    ? (isProcessing ? "Replying..." : "Reply")
-    : (isProcessing ? "Publishing..." : (isCoolingDown ? `Wait ${countdown}s` : "Create Post"));
+  const isButtonDisabled = isProcessing || (!content.trim() && !selectedFile);
 
-  // --- FIX: Use author name if available, fallback to key ---
-  const replyTargetDisplay = replyingToAuthorName || replyingToPost?.authorKey.substring(0, 8) || 'user';
-  // --- End Fix ---
+  let buttonText = "Post";
+  if (replyingToPost) buttonText = "Reply";
+  if (isProcessing) buttonText = "Processing...";
+  else if (isCoolingDown) buttonText = `Post (Publishing... ${countdown}s)`;
 
   return (
     <form onSubmit={handleSubmit} className="new-post-form">
-      {/* --- FIX: Use replyTargetDisplay --- */}
-      {replyingToPost && <p style={{ fontSize: '0.9em', color: 'var(--text-secondary-color)' }}>Replying to {replyTargetDisplay}...</p>}
-      {/* --- End Fix --- */}
+      {replyingToPost && (
+        <div className="reply-to-indicator">
+          <span>Replying to {replyingToAuthorName || 'Post'}</span>
+        </div>
+      )}
+
       <textarea
-        className="new-post-textarea"
+        className="new-post-input"
+        placeholder={replyingToPost ? "Write your reply..." : "What's happening?"}
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder={replyingToPost ? 'Write your reply...' : "What's on your mind?"}
-        rows={replyingToPost ? 3 : 5}
-        maxLength={500} // Example max length
+        disabled={isProcessing}
+        autoFocus={!!replyingToPost} // Auto-focus when opened
       />
 
-       <input
+      <input
         type="file"
-        id="file-upload"
+        id={fileInputId} 
         ref={fileInputRef}
-        className="file-input" // Hidden via CSS
         accept="image/*,video/*,.pdf"
         onChange={handleFileChange}
-        style={{ display: 'none' }}
+        className="file-input-hidden"
       />
-       <label htmlFor="file-upload" className="file-input-label" title="Add Image/Video/PDF">
-           <AddMediaIcon />
-       </label>
 
-      {/* Media Preview */}
       {(previewUrl || selectedFile) && (
         <div className="media-preview">
-          {previewUrl && selectedFile?.type.startsWith('image/') && <img src={previewUrl} alt="Preview" />}
-          {previewUrl && selectedFile?.type.startsWith('video/') && <video src={previewUrl} controls />}
-          {selectedFile?.type === 'application/pdf' && <span className="file-name-preview">{selectedFile.name}</span>}
+          {previewUrl && selectedFile?.type.startsWith('image/') && (
+            <img src={previewUrl} alt="Preview" crossOrigin="anonymous"/>
+          )}
+          {previewUrl && selectedFile?.type.startsWith('video/') && (
+            <video src={previewUrl} controls crossOrigin="anonymous"/>
+          )}
+          {selectedFile?.type === 'application/pdf' && (
+            <div className="media-preview-pdf">
+               PDF: {selectedFile.name.substring(0, 15)}...
+            </div>
+          )}
           <button type="button" onClick={resetFile} className="remove-file-button" title="Remove file">×</button>
         </div>
       )}
 
+      <div className="form-footer">
+        {/* Cancel Button (Only if onCancel is provided) */}
+        {onCancel && (
+            <button 
+                type="button" 
+                onClick={onCancel} 
+                className="action-button" // Reuse action-button style or basic styling
+                style={{ marginRight: 'auto', color: 'var(--text-secondary-color)', fontSize: '0.9em' }}
+            >
+                Cancel
+            </button>
+        )}
 
-      <button type="submit" className="new-post-button" disabled={isDisabled}>
-        {buttonText}
-      </button>
+        <label htmlFor={fileInputId} className="file-input-label" title="Add Media">
+            <AddMediaIcon />
+        </label>
+
+        <button type="submit" className="new-post-button" disabled={isButtonDisabled}>
+            {buttonText}
+        </button>
+      </div>
     </form>
   );
 };
