@@ -112,10 +112,15 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
     const publicUrls: string[] = [];
 
     // 1. Process Local Gateway (Priority)
+    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
     const session = getSession();
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (session && session.sessionType === 'kubo' && session.rpcApiUrl && session.rpcApiUrl.startsWith('http')) {
         const gatewayUrl = toGatewayUrl(session.rpcApiUrl);
-        localUrls.push(`${gatewayUrl}/ipfs/${cleanCid}`);
+        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
+        if (gatewayUrl.startsWith('https://') || !isHttpsPage) {
+            localUrls.push(`${gatewayUrl}/ipfs/${cleanCid}`);
+        }
     }
 
     // 2. Process Public Gateways (Ranked & Custom Unified)
@@ -131,18 +136,20 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
             }
         } else {
             // Path Gateway Pattern
-            let baseUrl = gwUrl;
+            let baseUrl = gwUrl.trim();
             
-            // Normalize: Ensure we handle trailing slashes and 'ipfs' path
-            if (baseUrl.endsWith('/')) {
-                baseUrl = baseUrl.slice(0, -1);
-            }
+            // Normalize: Remove trailing slashes
+            baseUrl = baseUrl.replace(/\/+$/, '');
             
+            // Check if baseUrl already ends with /ipfs or /ipns
             if (baseUrl.endsWith('/ipfs')) {
-                 fullUrl = `${baseUrl}/${cleanCid}`;
+                fullUrl = `${baseUrl}/${cleanCid}`;
+            } else if (baseUrl.endsWith('/ipns')) {
+                // Shouldn't happen for IPFS content, but handle gracefully
+                fullUrl = `${baseUrl}/${cleanCid}`;
             } else {
-                 // Assume if /ipfs/ is missing, we need to add it (common for user-entered domains)
-                 fullUrl = `${baseUrl}/ipfs/${cleanCid}`;
+                // Add /ipfs/ prefix if missing
+                fullUrl = `${baseUrl}/ipfs/${cleanCid}`;
             }
         }
 
@@ -180,30 +187,35 @@ export async function fetchFromGateways<T>(
     const promises: Promise<T>[] = [];
 
     // Local Gateway Promise
+    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-        const ctrl = new AbortController();
-        controllers.push(ctrl);
         const localGw = toGatewayUrl(session.rpcApiUrl);
-        
-        promises.push(new Promise<T>(async (resolve, reject) => {
-            const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, localTimeoutMs);
-            try {
-                const res = await fetch(`${localGw}${resourcePath}`, { signal: ctrl.signal });
-                clearTimeout(id);
-                if (res.ok) {
-                    const result = await responseProcessor(res);
-                    resolve(result);
-                } else if (res.status === 504) {
-                    // Gateway Timeout from Kubo - fail fast to allow public gateways to try
-                    reject(new Error("Local Gateway Timeout (504)"));
-                } else {
-                    reject(new Error(`Local ${res.status}`));
+        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
+        if (localGw.startsWith('https://') || !isHttpsPage) {
+            const ctrl = new AbortController();
+            controllers.push(ctrl);
+            
+            promises.push(new Promise<T>(async (resolve, reject) => {
+                const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, localTimeoutMs);
+                try {
+                    const res = await fetch(`${localGw}${resourcePath}`, { signal: ctrl.signal });
+                    clearTimeout(id);
+                    if (res.ok) {
+                        const result = await responseProcessor(res);
+                        resolve(result);
+                    } else if (res.status === 504) {
+                        // Gateway Timeout from Kubo - fail fast to allow public gateways to try
+                        reject(new Error("Local Gateway Timeout (504)"));
+                    } else {
+                        reject(new Error(`Local ${res.status}`));
+                    }
+                } catch(e) { 
+                    clearTimeout(id); 
+                    reject(e); 
                 }
-            } catch(e) { 
-                clearTimeout(id); 
-                reject(e); 
-            }
-        }));
+            }));
+        }
     }
 
     // Public Gateway Promise (Starts 600ms after local to give it a headstart, then sequential fallback)
@@ -235,15 +247,18 @@ export async function fetchFromGateways<T>(
                     const id = setTimeout(() => reqCtrl.abort(), publicTimeoutMs);
                     
                     // Construct URL correctly:
+                    // - Normalize base URL (remove trailing slashes)
                     // - If base already ends with /ipfs/ or /ipns/, use resourcePath as-is (after removing leading /)
                     // - Otherwise, strip /ipfs/ or /ipns/ from resourcePath to avoid duplication
+                    let normalizedBase = base.trim().replace(/\/+$/, ''); // Remove trailing slashes
                     let url: string;
-                    if (base.endsWith(pathPrefix)) {
-                        // Base already has the prefix, just append the CID/key
-                        url = `${base}${resourcePath.replace(pathPrefix, '')}`;
+                    if (normalizedBase.endsWith(pathPrefix.slice(0, -1))) { // Check without trailing slash
+                        // Base already has the prefix (e.g., ends with /ipfs), append CID/key
+                        const cidOrKey = resourcePath.replace(pathPrefix, '').replace(/^\/+/, '');
+                        url = `${normalizedBase}/${cidOrKey}`;
                     } else {
-                        // Base doesn't have the prefix, strip it from resourcePath
-                        url = `${base}${resourcePath.replace(pathPrefix, '/')}`;
+                        // Base doesn't have the prefix, use resourcePath as-is (it already has /ipfs/ or /ipns/)
+                        url = `${normalizedBase}${resourcePath}`;
                     }
                     
                     const res = await fetch(url, { signal: reqCtrl.signal });

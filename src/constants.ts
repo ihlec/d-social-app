@@ -44,6 +44,5 @@ export const PUBLIC_CONTENT_GATEWAYS = [
     'https://ipfs.io/ipfs/',
     'https://gateway.pinata.cloud/ipfs/',
     'https://ipfs.filebase.io/ipfs/',
-    'https://ipfs.dweb.link/',
     'https://4everland.io/ipfs/'
 ];
