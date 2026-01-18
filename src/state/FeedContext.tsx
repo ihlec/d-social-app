@@ -9,6 +9,7 @@ import { useAppActions } from '../state/useActions';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { POST_COOLDOWN_MS } from '../constants';
+import { pinCid } from '../api/admin';
 
 // We import the AuthContext hook here if we separate Auth, but for this step
 // we are defining FeedContext. 
@@ -335,6 +336,9 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                     
                     try {
                         const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
+                        
+                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                        pinCid(follow.lastSeenCid!).catch(() => {}); // Fire-and-forget, don't block
                         
                         // Store in map
                         setAllUserStatesMap(prev => {

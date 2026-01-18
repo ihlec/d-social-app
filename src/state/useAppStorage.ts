@@ -11,6 +11,7 @@ import { useAppPeers } from '../features/feed/useOnlinePeers';
 import { useAppActions } from './useActions';
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
+import { pinCid } from '../api/admin';
 import { POST_COOLDOWN_MS } from '../constants';
 
 export interface UseAppStateReturn {
@@ -336,6 +337,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                     
                     try {
                         const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
+                        
+                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                        pinCid(follow.lastSeenCid!).catch(() => {}); // Fire-and-forget, don't block
                         
                         // Store in map
                         setAllUserStatesMap(prev => {

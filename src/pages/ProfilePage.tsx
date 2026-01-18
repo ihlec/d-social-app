@@ -117,6 +117,9 @@ const ProfilePage: React.FC = () => {
                         console.warn(`[Profile] Network resolve failed. Falling back to cached Last Seen CID: ${followEntry.lastSeenCid}`);
                         headCid = followEntry.lastSeenCid;
                         usedCache = true;
+                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                        const { pinCid } = await import('../api/admin');
+                        pinCid(followEntry.lastSeenCid).catch(() => {}); // Fire-and-forget, don't block
                     }
                 }
 

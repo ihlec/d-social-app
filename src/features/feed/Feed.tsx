@@ -162,7 +162,7 @@ const Feed: React.FC<FeedProps> = ({
             items={items}
             render={FeedPostCard}
             itemKey={(data) => data?.id || 'unknown'} 
-            columnGutter={16}
+            columnGutter={0}
             columnWidth={300}
             overscanBy={5} 
             itemHeightEstimate={400} 

@@ -50,6 +50,10 @@ export const useFeedSync = ({
                 initialCursors.set(follow.ipnsKey, null); 
 
                 if (follow.lastSeenCid) {
+                    // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                    const { pinCid } = await import('../../api/admin');
+                    pinCid(follow.lastSeenCid).catch(() => {}); // Fire-and-forget, don't block
+                    
                     // Start at index 0 of the last seen CID
                     const result = await fetchStateAndPosts(`${follow.lastSeenCid}|0`, follow.ipnsKey, false);
                     if (result) {
@@ -64,6 +68,10 @@ export const useFeedSync = ({
         if (myIpnsKey && myLatestStateCID) {
             // Treat "Me" as a followed user to ensure history is fetched
             if (!initialCursors.has(myIpnsKey) && !followCursors.has(myIpnsKey)) {
+                // Pin the latest state CID to avoid waiting for IPNS resolution in future
+                const { pinCid } = await import('../../api/admin');
+                pinCid(myLatestStateCID).catch(() => {}); // Fire-and-forget, don't block
+                
                 // Initialize my cursor with current state
                 const result = await fetchStateAndPosts(`${myLatestStateCID}|0`, myIpnsKey, false);
                 if (result) {
