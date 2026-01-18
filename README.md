@@ -6,7 +6,7 @@ A decentralized social media proof-of-concept application built with React, Type
 
 -> Join a Social Network with it OR just use it for blogging. 
 
-You can find the latest version of D. Social App here: https://ipfs.io/ipfs/bafybeiaashw34t6uogjoxvv5jrq2fdgwx7upukhfrjckp6w3dowl7kjtjm
+You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51qzi5uqu5dl65eg14adz5ceu6k9dna2s55io6iyr1qpyd1wwxqf2g7wm3tf8
 
 ## You want to contribute?
 
