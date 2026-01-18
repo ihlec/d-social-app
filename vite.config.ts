@@ -17,15 +17,5 @@ export default defineConfig({
       'src': path.resolve(__dirname, './src'), 
     },
   },
-  base: '',
-  server: {
-    headers: {
-      'Permissions-Policy': 'browsing-topics=()'
-    }
-  },
-  preview: {
-    headers: {
-      'Permissions-Policy': 'browsing-topics=()'
-    }
-  }
+  base: ''
 })

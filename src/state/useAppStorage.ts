@@ -11,6 +11,8 @@ import { useAppPeers } from '../features/feed/useOnlinePeers';
 import { useAppActions } from './useActions';
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
+import { pinCid } from '../api/admin';
+import { POST_COOLDOWN_MS } from '../constants';
 
 export interface UseAppStateReturn {
     isLoggedIn: boolean | null;
@@ -42,6 +44,7 @@ export interface UseAppStateReturn {
     fetchUser: (ipnsKey: string) => Promise<void>;
     unresolvedFollows: string[];
     allPostsMap: Map<string, Post>;
+    allUserStatesMap: Map<string, UserState>;
     userProfilesMap: Map<string, UserProfile>;
     otherUsers: OnlinePeer[];
     isInitializeDialogOpen: boolean;
@@ -50,6 +53,7 @@ export interface UseAppStateReturn {
     loadMoreMyFeed: () => Promise<void>;
     canLoadMoreMyFeed: boolean;
     setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
+    setAllUserStatesMap: React.Dispatch<React.SetStateAction<Map<string, UserState>>>;
     setUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
     setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
     myFeedPosts: Post[];
@@ -73,6 +77,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 
     // 2. Data State
     const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
+    const [allUserStatesMap, setAllUserStatesMap] = useState<Map<string, UserState>>(new Map());
     const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
     const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
     const [followCursors, setFollowCursors] = useState<Map<string, string | null>>(new Map());
@@ -116,7 +121,8 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         // the next time the user interacts (Post/Like/Follow).
         updateFollowMetadata: async (updates) => queueFollowUpdates(updates),
         myIpnsKey,
-        myLatestStateCID: latestStateCID
+        myLatestStateCID: latestStateCID,
+        allUserStatesMap
     });
 
     // 7. Explore Feed Hook (Gated)
@@ -146,6 +152,27 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         }
     }, [userState, myIpnsKey]);
 
+    // OPTIMIZATION: Debounce feed recalculation to reduce excessive recalculations
+    const [debouncedPostsMap, setDebouncedPostsMap] = useState(allPostsMap);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    
+    useEffect(() => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        
+        // Debounce feed recalculation by 250ms
+        debounceTimerRef.current = setTimeout(() => {
+            setDebouncedPostsMap(new Map(allPostsMap));
+        }, 250);
+        
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, [allPostsMap]);
+
     // --- STABILIZE EXPLORE FEED (DEBOUNCED) ---
     useEffect(() => {
         if (!userState) return;
@@ -162,7 +189,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                 const currentExploreIdsSet = new Set(prev);
                 const newIds: string[] = [];
 
-                allPostsMap.forEach((post) => {
+                debouncedPostsMap.forEach((post) => {
                     if (!myFeedSet.has(post.authorKey) && !currentExploreIdsSet.has(post.id)) {
                         newIds.push(post.id);
                     }
@@ -177,7 +204,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             if (exploreDebounceRef.current) clearTimeout(exploreDebounceRef.current);
         };
 
-    }, [allPostsMap, userState, myPeerId]); 
+    }, [debouncedPostsMap, userState, myPeerId]); 
 
 
     // Backoff Logic
@@ -205,14 +232,45 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         });
     }, [originalEnsurePosts]);
 
-    const fetchUser = useCallback(async (ipnsKey: string) => {
+    const fetchUser = useCallback(async (ipnsKey: string, force?: boolean) => {
         if (!ipnsKey) return;
+        
+        // Check map first - use cached state unless forced refresh
+        if (!force && allUserStatesMap.has(ipnsKey)) {
+            const cachedState = allUserStatesMap.get(ipnsKey)!;
+            // Update profile map from cached state
+            if (cachedState.profile) {
+                setUserProfilesMap(prev => {
+                    const next = new Map(prev);
+                    if (!next.has(ipnsKey) || next.get(ipnsKey)?.name !== cachedState.profile.name) {
+                        next.set(ipnsKey, cachedState.profile);
+                    }
+                    return next;
+                });
+            }
+            // Fetch posts from cached state
+            if (cachedState.postCIDs && cachedState.postCIDs.length > 0) {
+                const recentCids = cachedState.postCIDs.slice(0, 10);
+                await ensurePostsAreFetched(recentCids, ipnsKey);
+            }
+            return;
+        }
+        
         if (shouldSkipRequest(ipnsKey)) return;
         
         try {
             const cid = await resolveIpns(ipnsKey);
             if (cid) {
                 const fetchedState = await fetchUserState(cid, ipnsKey);
+                
+                // Store full UserState in map
+                setAllUserStatesMap(prev => {
+                    const next = new Map(prev);
+                    next.set(ipnsKey, fetchedState);
+                    return next;
+                });
+                
+                // Update profile map
                 if (fetchedState && fetchedState.profile) {
                     setUserProfilesMap(prev => {
                         const next = new Map(prev);
@@ -220,6 +278,8 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                         return next;
                     });
                 }
+                
+                // Fetch posts
                 if (fetchedState && fetchedState.postCIDs && fetchedState.postCIDs.length > 0) {
                     const recentCids = fetchedState.postCIDs.slice(0, 10);
                     await ensurePostsAreFetched(recentCids, ipnsKey); 
@@ -232,11 +292,11 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             console.warn(`[App] fetchUser failed for ${ipnsKey}`, e);
             reportFetchFailure(ipnsKey);
         }
-    }, [userProfilesMap, ensurePostsAreFetched]);
+    }, [allUserStatesMap, ensurePostsAreFetched]);
 
     const { isCoolingDown, countdown } = useCooldown(
         userState?.updatedAt || 0,
-        300 * 1000 
+        POST_COOLDOWN_MS 
     );
 
     const loginWithKuboWrapper = async (apiUrl: string, keyName: string, username?: string, password?: string) => {
@@ -248,6 +308,80 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             await processMainFeed(userState);
         }
     }, [isLoggedIn, myPeerId, userState, processMainFeed]);
+
+    // OPTIMIZATION: Batch populate allUserStatesMap from lastSeenCids in follows
+    const allUserStatesMapRef = useRef(allUserStatesMap);
+    useEffect(() => { allUserStatesMapRef.current = allUserStatesMap; }, [allUserStatesMap]);
+    
+    useEffect(() => {
+        if (!userState || !userState.follows) return;
+        
+        const populateUserStatesFromFollows = async () => {
+            const followsWithCids = userState.follows.filter(f => f.ipnsKey && f.lastSeenCid && !shouldSkipRequest(f.lastSeenCid));
+            
+            // OPTIMIZATION: Process in batches of 3 to avoid overwhelming gateway
+            const BATCH_SIZE = 3;
+            const BATCH_DELAY_MS = 500; // Delay between batches
+            
+            for (let i = 0; i < followsWithCids.length; i += BATCH_SIZE) {
+                const batch = followsWithCids.slice(i, i + BATCH_SIZE);
+                
+                const promises = batch.map(async (follow) => {
+                    // Skip if already in map
+                    if (allUserStatesMapRef.current.has(follow.ipnsKey)) return;
+                    
+                    // Check backoff
+                    if (shouldSkipRequest(follow.lastSeenCid!)) return;
+                    
+                    markRequestPending(follow.lastSeenCid!);
+                    
+                    try {
+                        const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
+                        
+                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                        pinCid(follow.lastSeenCid!).catch(() => {}); // Fire-and-forget, don't block
+                        
+                        // Store in map
+                        setAllUserStatesMap(prev => {
+                            const next = new Map(prev);
+                            next.set(follow.ipnsKey, fetchedState);
+                            return next;
+                        });
+                        
+                        // Update profile map
+                        if (fetchedState.profile) {
+                            setUserProfilesMap(prev => {
+                                const next = new Map(prev);
+                                if (!next.has(follow.ipnsKey) || next.get(follow.ipnsKey)?.name !== fetchedState.profile.name) {
+                                    next.set(follow.ipnsKey, fetchedState.profile);
+                                }
+                                return next;
+                            });
+                        }
+                        
+                        reportFetchSuccess(follow.lastSeenCid!);
+                    } catch (e: any) {
+                        reportFetchFailure(follow.lastSeenCid!);
+                        // Check if it's a 504 or timeout error
+                        if (e?.message?.includes('504') || e?.message?.includes('Gateway Timeout') || e?.message?.includes('timeout')) {
+                            console.warn(`[App] Gateway timeout for ${follow.ipnsKey} (${follow.lastSeenCid}), will retry later via backoff`);
+                        } else {
+                            console.warn(`[App] Failed to populate user state for ${follow.ipnsKey} from lastSeenCid`, e);
+                        }
+                    }
+                });
+                
+                await Promise.allSettled(promises);
+                
+                // Delay between batches to avoid overwhelming gateway
+                if (i + BATCH_SIZE < followsWithCids.length) {
+                    await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+                }
+            }
+        };
+        
+        populateUserStatesFromFollows();
+    }, [userState?.follows]);
 
     const hasInitialFetch = useRef(false);
     useEffect(() => {
@@ -271,7 +405,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 
     const replyGraph = useMemo(() => {
         const map = new Map<string, string[]>();
-        allPostsMap.forEach(post => {
+        debouncedPostsMap.forEach(post => {
             if (post.referenceCID) {
                 const parent = post.referenceCID;
                 const existing = map.get(parent) || [];
@@ -280,7 +414,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             }
         });
         return map;
-    }, [allPostsMap]);
+    }, [debouncedPostsMap]);
 
     const getReplyCount = useCallback((postId: string): number => {
         let count = 0;
@@ -305,9 +439,10 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         
         // REMOVED: const sorter = (a: Post, b: Post) => b.timestamp - a.timestamp;
         
+        // OPTIMIZATION: Use debounced map to reduce recalculations
         // This preserves "Load Order" because Map.values() iterates in insertion order.
         // As useFeed adds batches, they are added to the end of the Map.
-        const allPosts = Array.from(allPostsMap.values());
+        const allPosts = Array.from(debouncedPostsMap.values());
         
         const myFeedSet = new Set(userState.follows.map(f => f.ipnsKey));
         myFeedSet.add(myPeerId);
@@ -317,7 +452,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             // .sort(sorter); // <--- REMOVED TO PRESERVE APPEND BEHAVIOR
 
         const exploreFeed = stableExploreIds
-            .map(id => allPostsMap.get(id))
+            .map(id => debouncedPostsMap.get(id))
             .filter((p): p is Post => !!p); 
 
         return {
@@ -326,7 +461,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         };
     }, [allPostsMap, userState, myPeerId, stableExploreIds]);
 
-    // Compute unifiedIds (used by HomePage)
+    // Compute unifiedIds (used by HomePage) - uses debounced map
     const unifiedIds = useMemo(() => {
         if (!userState) return [];
         const dislikedIds = new Set(userState.dislikedPostCIDs || []);
@@ -334,9 +469,9 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         const followingSet = new Set(userState.follows?.map(f => f.ipnsKey) || []);
         
         const isValidRootPost = (p: Post) => !p.referenceCID && !dislikedIds.has(p.id) && !blockedUsers.has(p.authorKey);
-        
+
         const myIds: string[] = [];
-        for (const post of allPostsMap.values()) {
+        for (const post of debouncedPostsMap.values()) {
             const isMyPost = (myIpnsKey && post.authorKey === myIpnsKey) || (myPeerId && post.authorKey === myPeerId);
             const isFollowed = followingSet.has(post.authorKey);
             
@@ -353,7 +488,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
             .map(p => p.id);
         
         return [...myIds, ...exploreIds];
-    }, [allPostsMap, exploreFeedPosts, userState, myIpnsKey, myPeerId]);
+    }, [debouncedPostsMap, exploreFeedPosts, userState, myIpnsKey, myPeerId]);
 
     const loadMoreFeed = useCallback(async () => {
         if (canLoadMoreMyFeed) await loadMoreMyFeed();
@@ -370,11 +505,12 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         updateProfile, 
         ensurePostsAreFetched, 
         fetchUser, 
-        unresolvedFollows, allPostsMap, userProfilesMap,
+        unresolvedFollows, allPostsMap, allUserStatesMap, userProfilesMap,
         otherUsers,
         isInitializeDialogOpen, onInitializeUser, onRetryLogin,
         loadMoreMyFeed, canLoadMoreMyFeed,
         setAllPostsMap,
+        setAllUserStatesMap,
         setUserProfilesMap,
         setLatestStateCID,
         myFeedPosts,

@@ -1,4 +1,36 @@
 // fileName: src/lib/utils.ts
+import DOMPurify from 'dompurify';
+
+/**
+ * Sanitizes HTML content using DOMPurify with strict settings
+ * Use this for user-generated content that may contain HTML
+ */
+export const sanitizeHtml = (dirty: string | null | undefined): string => {
+    if (!dirty) return '';
+    return DOMPurify.sanitize(dirty, {
+        ALLOWED_TAGS: [], // No HTML tags allowed - strip everything
+        ALLOWED_ATTR: [],
+        KEEP_CONTENT: true, // Keep text content but strip tags
+    });
+};
+
+/**
+ * Sanitizes plain text content (for names, bios, etc.)
+ * Strips all HTML and returns plain text
+ */
+export const sanitizeText = (text: string | null | undefined): string => {
+    if (!text) return '';
+    // First sanitize HTML, then decode any HTML entities
+    const sanitized = DOMPurify.sanitize(text, {
+        ALLOWED_TAGS: [],
+        ALLOWED_ATTR: [],
+        KEEP_CONTENT: true,
+    });
+    // Decode HTML entities (e.g., &amp; -> &)
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = sanitized;
+    return tempDiv.textContent || tempDiv.innerText || '';
+};
 
 export const getCookie = (name: string): string | null => {
     const nameEQ = name + "=";

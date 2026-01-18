@@ -9,10 +9,10 @@
 }
 
 .feed-post-card-container {
-    margin-bottom: 0.5rem;
+    /* Container handles negative margins for border overlap */
     width: 100%;
 }
 
 .feed-post-placeholder {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
 }

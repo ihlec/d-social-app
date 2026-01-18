@@ -35,27 +35,43 @@ export const useFeedSync = ({
         console.log(`[Feed] Processing ${follows.length} follows using Stale-While-Revalidate...`);
 
         // --- PHASE 1: INSTANT RENDER (Optimistic) ---
-        const optimisticPromises = follows.map(async (follow) => {
-            if (!follow.ipnsKey) return;
+        // OPTIMIZATION: Process follows in parallel batches to avoid overwhelming gateway
+        const BATCH_SIZE = 4;
+        const optimisticPromises: Promise<void>[] = [];
+        
+        for (let i = 0; i < follows.length; i += BATCH_SIZE) {
+            const batch = follows.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(async (follow) => {
+                if (!follow.ipnsKey) return;
 
-            // If we already have a cursor for this follow, keep it (unless reset)
-            if (initialCursors.has(follow.ipnsKey)) return;
+                // If we already have a cursor for this follow, keep it (unless reset)
+                if (initialCursors.has(follow.ipnsKey)) return;
 
-            initialCursors.set(follow.ipnsKey, null); 
+                initialCursors.set(follow.ipnsKey, null); 
 
-            if (follow.lastSeenCid) {
-                // Start at index 0 of the last seen CID
-                const result = await fetchStateAndPosts(`${follow.lastSeenCid}|0`, follow.ipnsKey, false);
-                if (result) {
-                     initialCursors.set(follow.ipnsKey, result.nextCursor);
+                if (follow.lastSeenCid) {
+                    // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
+                    const { pinCid } = await import('../../api/admin');
+                    pinCid(follow.lastSeenCid).catch(() => {}); // Fire-and-forget, don't block
+                    
+                    // Start at index 0 of the last seen CID
+                    const result = await fetchStateAndPosts(`${follow.lastSeenCid}|0`, follow.ipnsKey, false);
+                    if (result) {
+                         initialCursors.set(follow.ipnsKey, result.nextCursor);
+                    }
                 }
-            }
-        });
+            });
+            optimisticPromises.push(...batchPromises);
+        }
 
         // ALSO: Process MY OWN feed (Self-Follow)
         if (myIpnsKey && myLatestStateCID) {
             // Treat "Me" as a followed user to ensure history is fetched
             if (!initialCursors.has(myIpnsKey) && !followCursors.has(myIpnsKey)) {
+                // Pin the latest state CID to avoid waiting for IPNS resolution in future
+                const { pinCid } = await import('../../api/admin');
+                pinCid(myLatestStateCID).catch(() => {}); // Fire-and-forget, don't block
+                
                 // Initialize my cursor with current state
                 const result = await fetchStateAndPosts(`${myLatestStateCID}|0`, myIpnsKey, false);
                 if (result) {

@@ -7,6 +7,7 @@ import PostHeader from './PostHeader';
 import PostActions from './PostActions';
 import { useAppContext } from '../../state/AppContext';
 import { useGatewayRace } from '../../hooks/useGatewayRace';
+import { sanitizeText } from '../../lib/utils';
 import './PostItem.css';
 
 interface PostProps {
@@ -230,7 +231,7 @@ const PostComponent: React.FC<PostProps> = ({
                         userProfilesMap={profilesMap || new Map()} 
                      />
                      <div className="post-content post-overlay-content">
-                         {post.content}
+                         {sanitizeText(post.content)}
                      </div>
                  </div>
              </div>
@@ -245,7 +246,7 @@ const PostComponent: React.FC<PostProps> = ({
                     userProfilesMap={profilesMap || new Map()} 
                 />
                 <div className={`post-content ${isExpandedView ? 'post-content-expanded' : ''}`}>
-                    {post.content}
+                    {sanitizeText(post.content)}
                 </div>
                 {post.mediaCid && (
                     <PostMedia post={post} isExpandedView={isExpandedView} />
@@ -270,7 +271,7 @@ const PostComponent: React.FC<PostProps> = ({
                          <div className="pdf-icon">📄</div>
                          <div className="pdf-info">
                              <div className="pdf-name">
-                                 {post.fileName || 'PDF Document'}
+                                 {sanitizeText(post.fileName) || 'PDF Document'}
                              </div>
                              <div className="pdf-meta">
                                  PDF Document • Click to view
@@ -287,7 +288,7 @@ const PostComponent: React.FC<PostProps> = ({
                         className="file-download-link" 
                         onClick={(e) => e.stopPropagation()} 
                     >
-                       <span>Download File: {post.fileName || 'Attachment'}</span>
+                       <span>Download File: {sanitizeText(post.fileName) || 'Attachment'}</span>
                     </a>
                 </div>
              )}

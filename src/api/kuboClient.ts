@@ -2,11 +2,10 @@
 import { 
     KUBO_RPC_TIMEOUT_MS, 
     KUBO_PUBLISH_TIMEOUT_MS, 
-    PUBLIC_IPNS_GATEWAYS, 
-    PUBLIC_CONTENT_GATEWAYS, 
     GATEWAY_TIMEOUT_MS,
     IPNS_RESOLVE_TIMEOUT_MS 
 } from '../constants';
+import { reportGatewayError, demoteGateway, getRankedGateways } from './gatewayUtils';
 
 // --- Types ---
 export interface KuboAuth {
@@ -282,6 +281,7 @@ async function staggeredGatewayFetch(
         let activeRequests = 0;
         let rejectedCount = 0;
         let isResolved = false;
+        let skipNextDelay = false; // Flag to skip stagger delay after 429
 
         const tryGateway = async (index: number) => {
             if (isResolved || index >= gateways.length) return;
@@ -316,6 +316,15 @@ async function staggeredGatewayFetch(
                 
                 clearTimeout(timeoutId);
 
+                // Handle 429 (Too Many Requests) immediately - mark gateway as failed
+                if (response.status === 429) {
+                    reportGatewayError(url);
+                    demoteGateway(gw, isIpns ? 'ipns' : 'ipfs');
+                    // Set flag to skip delay and immediately try next gateway
+                    skipNextDelay = true;
+                    throw new Error('429 Too Many Requests');
+                }
+
                 if (response.ok) {
                     if (!isResolved) {
                         isResolved = true;
@@ -326,7 +335,7 @@ async function staggeredGatewayFetch(
                     throw new Error(`Status ${response.status}`);
                 }
             } catch (e: any) {
-                // Ignore failure
+                // Ignore failure (timeout, network error, 429, etc.)
             } finally {
                 clearTimeout(timeoutId);
                 masterController.signal.removeEventListener('abort', onMasterAbort);
@@ -343,8 +352,13 @@ async function staggeredGatewayFetch(
             for (let i = 0; i < gateways.length; i++) {
                 if (isResolved) break;
                 tryGateway(i); 
-                if (i < gateways.length - 1) {
-                    await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
+                if (i < gateways.length - 1 && !isResolved) {
+                    // Skip delay if previous gateway returned 429
+                    if (!skipNextDelay) {
+                        await new Promise(r => setTimeout(r, STAGGER_DELAY_MS));
+                    } else {
+                        skipNextDelay = false; // Reset flag after skipping
+                    }
                 }
             }
         };
@@ -356,8 +370,8 @@ async function staggeredGatewayFetch(
 // --- EXPORTED GATEWAY FUNCTIONS ---
 
 export async function resolveIpnsViaGateways(ipnsKey: string): Promise<string> {
-    // No filtering needed, just pass the list
-    const gateways = PUBLIC_IPNS_GATEWAYS;
+    // Use ranked gateways (includes same-origin priority)
+    const gateways = getRankedGateways('ipns');
     
     try {
         const response = await staggeredGatewayFetch(ipnsKey, gateways, true, IPNS_RESOLVE_TIMEOUT_MS);
@@ -400,8 +414,8 @@ export async function resolveIpnsViaGateways(ipnsKey: string): Promise<string> {
 }
 
 export async function fetchCidViaGateways(cid: string): Promise<any> {
-    // No CID type check needed for Path Gateways
-    const gatewaysToTry = PUBLIC_CONTENT_GATEWAYS;
+    // Use ranked gateways (includes same-origin priority)
+    const gatewaysToTry = getRankedGateways('ipfs');
     if (gatewaysToTry.length === 0) throw new Error(`No suitable public gateway found for CID: ${cid}`);
 
     try {

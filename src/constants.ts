@@ -13,13 +13,13 @@ export const KUBO_RPC_TIMEOUT_MS = 5000;       // 5s: Fast reads (content)
 export const KUBO_RESOLVE_TIMEOUT_MS = 20000;  // 20s: IPNS Resolution (needs DHT time)
 export const KUBO_PUBLISH_TIMEOUT_MS = 60000;  // 60s: IPNS Publishing (slow DHT propagation)
 
-export const GATEWAY_TIMEOUT_MS = 6000;        // 6s: Matched to new fetch logic (Fail fast to try next)
+export const GATEWAY_TIMEOUT_MS = 30000;        // 30s: Allow time for DHT lookups and network congestion
 export const IPNS_RESOLVE_TIMEOUT_MS = 20000;  // 20s: Overall Resolve Limit
 
 // Gateway Timeouts (Local vs Public)
 export const LOCAL_GATEWAY_TIMEOUT_MS = 60000;  // 60 seconds: Fail fast to allow public gateways to try
 export const LOCAL_IPNS_TIMEOUT_MS = 120000;     // 2 minutes: IPNS resolution should be faster than content retrieval
-export const PUBLIC_GATEWAY_TIMEOUT_MS = 6000;  // 6 seconds: Public gateways should fail fast
+export const PUBLIC_GATEWAY_TIMEOUT_MS = 30000;  // 30 seconds: Allow time for DHT lookups (10-30s typical)
 
 // Logic Constants
 export const MAX_POSTS_PER_STATE = 100; // Bucketing limit
@@ -44,6 +44,5 @@ export const PUBLIC_CONTENT_GATEWAYS = [
     'https://ipfs.io/ipfs/',
     'https://gateway.pinata.cloud/ipfs/',
     'https://ipfs.filebase.io/ipfs/',
-    'https://ipfs.dweb.link/',
     'https://4everland.io/ipfs/'
 ];

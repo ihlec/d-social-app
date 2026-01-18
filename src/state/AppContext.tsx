@@ -34,6 +34,7 @@ const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ childr
         
         // Feed / Data
         allPostsMap: feed.allPostsMap,
+        allUserStatesMap: feed.allUserStatesMap,
         userProfilesMap: feed.userProfilesMap,
         unresolvedFollows: feed.unresolvedFollows,
         otherUsers: feed.otherUsers,
@@ -73,6 +74,7 @@ const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ childr
         // Checking FeedContextState... it has map but not setAllPostsMap.
         // FIX: Add setters to FeedContext if consumers heavily rely on them, OR cast as any if unused.
         setAllPostsMap: feed.setAllPostsMap || (() => console.warn("setAllPostsMap deprecated")),
+        setAllUserStatesMap: feed.setAllUserStatesMap || (() => console.warn("setAllUserStatesMap deprecated")),
         setUserProfilesMap: feed.setUserProfilesMap || (() => console.warn("setUserProfilesMap deprecated")),
         
         // Session Unlock

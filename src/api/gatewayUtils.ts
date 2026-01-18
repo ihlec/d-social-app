@@ -12,7 +12,30 @@ const GATEWAY_COOKIE_IPNS = 'dsocial_gateway_rank_ipns_v6';
 export const getRankedGateways = (type: 'ipfs' | 'ipns'): string[] => {
     const cookieName = type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS;
     
-    // 1. Determine the "Authoritative List" based on Settings OR Constants
+    // Check if we're running on localhost or local gateway
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    // If NOT on localhost, check if we're on a public gateway
+    if (!isLocalhost && typeof window !== 'undefined') {
+        const currentOrigin = window.location.origin;
+        const isRunningOnPublicGateway = currentOrigin.includes('ipfs') || 
+                                        currentOrigin.includes('dweb') || 
+                                        currentOrigin.includes('pinata') ||
+                                        currentOrigin.includes('filebase') ||
+                                        currentOrigin.includes('4everland');
+        
+        // If on a public gateway, return ONLY that gateway (no ranking, no fallbacks)
+        if (isRunningOnPublicGateway) {
+            const suffix = type === 'ipfs' ? '/ipfs/' : '/ipns/';
+            return [`${currentOrigin}${suffix}`];
+        }
+    }
+    
+    // If on localhost or not on a known gateway, use ranking logic
+    // 1. Determine the base list
     let authoritativeList: string[] = [];
     if (type === 'ipfs') {
         const custom = localStorage.getItem('custom_gateways');
@@ -22,35 +45,68 @@ export const getRankedGateways = (type: 'ipfs' | 'ipns'): string[] => {
         authoritativeList = custom ? custom.split(',') : PUBLIC_IPNS_GATEWAYS;
     }
     
-    // Clean whitespace and empty entries
+    // Clean list
     authoritativeList = authoritativeList.map(u => u.trim()).filter(u => u.length > 0);
 
-    // 2. Apply Ranking Persistence
+    // 2. Apply Ranking Persistence (only used on localhost)
     try {
         const stored = getCookie(cookieName);
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
+                // Normalize URLs for comparison (handle trailing slashes)
+                const normalize = (url: string) => url.trim().replace(/\/+$/, '') + '/';
+                const normalizedAuthoritative = authoritativeList.map(normalize);
+                
                 // Filter to ensure we only keep gateways that are still in the allowed list
-                // (in case user settings changed)
-                const valid = parsed.filter(url => authoritativeList.includes(url));
-                // Add any new allowed gateways that weren't in the cookie
-                return [...new Set([...valid, ...authoritativeList])];
+                const valid = parsed.filter(url => {
+                    const normalized = normalize(url);
+                    return normalizedAuthoritative.some(a => normalize(a) === normalized);
+                });
+                
+                // Merge cookie rankings with authoritative list
+                const allUrls = [...valid, ...authoritativeList];
+                const merged = Array.from(new Set(allUrls.map(normalize)));
+                
+                // Return URLs with trailing slash for consistency
+                return merged.map(url => url.replace(/\/+$/, '') + '/');
             }
         }
     } catch { /* ignore */ }
     
-    // Default: Return deduplicated authoritative list
-    return [...new Set(authoritativeList)];
+    // Default: Return deduplicated list
+    return Array.from(new Set(authoritativeList));
 };
 
 export const promoteGateway = (url: string, type: 'ipfs' | 'ipns') => {
+    // Only promote/demote when on localhost (ranking is only used on localhost)
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    if (!isLocalhost) {
+        // On public gateway, ranking isn't used - skip cookie updates
+        return;
+    }
+    
     const current = getRankedGateways(type);
     const updated = [url, ...current.filter(u => u !== url)].slice(0, 5); 
     setCookie(type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS, JSON.stringify(updated), 7);
 };
 
 export const demoteGateway = (url: string, type: 'ipfs' | 'ipns') => {
+    // Only promote/demote when on localhost (ranking is only used on localhost)
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    if (!isLocalhost) {
+        // On public gateway, ranking isn't used - skip cookie updates
+        return;
+    }
+    
     const current = getRankedGateways(type);
     const updated = [...current.filter(u => u !== url), url].slice(0, 5);
     setCookie(type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS, JSON.stringify(updated), 7);
@@ -112,10 +168,15 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
     const publicUrls: string[] = [];
 
     // 1. Process Local Gateway (Priority)
+    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
     const session = getSession();
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (session && session.sessionType === 'kubo' && session.rpcApiUrl && session.rpcApiUrl.startsWith('http')) {
         const gatewayUrl = toGatewayUrl(session.rpcApiUrl);
-        localUrls.push(`${gatewayUrl}/ipfs/${cleanCid}`);
+        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
+        if (gatewayUrl.startsWith('https://') || !isHttpsPage) {
+            localUrls.push(`${gatewayUrl}/ipfs/${cleanCid}`);
+        }
     }
 
     // 2. Process Public Gateways (Ranked & Custom Unified)
@@ -131,18 +192,20 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
             }
         } else {
             // Path Gateway Pattern
-            let baseUrl = gwUrl;
+            let baseUrl = gwUrl.trim();
             
-            // Normalize: Ensure we handle trailing slashes and 'ipfs' path
-            if (baseUrl.endsWith('/')) {
-                baseUrl = baseUrl.slice(0, -1);
-            }
+            // Normalize: Remove trailing slashes
+            baseUrl = baseUrl.replace(/\/+$/, '');
             
+            // Check if baseUrl already ends with /ipfs or /ipns
             if (baseUrl.endsWith('/ipfs')) {
-                 fullUrl = `${baseUrl}/${cleanCid}`;
+                fullUrl = `${baseUrl}/${cleanCid}`;
+            } else if (baseUrl.endsWith('/ipns')) {
+                // Shouldn't happen for IPFS content, but handle gracefully
+                fullUrl = `${baseUrl}/${cleanCid}`;
             } else {
-                 // Assume if /ipfs/ is missing, we need to add it (common for user-entered domains)
-                 fullUrl = `${baseUrl}/ipfs/${cleanCid}`;
+                // Add /ipfs/ prefix if missing
+                fullUrl = `${baseUrl}/ipfs/${cleanCid}`;
             }
         }
 
@@ -180,30 +243,35 @@ export async function fetchFromGateways<T>(
     const promises: Promise<T>[] = [];
 
     // Local Gateway Promise
+    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-        const ctrl = new AbortController();
-        controllers.push(ctrl);
         const localGw = toGatewayUrl(session.rpcApiUrl);
-        
-        promises.push(new Promise<T>(async (resolve, reject) => {
-            const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, localTimeoutMs);
-            try {
-                const res = await fetch(`${localGw}${resourcePath}`, { signal: ctrl.signal });
-                clearTimeout(id);
-                if (res.ok) {
-                    const result = await responseProcessor(res);
-                    resolve(result);
-                } else if (res.status === 504) {
-                    // Gateway Timeout from Kubo - fail fast to allow public gateways to try
-                    reject(new Error("Local Gateway Timeout (504)"));
-                } else {
-                    reject(new Error(`Local ${res.status}`));
+        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
+        if (localGw.startsWith('https://') || !isHttpsPage) {
+            const ctrl = new AbortController();
+            controllers.push(ctrl);
+            
+            promises.push(new Promise<T>(async (resolve, reject) => {
+                const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, localTimeoutMs);
+                try {
+                    const res = await fetch(`${localGw}${resourcePath}`, { signal: ctrl.signal });
+                    clearTimeout(id);
+                    if (res.ok) {
+                        const result = await responseProcessor(res);
+                        resolve(result);
+                    } else if (res.status === 504) {
+                        // Gateway Timeout from Kubo - fail fast to allow public gateways to try
+                        reject(new Error("Local Gateway Timeout (504)"));
+                    } else {
+                        reject(new Error(`Local ${res.status}`));
+                    }
+                } catch(e) { 
+                    clearTimeout(id); 
+                    reject(e); 
                 }
-            } catch(e) { 
-                clearTimeout(id); 
-                reject(e); 
-            }
-        }));
+            }));
+        }
     }
 
     // Public Gateway Promise (Starts 600ms after local to give it a headstart, then sequential fallback)
@@ -235,15 +303,18 @@ export async function fetchFromGateways<T>(
                     const id = setTimeout(() => reqCtrl.abort(), publicTimeoutMs);
                     
                     // Construct URL correctly:
+                    // - Normalize base URL (remove trailing slashes)
                     // - If base already ends with /ipfs/ or /ipns/, use resourcePath as-is (after removing leading /)
                     // - Otherwise, strip /ipfs/ or /ipns/ from resourcePath to avoid duplication
+                    let normalizedBase = base.trim().replace(/\/+$/, ''); // Remove trailing slashes
                     let url: string;
-                    if (base.endsWith(pathPrefix)) {
-                        // Base already has the prefix, just append the CID/key
-                        url = `${base}${resourcePath.replace(pathPrefix, '')}`;
+                    if (normalizedBase.endsWith(pathPrefix.slice(0, -1))) { // Check without trailing slash
+                        // Base already has the prefix (e.g., ends with /ipfs), append CID/key
+                        const cidOrKey = resourcePath.replace(pathPrefix, '').replace(/^\/+/, '');
+                        url = `${normalizedBase}/${cidOrKey}`;
                     } else {
-                        // Base doesn't have the prefix, strip it from resourcePath
-                        url = `${base}${resourcePath.replace(pathPrefix, '/')}`;
+                        // Base doesn't have the prefix, use resourcePath as-is (it already has /ipfs/ or /ipns/)
+                        url = `${normalizedBase}${resourcePath}`;
                     }
                     
                     const res = await fetch(url, { signal: reqCtrl.signal });

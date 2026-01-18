@@ -2,10 +2,12 @@
 
 .post-wrapper {
     /* Base styles */
-    width: auto !important; /* Override .post width: 100% to allow margins */
+    width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     /* cursor is handled dynamically via style or class */
+    /* Allow negative margins to work for border overlap */
+    overflow: visible;
 }
 
 .post-wrapper.clickable {
@@ -70,7 +72,7 @@
 }
 
 .pdf-card-preview {
-    margin: 0.3rem 0;
+    margin: 0.3rem;
     padding: 1.5rem;
     background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
     border: 1px solid var(--border-color);
@@ -120,9 +122,18 @@
 .post {
     background-color: var(--surface-color);
     border: 1px solid var(--border-color);
-    border-radius: 3px;
+    border-radius: 0;
     width: 100%;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2); 
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    /* Negative margins to overlap all borders */
+    margin: -1px;
+    /* Restore width to account for negative margins */
+    width: calc(100% + 2px);
+    transition: background-color 0.2s ease;
+}
+
+.post:hover {
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .post-header {
@@ -183,7 +194,7 @@
 
 /* Media */
 .post-media-container {
-    width: 100%; border-radius: 3px;
+    width: 100%; border-radius: 0;
     border: 1px solid var(--border-color);
     background-color: #000;
     display: flex; align-items: center; justify-content: center;
@@ -194,7 +205,7 @@
 .post-media-expanded { width: 100%; margin: 1rem 0; }
 .post-media-expanded img, .post-media-expanded video {
     width: 100%; height: auto; max-height: 80vh;
-    object-fit: contain; border-radius: 3px; display: block;
+    object-fit: contain; border-radius: 0; display: block;
 }
 
 .post-media-thumbnail {
@@ -218,7 +229,7 @@
 
 .post-file-container {
     padding: 1rem; background: #000; margin-top: 0.5rem;
-    border-radius: 3px; border: 1px solid var(--border-color);
+    border-radius: 0; border: 1px solid var(--border-color);
 }
 .file-download-link {
     display: flex; align-items: center; gap: 0.5rem;
@@ -237,7 +248,7 @@
     color: var(--text-secondary-color); 
     cursor: pointer; display: flex; align-items: center; gap: 4px;
     padding: 6px; 
-    border-radius: 3px;
+    border-radius: 0;
     transition: color 0.2s;
 }
 .action-button:hover, .comment-button:hover { color: var(--primary-color); background: rgba(255,255,255,0.05); }
@@ -251,4 +262,9 @@
     box-shadow: none; border: none; padding-top: 1rem;
     margin-bottom: 0; 
     border-radius: 0; background: transparent;
+    transition: background-color 0.2s ease;
+}
+
+.reply-post:hover {
+    background-color: rgba(255, 255, 255, 0.06);
 }

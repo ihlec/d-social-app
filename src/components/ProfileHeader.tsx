@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { UserProfile, Follow } from '../types';
 import { useAppState } from '../state/useAppStorage';
 import { ShareIcon } from './Icons'; 
-import { getShareBaseUrl } from '../lib/utils';
+import { getShareBaseUrl, sanitizeText } from '../lib/utils';
 import toast from 'react-hot-toast';
 
 interface ProfileHeaderProps {
@@ -62,7 +62,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
 
   return (
     <div className="profile-header">
-      <h2>{profile.name || "Anonymous"}</h2>
+      <h2>{sanitizeText(profile.name) || "Anonymous"}</h2>
       
       {isEditingBio ? (
         <div style={{ marginTop: '1rem' }}>
@@ -84,7 +84,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
         </div>
       ) : (
         <p>
-          {profile.bio || (isMyProfile ? <i>No bio provided. Click edit to add one.</i> : 'No bio provided.')}
+          {sanitizeText(profile.bio) || (isMyProfile ? <i>No bio provided. Click edit to add one.</i> : 'No bio provided.')}
           
           {/* Edit button (only for my profile) */}
           {isMyProfile && (
