@@ -1,7 +1,7 @@
 // fileName: src/features/feed/PostHeader.tsx
 import React from 'react';
 import { Post, UserProfile } from '../../types';
-import { formatTimeAgo } from '../../lib/utils';
+import { formatTimeAgo, sanitizeText } from '../../lib/utils';
 
 interface PostHeaderProps {
   post: Post;
@@ -26,7 +26,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
       const parentPost = allPostsMap.get(post.referenceCID);
       if (parentPost) {
           const parentProfile = userProfilesMap.get(parentPost.authorKey);
-          return parentProfile?.name || parentPost.authorKey.substring(0, 8);
+          return sanitizeText(parentProfile?.name) || parentPost.authorKey.substring(0, 8);
       }
       return "Deleted Post";
   };
@@ -37,7 +37,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   // If authorProfile.name exists and is not empty, use it.
   // Otherwise, use truncated IPNS key (e.g., k51qzi...1234)
   const displayName = authorProfile && authorProfile.name && authorProfile.name.trim().length > 0
-      ? authorProfile.name
+      ? sanitizeText(authorProfile.name)
       : (post.authorKey.length > 12 
           ? `${post.authorKey.substring(0, 6)}...${post.authorKey.substring(post.authorKey.length - 4)}` 
           : post.authorKey);

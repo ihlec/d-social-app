@@ -52,6 +52,8 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipfs/bafy
 
 
 ## TODO
+- following not possible when on public gateway hosted url
+- loggout on refresh bug - should stay logged in
 - allow creating user aliases
 - export/import of user's private key
 - moderator features / filter disliked posts of followed users in the role of moderators

@@ -7,6 +7,7 @@ import { useAppState } from '../state/useAppStorage';
 import { Post } from '../types';
 import NewPostForm from '../features/feed/NewPostForm';
 import { useThreadFetcher } from '../hooks/useThreadFetcher';
+import { sanitizeText } from '../lib/utils';
 
 const PostPage: React.FC = () => {
     // Keep 'cid' to match your router configuration provided in the snippet
@@ -302,7 +303,7 @@ const PostPage: React.FC = () => {
                             replyingToPost={replyingToPost}
                             replyingToAuthorName={
                                 replyingToPost ? 
-                                (combinedProfilesMap.get(replyingToPost.authorKey)?.name || 'Unknown') 
+                                (sanitizeText(combinedProfilesMap.get(replyingToPost.authorKey)?.name) || 'Unknown') 
                                 : null
                             }
                             onAddPost={async (data) => {

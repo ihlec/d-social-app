@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useId } from 'react';
 import { Post } from '../../types';
 import { AddMediaIcon } from '../../components/Icons';
+import { sanitizeText } from '../../lib/utils';
 
 interface NewPostFormProps {
   onAddPost: (postData: { content: string; referenceCID?: string; file?: File }) => void;
@@ -75,7 +76,7 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
     <form onSubmit={handleSubmit} className="new-post-form">
       {replyingToPost && (
         <div className="reply-to-indicator">
-          <span>Replying to {replyingToAuthorName || 'Post'}</span>
+          <span>Replying to {sanitizeText(replyingToAuthorName) || 'Post'}</span>
         </div>
       )}
 
@@ -107,7 +108,7 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
           )}
           {selectedFile?.type === 'application/pdf' && (
             <div className="media-preview-pdf">
-               PDF: {selectedFile.name.substring(0, 15)}...
+               PDF: {sanitizeText(selectedFile.name).substring(0, 15)}...
             </div>
           )}
           <button type="button" onClick={resetFile} className="remove-file-button" title="Remove file">×</button>

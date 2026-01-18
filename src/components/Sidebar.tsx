@@ -5,6 +5,7 @@ import { UserState, OnlinePeer } from '../types';
 import { useAppState } from '../state/useAppStorage';
 import { SettingsIcon } from './Icons';
 import { HomeIcon } from './Icons';
+import { sanitizeText } from '../lib/utils';
 import './Sidebar.css';
 
 const SettingsDialog = lazy(() => import('./SettingsDialog'));
@@ -196,7 +197,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className="sidebar-link"
             title="Go to my profile"
           >
-            {userState?.profile.name || "Anonymous"}
+            {sanitizeText(userState?.profile.name) || "Anonymous"}
           </span>
       </InfoItem>
       
@@ -235,7 +236,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         onClick={() => { onViewProfile(follow.ipnsKey); onClose(); }}
                                         style={{ cursor: 'pointer', textDecoration: 'underline' }}
                                     >
-                                        {displayName}
+                                        {sanitizeText(displayName)}
                                     </span>
                                     <CopyableText 
                                         value={follow.ipnsKey} 
@@ -301,7 +302,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 onClick={() => { onViewProfile(user.ipnsKey); onClose(); }}
                                 style={{ cursor: 'pointer', textDecoration: 'underline' }}
                             >
-                                {user.name || user.ipnsKey.substring(0,8) + '...'}
+                                {sanitizeText(user.name) || user.ipnsKey.substring(0,8) + '...'}
                             </span>
                             {user.ipnsKey ? (
                                 <CopyableText 

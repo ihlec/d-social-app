@@ -11,6 +11,7 @@ import { useAppPeers } from '../features/feed/useOnlinePeers';
 import { useAppActions } from './useActions';
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
+import { POST_COOLDOWN_MS } from '../constants';
 
 export interface UseAppStateReturn {
     isLoggedIn: boolean | null;
@@ -236,7 +237,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
 
     const { isCoolingDown, countdown } = useCooldown(
         userState?.updatedAt || 0,
-        300 * 1000 
+        POST_COOLDOWN_MS 
     );
 
     const loginWithKuboWrapper = async (apiUrl: string, keyName: string, username?: string, password?: string) => {
