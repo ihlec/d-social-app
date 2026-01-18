@@ -15,6 +15,7 @@ interface UseAppFeedArgs {
     updateFollowMetadata: (updatedFollows: Follow[]) => Promise<void>;
     myIpnsKey: string;
     myLatestStateCID: string;
+    allUserStatesMap?: Map<string, UserState>;
 }
 
 export interface UseAppFeedReturn {
@@ -35,7 +36,8 @@ export const useAppFeed = ({
     setFollowCursors,
     updateFollowMetadata,
     myIpnsKey,
-    myLatestStateCID
+    myLatestStateCID,
+    allUserStatesMap
 }: UseAppFeedArgs): UseAppFeedReturn => {
     
     const [isLoadingFeed, setIsLoadingFeed] = useState(false);
@@ -45,7 +47,8 @@ export const useAppFeed = ({
         allPostsMap,
         setAllPostsMap,
         setUserProfilesMap,
-        fetchMissingParentPost
+        fetchMissingParentPost,
+        allUserStatesMap
     });
 
     // 2. Sync Logic (Initial Load & Background Refresh)

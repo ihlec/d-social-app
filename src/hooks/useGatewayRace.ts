@@ -22,39 +22,83 @@ const raceCache = new Map<string, string>();
 export const useGatewayRace = (cid?: string) => {
     const urls = useMemo(() => getAllGatewayUrls(cid), [cid]);
     
-    // Initialize with cached winner if available, otherwise default to first candidate
+    // Check if we're on a public gateway (not localhost)
+    const isOnPublicGateway = typeof window !== 'undefined' && 
+        window.location.hostname !== 'localhost' &&
+        window.location.hostname !== '127.0.0.1' &&
+        (window.location.origin.includes('ipfs') || 
+         window.location.origin.includes('dweb') || 
+         window.location.origin.includes('pinata') ||
+         window.location.origin.includes('filebase') ||
+         window.location.origin.includes('4everland'));
+    
+    // If on public gateway, there's only one URL - no need to race
     const [bestUrl, setBestUrl] = useState<string | null>(() => {
-        if (cid && raceCache.has(cid)) return raceCache.get(cid)!;
+        if (isOnPublicGateway) {
+            return urls[0] || null;
+        }
+        
+        // On localhost: check cache
+        if (cid && raceCache.has(cid)) {
+            const cached = raceCache.get(cid)!;
+            if (urls.includes(cached)) {
+                return cached;
+            }
+            raceCache.delete(cid);
+        }
         return urls[0] || null;
     });
 
     useEffect(() => {
-        if (!cid || urls.length <= 1) {
+        if (!cid) {
+            setBestUrl(urls[0] || null);
+            return;
+        }
+        
+        // Re-check if we're on a public gateway (in case origin changed)
+        const checkIsOnPublicGateway = typeof window !== 'undefined' && 
+            window.location.hostname !== 'localhost' &&
+            window.location.hostname !== '127.0.0.1' &&
+            (window.location.origin.includes('ipfs') || 
+             window.location.origin.includes('dweb') || 
+             window.location.origin.includes('pinata') ||
+             window.location.origin.includes('filebase') ||
+             window.location.origin.includes('4everland'));
+        
+        // On public gateway: only one URL, no racing needed
+        if (checkIsOnPublicGateway) {
+            setBestUrl(urls[0] || null);
+            if (cid && urls[0]) {
+                raceCache.set(cid, urls[0]);
+            }
+            return;
+        }
+        
+        // On localhost: use racing logic
+        if (urls.length <= 1) {
             setBestUrl(urls[0] || null);
             return;
         }
 
-        // If we already have a cached winner that is in the current list, trust it.
-        // But we might want to re-verify if it fails? 
-        // For now, trust the cache to avoid flicker. 
-        // A background re-verification could be added but might cause the flicker we want to avoid.
+        // Check cache for localhost
         if (raceCache.has(cid)) {
              const cached = raceCache.get(cid)!;
-             // Ensure the cached URL is still valid for this session (e.g. matches current gateway list)
              if (urls.includes(cached)) {
                  setBestUrl(cached);
-                 return; 
+                 return;
              }
         }
 
         let isMounted = true;
-        const controllers = urls.slice(0, 3).map(() => new AbortController()); // Race top 3 candidates
+        // Prioritize same-origin URLs in the race (slice top 3, but same-origin should be first)
+        const urlsToRace = urls.slice(0, 3);
+        const controllers = urlsToRace.map(() => new AbortController());
 
         const race = async () => {
             try {
-                // Race requests
+                // Race requests - same-origin URL (if present) should be in urlsToRace[0]
                 const winnerIndex = await Promise.any(
-                    urls.slice(0, 3).map((url, i) => 
+                    urlsToRace.map((url, i) => 
                         // Use GET with Range: bytes=0-0 to check availability/type without full download
                         fetch(url, { 
                             method: 'GET', 
@@ -102,15 +146,15 @@ export const useGatewayRace = (cid?: string) => {
                 );
 
                 if (isMounted) {
-                    setBestUrl(urls[winnerIndex]);
-                    if (cid) raceCache.set(cid, urls[winnerIndex]);
+                    const winnerUrl = urlsToRace[winnerIndex];
+                    setBestUrl(winnerUrl);
+                    if (cid) raceCache.set(cid, winnerUrl);
                 }
             } catch (e) {
                 // All failed HEAD/GET checks? 
-                // If we defaulted to Local (index 0), and it failed the check,
-                // we should NOT stay on it. Fallback to the first public gateway (index 1) blindly.
-                if (isMounted && urls.length > 1) {
-                    const fallback = urls[1];
+                // Fallback to the first URL in the list (which should be same-origin if on a gateway)
+                if (isMounted && urlsToRace.length > 0) {
+                    const fallback = urlsToRace[0]; // First URL should be same-origin
                     setBestUrl(fallback);
                     if (cid) raceCache.set(cid, fallback);
                 }

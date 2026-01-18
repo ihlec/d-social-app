@@ -1,19 +1,22 @@
 import { useCallback } from 'react';
-import { Post, UserProfile } from '../../types';
+import { Post, UserProfile, UserState } from '../../types';
 import { fetchPostLocal, fetchUserStateChunk, fetchCidsBatched } from '../../api/ipfsIpns';
+import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../../lib/fetchBackoff';
 
 interface UseFeedFetchArgs {
     allPostsMap: Map<string, Post>;
     setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
     setUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
     fetchMissingParentPost: (parentCID: string) => Promise<void>;
+    allUserStatesMap?: Map<string, UserState>;
 }
 
 export const useFeedFetch = ({
     allPostsMap,
     setAllPostsMap,
     setUserProfilesMap,
-    fetchMissingParentPost
+    fetchMissingParentPost,
+    allUserStatesMap
 }: UseFeedFetchArgs) => {
 
     // Helper to parse cursor
@@ -36,7 +39,50 @@ export const useFeedFetch = ({
             const { cid: stateCid, index: startIndex } = parseCursor(cursorValue);
             if (!stateCid) return null;
 
-            const stateChunk = await fetchUserStateChunk(stateCid);
+            // Check backoff first
+            if (shouldSkipRequest(stateCid)) {
+                return null;
+            }
+
+            markRequestPending(stateCid);
+
+            // OPTIMIZATION: Check allUserStatesMap first - use cached state if available
+            let stateChunk: Partial<UserState> | null = null;
+            if (allUserStatesMap?.has(authorIpns)) {
+                const cachedState = allUserStatesMap.get(authorIpns)!;
+                // If this CID matches the head of the cached state, use it
+                // For now, we'll use cached state's postCIDs if available
+                if (cachedState.postCIDs && cachedState.postCIDs.length > 0) {
+                    stateChunk = {
+                        profile: cachedState.profile,
+                        postCIDs: cachedState.postCIDs,
+                        extendedUserState: cachedState.extendedUserState,
+                        updatedAt: cachedState.updatedAt
+                    };
+                    reportFetchSuccess(stateCid);
+                }
+            }
+
+            // If not in cache, fetch from network
+            if (!stateChunk) {
+                try {
+                    stateChunk = await fetchUserStateChunk(stateCid);
+                    if (stateChunk) {
+                        reportFetchSuccess(stateCid);
+                    } else {
+                        reportFetchFailure(stateCid);
+                        return null;
+                    }
+                } catch (e: any) {
+                    reportFetchFailure(stateCid);
+                    // Check if it's a 504 or timeout error
+                    if (e?.message?.includes('504') || e?.message?.includes('Gateway Timeout') || e?.message?.includes('timeout')) {
+                        console.warn(`[Feed] Gateway timeout for ${stateCid}, will retry later via backoff`);
+                    }
+                    throw e;
+                }
+            }
+
             if (!stateChunk) return null;
 
             // 1. Update Profile (if found)
@@ -51,7 +97,8 @@ export const useFeedFetch = ({
             }
 
             // 2. Intra-Bucket Pagination
-            const PAGE_SIZE = 1; 
+            // OPTIMIZATION: Larger PAGE_SIZE for initial loads to reduce recalculations
+            const PAGE_SIZE = isBackgroundRefresh ? 1 : 3; // 3 for initial, 1 for background refresh 
             const allCids = stateChunk.postCIDs || [];
             
             const nextIndex = startIndex + PAGE_SIZE;
@@ -101,7 +148,7 @@ export const useFeedFetch = ({
             console.warn(`[Feed] Failed to fetch state ${cursorValue}`, e);
             return null;
         }
-    }, [allPostsMap, setAllPostsMap, setUserProfilesMap, fetchMissingParentPost]);
+    }, [allPostsMap, setAllPostsMap, setUserProfilesMap, fetchMissingParentPost, allUserStatesMap]);
 
     // Ensure Specific Posts (Updated with Batching)
     const ensurePostsAreFetched = useCallback(async (postCids: string[], authorHint?: string): Promise<string[]> => {

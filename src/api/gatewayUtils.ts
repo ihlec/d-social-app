@@ -12,7 +12,30 @@ const GATEWAY_COOKIE_IPNS = 'dsocial_gateway_rank_ipns_v6';
 export const getRankedGateways = (type: 'ipfs' | 'ipns'): string[] => {
     const cookieName = type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS;
     
-    // 1. Determine the "Authoritative List" based on Settings OR Constants
+    // Check if we're running on localhost or local gateway
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    // If NOT on localhost, check if we're on a public gateway
+    if (!isLocalhost && typeof window !== 'undefined') {
+        const currentOrigin = window.location.origin;
+        const isRunningOnPublicGateway = currentOrigin.includes('ipfs') || 
+                                        currentOrigin.includes('dweb') || 
+                                        currentOrigin.includes('pinata') ||
+                                        currentOrigin.includes('filebase') ||
+                                        currentOrigin.includes('4everland');
+        
+        // If on a public gateway, return ONLY that gateway (no ranking, no fallbacks)
+        if (isRunningOnPublicGateway) {
+            const suffix = type === 'ipfs' ? '/ipfs/' : '/ipns/';
+            return [`${currentOrigin}${suffix}`];
+        }
+    }
+    
+    // If on localhost or not on a known gateway, use ranking logic
+    // 1. Determine the base list
     let authoritativeList: string[] = [];
     if (type === 'ipfs') {
         const custom = localStorage.getItem('custom_gateways');
@@ -22,35 +45,68 @@ export const getRankedGateways = (type: 'ipfs' | 'ipns'): string[] => {
         authoritativeList = custom ? custom.split(',') : PUBLIC_IPNS_GATEWAYS;
     }
     
-    // Clean whitespace and empty entries
+    // Clean list
     authoritativeList = authoritativeList.map(u => u.trim()).filter(u => u.length > 0);
 
-    // 2. Apply Ranking Persistence
+    // 2. Apply Ranking Persistence (only used on localhost)
     try {
         const stored = getCookie(cookieName);
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
+                // Normalize URLs for comparison (handle trailing slashes)
+                const normalize = (url: string) => url.trim().replace(/\/+$/, '') + '/';
+                const normalizedAuthoritative = authoritativeList.map(normalize);
+                
                 // Filter to ensure we only keep gateways that are still in the allowed list
-                // (in case user settings changed)
-                const valid = parsed.filter(url => authoritativeList.includes(url));
-                // Add any new allowed gateways that weren't in the cookie
-                return [...new Set([...valid, ...authoritativeList])];
+                const valid = parsed.filter(url => {
+                    const normalized = normalize(url);
+                    return normalizedAuthoritative.some(a => normalize(a) === normalized);
+                });
+                
+                // Merge cookie rankings with authoritative list
+                const allUrls = [...valid, ...authoritativeList];
+                const merged = Array.from(new Set(allUrls.map(normalize)));
+                
+                // Return URLs with trailing slash for consistency
+                return merged.map(url => url.replace(/\/+$/, '') + '/');
             }
         }
     } catch { /* ignore */ }
     
-    // Default: Return deduplicated authoritative list
-    return [...new Set(authoritativeList)];
+    // Default: Return deduplicated list
+    return Array.from(new Set(authoritativeList));
 };
 
 export const promoteGateway = (url: string, type: 'ipfs' | 'ipns') => {
+    // Only promote/demote when on localhost (ranking is only used on localhost)
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    if (!isLocalhost) {
+        // On public gateway, ranking isn't used - skip cookie updates
+        return;
+    }
+    
     const current = getRankedGateways(type);
     const updated = [url, ...current.filter(u => u !== url)].slice(0, 5); 
     setCookie(type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS, JSON.stringify(updated), 7);
 };
 
 export const demoteGateway = (url: string, type: 'ipfs' | 'ipns') => {
+    // Only promote/demote when on localhost (ranking is only used on localhost)
+    const isLocalhost = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+    );
+    
+    if (!isLocalhost) {
+        // On public gateway, ranking isn't used - skip cookie updates
+        return;
+    }
+    
     const current = getRankedGateways(type);
     const updated = [...current.filter(u => u !== url), url].slice(0, 5);
     setCookie(type === 'ipfs' ? GATEWAY_COOKIE_IPFS : GATEWAY_COOKIE_IPNS, JSON.stringify(updated), 7);

@@ -26,9 +26,20 @@ export const createEmptyUserState = (profile: { name: string }): UserState => ({
 });
 
 export async function fetchUserStateChunk(cid: string): Promise<Partial<UserState>> {
-    const data = await fetchPost(cid);
-    if (!data) throw new Error(`Failed to fetch state chunk: ${cid}`);
-    return data as Partial<UserState>;
+    try {
+        const data = await fetchPost(cid);
+        if (!data) {
+            throw new Error(`Failed to fetch state chunk: ${cid}`);
+        }
+        return data as Partial<UserState>;
+    } catch (e: any) {
+        // Re-throw with more context for backoff handling
+        const error = e instanceof Error ? e : new Error(String(e));
+        if (error.message.includes('504') || error.message.includes('Gateway Timeout') || error.message.includes('timeout')) {
+            error.message = `Gateway timeout: ${cid}`;
+        }
+        throw error;
+    }
 }
 
 export async function fetchUserState(cid: string, profileNameHint?: string): Promise<UserState> {
@@ -71,7 +82,7 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
 export async function fetchCidsBatched<T>(
     cids: string[], 
     fetcher: (cid: string) => Promise<T>, 
-    batchSize: number = 3
+    batchSize: number = 4
 ): Promise<(T | null)[]> {
     const results: (T | null)[] = new Array(cids.length).fill(null);
     let index = 0;

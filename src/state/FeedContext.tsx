@@ -20,6 +20,7 @@ import { POST_COOLDOWN_MS } from '../constants';
 
 export interface FeedContextState {
     allPostsMap: Map<string, Post>;
+    allUserStatesMap: Map<string, UserState>;
     userProfilesMap: Map<string, UserProfile>;
     unresolvedFollows: string[];
     otherUsers: OnlinePeer[];
@@ -63,6 +64,7 @@ export interface FeedContextState {
     // --- SETTERS (Exposed for Legacy Compatibility) ---
     // CAUTION: Use with care. Prefer using Actions.
     setAllPostsMap?: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
+    setAllUserStatesMap?: React.Dispatch<React.SetStateAction<Map<string, UserState>>>;
     setUserProfilesMap?: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
 }
 
@@ -88,6 +90,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     } = authState;
 
     const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
+    const [allUserStatesMap, setAllUserStatesMap] = useState<Map<string, UserState>>(new Map());
     const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
     const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
     const [followCursors, setFollowCursors] = useState<Map<string, string | null>>(new Map());
@@ -128,7 +131,8 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         fetchMissingParentPost, followCursors, setFollowCursors,
         updateFollowMetadata: async (updates) => queueFollowUpdates(updates),
         myIpnsKey,
-        myLatestStateCID: latestStateCID
+        myLatestStateCID: latestStateCID,
+        allUserStatesMap
     });
 
     // Explore Feed
@@ -157,6 +161,27 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         }
     }, [userState, myIpnsKey]);
 
+    // OPTIMIZATION: Debounce feed recalculation to reduce excessive recalculations
+    const [debouncedPostsMap, setDebouncedPostsMap] = React.useState(allPostsMap);
+    const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+    
+    React.useEffect(() => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        
+        // Debounce feed recalculation by 250ms
+        debounceTimerRef.current = setTimeout(() => {
+            setDebouncedPostsMap(new Map(allPostsMap));
+        }, 250);
+        
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, [allPostsMap]);
+
     // Stabilize Explore
     React.useEffect(() => {
         if (!userState) return;
@@ -170,7 +195,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                 const currentExploreIdsSet = new Set(prev);
                 const newIds: string[] = [];
 
-                allPostsMap.forEach((post) => {
+                debouncedPostsMap.forEach((post) => {
                     if (!myFeedSet.has(post.authorKey) && !currentExploreIdsSet.has(post.id)) {
                         newIds.push(post.id);
                     }
@@ -182,7 +207,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         }, 500); 
 
         return () => { if (exploreDebounceRef.current) clearTimeout(exploreDebounceRef.current); };
-    }, [allPostsMap, userState, myPeerId]);
+    }, [debouncedPostsMap, userState, myPeerId]);
 
     // Backoff Logic / Ensure Posts
     const ensurePostsAreFetched = React.useCallback(async (postCids: string[], authorHint?: string, force: boolean = false) => {
@@ -207,14 +232,45 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         });
     }, [originalEnsurePosts]);
 
-    const fetchUser = React.useCallback(async (ipnsKey: string) => {
+    const fetchUser = React.useCallback(async (ipnsKey: string, force?: boolean) => {
         if (!ipnsKey) return;
+        
+        // Check map first - use cached state unless forced refresh
+        if (!force && allUserStatesMap.has(ipnsKey)) {
+            const cachedState = allUserStatesMap.get(ipnsKey)!;
+            // Update profile map from cached state
+            if (cachedState.profile) {
+                setUserProfilesMap(prev => {
+                    const next = new Map(prev);
+                    if (!next.has(ipnsKey) || next.get(ipnsKey)?.name !== cachedState.profile.name) {
+                        next.set(ipnsKey, cachedState.profile);
+                    }
+                    return next;
+                });
+            }
+            // Fetch posts from cached state
+            if (cachedState.postCIDs && cachedState.postCIDs.length > 0) {
+                const recentCids = cachedState.postCIDs.slice(0, 10);
+                await ensurePostsAreFetched(recentCids, ipnsKey);
+            }
+            return;
+        }
+        
         if (shouldSkipRequest(ipnsKey)) return;
         
         try {
             const cid = await resolveIpns(ipnsKey);
             if (cid) {
                 const fetchedState = await fetchUserState(cid, ipnsKey);
+                
+                // Store full UserState in map
+                setAllUserStatesMap(prev => {
+                    const next = new Map(prev);
+                    next.set(ipnsKey, fetchedState);
+                    return next;
+                });
+                
+                // Update profile map
                 if (fetchedState && fetchedState.profile) {
                     setUserProfilesMap(prev => {
                         const next = new Map(prev);
@@ -222,6 +278,8 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                         return next;
                     });
                 }
+                
+                // Fetch posts
                 if (fetchedState && fetchedState.postCIDs && fetchedState.postCIDs.length > 0) {
                     const recentCids = fetchedState.postCIDs.slice(0, 10);
                     await ensurePostsAreFetched(recentCids, ipnsKey); 
@@ -234,7 +292,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
             console.warn(`[App] fetchUser failed for ${ipnsKey}`, e);
             reportFetchFailure(ipnsKey);
         }
-    }, [userProfilesMap, ensurePostsAreFetched]);
+    }, [allUserStatesMap, ensurePostsAreFetched]);
 
     // Cooldown
     const { isCoolingDown, countdown } = useCooldown(
@@ -248,6 +306,77 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
             await processMainFeed(userState);
         }
     }, [isLoggedIn, myPeerId, userState, processMainFeed]);
+
+    // OPTIMIZATION: Batch populate allUserStatesMap from lastSeenCids in follows
+    const allUserStatesMapRef = React.useRef(allUserStatesMap);
+    React.useEffect(() => { allUserStatesMapRef.current = allUserStatesMap; }, [allUserStatesMap]);
+    
+    React.useEffect(() => {
+        if (!userState || !userState.follows) return;
+        
+        const populateUserStatesFromFollows = async () => {
+            const followsWithCids = userState.follows.filter(f => f.ipnsKey && f.lastSeenCid && !shouldSkipRequest(f.lastSeenCid));
+            
+            // OPTIMIZATION: Process in batches of 3 to avoid overwhelming gateway
+            const BATCH_SIZE = 3;
+            const BATCH_DELAY_MS = 500; // Delay between batches
+            
+            for (let i = 0; i < followsWithCids.length; i += BATCH_SIZE) {
+                const batch = followsWithCids.slice(i, i + BATCH_SIZE);
+                
+                const promises = batch.map(async (follow) => {
+                    // Skip if already in map
+                    if (allUserStatesMapRef.current.has(follow.ipnsKey)) return;
+                    
+                    // Check backoff
+                    if (shouldSkipRequest(follow.lastSeenCid!)) return;
+                    
+                    markRequestPending(follow.lastSeenCid!);
+                    
+                    try {
+                        const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
+                        
+                        // Store in map
+                        setAllUserStatesMap(prev => {
+                            const next = new Map(prev);
+                            next.set(follow.ipnsKey, fetchedState);
+                            return next;
+                        });
+                        
+                        // Update profile map
+                        if (fetchedState.profile) {
+                            setUserProfilesMap(prev => {
+                                const next = new Map(prev);
+                                if (!next.has(follow.ipnsKey) || next.get(follow.ipnsKey)?.name !== fetchedState.profile.name) {
+                                    next.set(follow.ipnsKey, fetchedState.profile);
+                                }
+                                return next;
+                            });
+                        }
+                        
+                        reportFetchSuccess(follow.lastSeenCid!);
+                    } catch (e: any) {
+                        reportFetchFailure(follow.lastSeenCid!);
+                        // Check if it's a 504 or timeout error
+                        if (e?.message?.includes('504') || e?.message?.includes('Gateway Timeout') || e?.message?.includes('timeout')) {
+                            console.warn(`[Feed] Gateway timeout for ${follow.ipnsKey} (${follow.lastSeenCid}), will retry later via backoff`);
+                        } else {
+                            console.warn(`[Feed] Failed to populate user state for ${follow.ipnsKey} from lastSeenCid`, e);
+                        }
+                    }
+                });
+                
+                await Promise.allSettled(promises);
+                
+                // Delay between batches to avoid overwhelming gateway
+                if (i + BATCH_SIZE < followsWithCids.length) {
+                    await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+                }
+            }
+        };
+        
+        populateUserStatesFromFollows();
+    }, [userState?.follows]);
 
     // Initial Fetch
     const hasInitialFetch = React.useRef(false);
@@ -280,7 +409,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         }
 
         const newGraph = new Map<string, string[]>();
-        allPostsMap.forEach(post => {
+        debouncedPostsMap.forEach(post => {
             if (post.referenceCID) {
                 const parent = post.referenceCID;
                 const existing = newGraph.get(parent) || [];
@@ -290,8 +419,8 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         });
         
         setReplyGraph(newGraph);
-        previousMapSize.current = allPostsMap.size;
-    }, [allPostsMap]);
+        previousMapSize.current = debouncedPostsMap.size;
+    }, [debouncedPostsMap]);
 
     const getReplyCount = React.useCallback((postId: string): number => {
         let count = 0;
@@ -309,21 +438,21 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         return count;
     }, [replyGraph]);
 
-    // Feed Generation
+    // Feed Generation (now uses debounced map)
     const { myFeedPosts, exploreFeedPosts, myFeedIds, exploreFeedIds, unifiedIds } = useMemo(() => {
         if (!userState) return { myFeedPosts: [], exploreFeedPosts: [], myFeedIds: [], exploreFeedIds: [], unifiedIds: [] };
         
-        const allPosts = Array.from(allPostsMap.values());
+        const allPosts = Array.from(debouncedPostsMap.values());
         const followsSet = new Set(userState.follows.map(f => f.ipnsKey));
         const blockedSet = new Set(userState.blockedUsers || []);
         
         // Helper: Find Root
         const findRoot = (startId: string): string => {
-            let curr = allPostsMap.get(startId);
+            let curr = debouncedPostsMap.get(startId);
             const visited = new Set<string>();
             while (curr && curr.referenceCID && !visited.has(curr.id)) {
                 visited.add(curr.id);
-                const parent = allPostsMap.get(curr.referenceCID);
+                const parent = debouncedPostsMap.get(curr.referenceCID);
                 if (!parent) break; 
                 curr = parent;
             }
@@ -379,7 +508,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         // because the stranger's reply (post.authorKey == stranger) will trigger findRoot(reply) -> MyRoot.
 
         const exploreFeed = Array.from(exploreRelevantIds)
-            .map(id => allPostsMap.get(id))
+            .map(id => debouncedPostsMap.get(id))
             .filter((p): p is Post => !!p)
             .filter(p => !blockedSet.has(p.authorKey)); // Final safety check
         
@@ -412,7 +541,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
             exploreFeedIds: exploreFeed.map(p => p.id),
             unifiedIds: unified
         };
-    }, [allPostsMap, userState, myPeerId, stableExploreIds, replyGraph]);
+    }, [debouncedPostsMap, userState, myPeerId, stableExploreIds, replyGraph]);
 
     const loadMoreFeed = React.useCallback(async () => {
         if (canLoadMoreMyFeed) await loadMoreMyFeed();
@@ -420,7 +549,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     }, [canLoadMoreMyFeed, canLoadMoreExplore, loadMoreMyFeed, loadMoreExplore]);
 
     const value: FeedContextState = {
-        allPostsMap, userProfilesMap, unresolvedFollows, otherUsers,
+        allPostsMap, allUserStatesMap, userProfilesMap, unresolvedFollows, otherUsers,
         isLoadingFeed, isProcessing, isCoolingDown, countdown,
         addPost, deletePost, likePost, dislikePost, followUser, unfollowUser, updateProfile,
         blockUser, unblockUser,
@@ -431,6 +560,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         getReplyCount,
         // Expose setters
         setAllPostsMap,
+        setAllUserStatesMap,
         setUserProfilesMap
     };
 
