@@ -35,13 +35,10 @@ const UnlockSessionDialog: React.FC<UnlockSessionDialogProps> = ({
     return (
         <div className="settings-backdrop" onClick={onClose}>
             <div className="settings-container" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-                <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    🔒 Unlock Session
-                </h3>
+                <h3 style={{ marginTop: 0 }}>Unlock session</h3>
                 
                 <p style={{ color: '#ccc', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                    Your session is in <strong>Read-Only</strong> mode because the page was refreshed. 
-                    Re-enter your keychain passphrase to enable posting and updates.
+                    Enter your keychain passphrase to post and update after a page reload.
                 </p>
 
                 <form onSubmit={handleSubmit}>

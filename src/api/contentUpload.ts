@@ -2,17 +2,7 @@
  * Content upload — Helia only.
  */
 
-import { heliaAddBlob, heliaAddJson, isHeliaAvailable, startHelia } from './heliaNode';
-
-export async function ensureContentNode(): Promise<'helia' | 'none'> {
-    if (!isHeliaAvailable()) return 'none';
-    try {
-        await startHelia();
-        return 'helia';
-    } catch {
-        return 'none';
-    }
-}
+import { heliaAddBlob, heliaAddJson, isHeliaAvailable } from './heliaNode';
 
 export async function uploadJson(data: unknown): Promise<string> {
     if (!isHeliaAvailable()) throw new Error('IndexedDB / Helia unavailable in this browser.');

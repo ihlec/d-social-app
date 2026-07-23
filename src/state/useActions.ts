@@ -1,26 +1,35 @@
-// fileName: src/state/useActions.ts
 import { useState, useCallback, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { NewPostData, Post, UserState, Follow, UserProfile } from '../types';
 import {
     uploadPost,
     uploadStateToIpfs,
-    publishStateToIpns, // <--- Crucial Import
+    publishStateToIpns,
 } from './stateActions';
 import { 
     resolveIpns, 
     mirrorUser, 
     pinCid, 
-    unpinCid, 
     getSession, 
-    ensureBlockLocal,
     startHelia,
     heliaListPins,
     listIdentityKeys,
     fetchUserStateChunk,
 } from '../api/ipfsIpns'; 
-import { MAX_POSTS_PER_STATE } from '../constants';
+import { MAX_POSTS_PER_STATE, MAX_UPLOAD_BYTES } from '../constants';
 import { reportFetchSuccess } from '../lib/fetchBackoff';
+import { pinForLike, pinForSave, dropLocalCid } from '../lib/pinPolicy';
+import { buildMediaKeepSet, clearUnneededMedia, reclaimStorageForUpload } from '../lib/mediaGc';
+import { hasStorageHeadroom, formatBytes, describeStorageGap } from '../lib/storageQuota';
+import { resolveHeliaMediaUrl } from '../lib/heliaMediaUrl';
+
+function formatGcResult(r: { blocksDeleted: number; rootsUnpinned: number; wipedBlockstore?: boolean }): string {
+    if (r.wipedBlockstore) return 'Reset Helia media store (identity kept).';
+    if (r.blocksDeleted <= 0 && r.rootsUnpinned <= 0) return '';
+    return `Removed ${r.blocksDeleted} block(s)`
+        + (r.rootsUnpinned > 0 ? `, unpinned ${r.rootsUnpinned} root(s)` : '')
+        + '.';
+}
 
 // Helper
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -49,11 +58,19 @@ export const useAppActions = ({
 }: UseAppActionsArgs) => {
 
     const [isProcessing, setIsProcessing] = useState(false);
+    /** Timestamp of last successful post — used for post-only rate limit (not likes/follows). */
+    const [lastPostAt, setLastPostAt] = useState<number>(() => {
+        try {
+            const v = sessionStorage.getItem('dsocial_last_post_at');
+            return v ? Number(v) : 0;
+        } catch {
+            return 0;
+        }
+    });
     const actionQueue = useRef<Promise<any>>(Promise.resolve());
     const persistenceQueue = useRef<Promise<any>>(Promise.resolve());
     const hasRepairedRef = useRef(false);
 
-    // --- Pending Updates Buffer ---
     const pendingFollowUpdatesRef = useRef<Map<string, { cid: string; name?: string }>>(new Map());
 
     const allPostsMapRef = useRef(allPostsMap);
@@ -84,7 +101,6 @@ export const useAppActions = ({
         return nextAction;
     }, []);
 
-    // --- PERSISTENCE QUEUE ---
     const queuePersistence = useCallback((state: UserState) => {
         const next = persistenceQueue.current.then(async () => {
              // Upload
@@ -97,12 +113,9 @@ export const useAppActions = ({
         persistenceQueue.current = next.catch(e => console.error("Persistence failed", e));
     }, [myIpnsKey, setLatestHeadCID]);
 
-    // --- HELPER: Merge Pending Updates ---
     const mergePendingUpdates = useCallback((state: UserState): UserState => {
         if (pendingFollowUpdatesRef.current.size === 0) return state;
 
-        console.log(`[Actions] Piggybacking ${pendingFollowUpdatesRef.current.size} background updates onto this interaction.`);
-        
         let hasChanges = false;
         const newFollows = state.follows.map(f => {
             const pending = pendingFollowUpdatesRef.current.get(f.ipnsKey);
@@ -135,7 +148,6 @@ export const useAppActions = ({
         return { ...state, follows: newFollows };
     }, []);
 
-    // --- Queue Function (Exposed to Feed) ---
     const queueFollowUpdates = useCallback((updates: Follow[]) => {
         let count = 0;
         updates.forEach(u => {
@@ -151,17 +163,16 @@ export const useAppActions = ({
             }
         });
         if (count > 0) {
-            console.log(`[Actions] Queued ${count} follow updates for next interaction.`);
+            console.debug(`[Actions] Queued ${count} follow updates for next interaction.`);
         }
     }, []);
 
-    // --- SELF HEALING: MULTI-USER AWARE GC (Helia pins) ---
     const repairPins = useCallback(async () => {
         const currentUserState = userStateRef.current;
         const currentPostsMap = allPostsMapRef.current;
 
         if (!currentUserState) return;
-        
+
         const session = getSession();
         if (session.sessionType !== 'helia') return;
 
@@ -171,16 +182,9 @@ export const useAppActions = ({
             return;
         }
 
-        const keepSet = new Set<string>();
-        
-        const addToKeepSet = (ids: string[] | undefined) => {
-            if (!ids) return;
-            ids.forEach(cid => keepSet.add(cid));
-        };
+        const keepSet = buildMediaKeepSet(currentUserState, currentPostsMap, myPeerId);
 
-        addToKeepSet(currentUserState.postCIDs);
-        addToKeepSet(currentUserState.likedPostCIDs);
-        
+        // Also keep other local identities' own posts (multi-account same browser)
         try {
             const localKeys = await listIdentityKeys();
             for (const keyName of localKeys) {
@@ -190,26 +194,25 @@ export const useAppActions = ({
                     const { ipnsName } = await ensureIdentityKey(keyName);
                     if (ipnsName === myPeerId) continue;
                     const stateCid = await resolveIpns(ipnsName);
-                    if (stateCid) {
-                        const peerState = await fetchUserStateChunk(stateCid);
-                        if (peerState) {
-                            if (peerState.postCIDs) peerState.postCIDs.forEach(cid => keepSet.add(cid));
-                            if (peerState.likedPostCIDs) peerState.likedPostCIDs.forEach(cid => keepSet.add(cid));
-                        }
+                    if (!stateCid) continue;
+                    const peerState = await fetchUserStateChunk(stateCid, ipnsName);
+                    if (peerState) {
+                        const merged = buildMediaKeepSet(
+                            {
+                                ...currentUserState,
+                                postCIDs: peerState.postCIDs || [],
+                                likedPostCIDs: peerState.likedPostCIDs || [],
+                                savedPostCIDs: peerState.savedPostCIDs || [],
+                            } as UserState,
+                            currentPostsMap,
+                            ipnsName
+                        );
+                        for (const cid of merged) keepSet.add(cid);
                     }
                 } catch { /* ignore */ }
             }
         } catch { /* ignore */ }
 
-        for (const cid of Array.from(keepSet)) {
-             const post = currentPostsMap.get(cid);
-             if (post) {
-                 if (post.mediaCid && !post.mediaCid.startsWith('http')) keepSet.add(post.mediaCid);
-                 if (post.thumbnailCid && !post.thumbnailCid.startsWith('http')) keepSet.add(post.thumbnailCid);
-             }
-        }
-
-        let gcCount = 0;
         let localPinSet: Set<string>;
         try {
             localPinSet = await heliaListPins();
@@ -217,39 +220,49 @@ export const useAppActions = ({
             return;
         }
 
+        // Ensure keep-set roots that are already local stay pinned
         for (const cid of keepSet) {
-             if (localPinSet.has(cid)) continue;
-             try {
-                await ensureBlockLocal(cid);
-             } catch {
-                if (currentUserState.postCIDs.includes(cid) || currentUserState.likedPostCIDs?.includes(cid)) {
-                    pinCid(cid).catch(() => {});
-                }
-             }
-             await sleep(20);
+            if (localPinSet.has(cid)) continue;
+            try {
+                await pinCid(cid);
+            } catch { /* missing locally — P2P/like path will fetch */ }
+            await sleep(10);
         }
 
-        const safeUnpin = async (cid: string) => {
-            if (!cid || cid.startsWith('http')) return;
-            if (localPinSet.has(cid) && !keepSet.has(cid)) {
-                try {
-                    await unpinCid(cid);
-                    gcCount++;
-                    localPinSet.delete(cid); 
-                } catch { /* ignore */ }
-                await sleep(1000); 
-            }
-        };
-        const postsArray = Array.from(currentPostsMap.entries());
-        for (const [id, post] of postsArray) {
-             await safeUnpin(id);
-             if (post.mediaCid) await safeUnpin(post.mediaCid);
-             if (post.thumbnailCid) await safeUnpin(post.thumbnailCid);
-             if (gcCount > 0 && gcCount % 5 === 0) await sleep(500); 
+        // Do NOT sweep/wipe here — background getAll() races uploads and blocks
+        // IndexedDB deletes on Firefox. Storage reclaim is upload/Settings only.
+    }, [myPeerId, latestStateCID]);
+
+    const clearMediaCache = useCallback(async () => {
+        const currentUserState = userStateRef.current;
+        if (!currentUserState) {
+            toast.error('Log in to manage storage.');
+            return;
         }
-        if (gcCount > 0) toast.success(`Cleaned up ${gcCount} stale files.`);
-        
-    }, [myPeerId]); 
+        try {
+            const cleaned = await clearUnneededMedia(
+                currentUserState,
+                allPostsMapRef.current,
+                myPeerId,
+                {
+                    mode: 'aggressive',
+                    extraRoots: latestStateCID ? [latestStateCID] : [],
+                    wipeIfStillFull: true,
+                    // Aim for a typical media upload headroom after clear
+                    bytesNeeded: 16 * 1024 * 1024,
+                }
+            );
+            const msg = formatGcResult(cleaned);
+            toast.success(
+                msg
+                    ? `Cleared Helia storage: ${msg}`
+                    : 'Nothing to clear — only your posts and saved media remain pinned.'
+            );
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to clear media cache.');
+        }
+    }, [myPeerId, latestStateCID]); 
 
     useEffect(() => {
         if (userStateRef.current && myPeerId && !hasRepairedRef.current) {
@@ -264,7 +277,41 @@ export const useAppActions = ({
         setIsProcessing(true);
         
         try {
+            const file = postData.file;
+            if (file && file.size > 0) {
+                if (file.size > MAX_UPLOAD_BYTES) {
+                    throw new Error(
+                        `File too large (${formatBytes(file.size)}). `
+                        + `Max upload is ${formatBytes(MAX_UPLOAD_BYTES)} so peers can fetch it over P2P.`
+                    );
+                }
+                let ok = await hasStorageHeadroom(file.size);
+                if (!ok) {
+                    // Fast wipe only — full blockstore getAll() sweeps hang Firefox for minutes
+                    toast.loading('Resetting Helia media store…', { id: 'upload-gc' });
+                    try {
+                        const reclaimed = await reclaimStorageForUpload(file.size);
+                        ok = await hasStorageHeadroom(file.size);
+                        if (!ok && reclaimed.wipedBlockstore) ok = true;
+                    } finally {
+                        toast.dismiss('upload-gc');
+                    }
+                }
+                if (!ok) {
+                    const gap = await describeStorageGap(file.size);
+                    throw new Error(
+                        `Not enough browser storage for this upload (${formatBytes(file.size)}${gap}). `
+                        + 'Close other localhost tabs, then Settings → Clear unused media (or clear site data).'
+                    );
+                }
+            }
+
+            toast.loading(
+                file ? `Uploading ${formatBytes(file.size)} to Helia…` : 'Publishing…',
+                { id: 'upload-progress' }
+            );
             const { finalPost, finalPostCID } = await uploadPost(postData, myPeerId);
+            toast.dismiss('upload-progress');
 
             const newPostObject: Post = {
                 ...finalPost,
@@ -295,22 +342,52 @@ export const useAppActions = ({
                 };
                 
                 setAllPostsMap(prev => new Map(prev).set(newPostObject.id, newPostObject));
+
+                // Warm blob: URLs from local Helia so PostPage doesn't wait on public gateways
+                if (newPostObject.thumbnailCid) {
+                    void resolveHeliaMediaUrl(newPostObject.thumbnailCid, 'image/jpeg');
+                }
+                if (newPostObject.mediaCid) {
+                    void resolveHeliaMediaUrl(newPostObject.mediaCid, undefined, { allowLarge: true });
+                }
                 
                 const stateCid = await uploadStateToIpfs(newState, myIpnsKey);
-                
-                // Publish (Persist)
-                publishStateToIpns(stateCid, myIpnsKey).catch(console.error);
-                
+
+                // Await local IPNS publish — network put stays fire-and-forget inside publishIpns
+                toast.loading('Publishing…', { id: 'upload-progress' });
+                await publishStateToIpns(stateCid, myIpnsKey);
+
                 setLatestHeadCID(stateCid);
                 setUserState(newState);
                 return { newState, cid: stateCid };
             });
 
-            toast.success("Post created!");
+            const postedAt = Date.now();
+            setLastPostAt(postedAt);
+            try {
+                sessionStorage.setItem('dsocial_last_post_at', String(postedAt));
+            } catch { /* ignore */ }
+
+            toast.success("Post published!");
         } catch (error) {
             console.error(error);
-            toast.error("Failed to create post.");
+            toast.dismiss('upload-gc');
+            toast.dismiss('upload-progress');
+            const msg = error instanceof Error ? error.message : '';
+            toast.error(
+                msg.includes('storage is full')
+                || msg.includes('quota')
+                || msg.includes('Not enough browser storage')
+                || msg.includes('File too large')
+                || msg.includes('Could not delete')
+                || msg.includes('Close other tabs')
+                || msg.includes('Failed to free Helia')
+                    ? msg
+                    : 'Failed to create post.'
+            );
         } finally {
+            toast.dismiss('upload-gc');
+            toast.dismiss('upload-progress');
             setIsProcessing(false);
         }
     }, [userState, myPeerId, myIpnsKey, latestStateCID, setAllPostsMap, setLatestHeadCID, setUserState, queueAction, mergePendingUpdates]);
@@ -362,12 +439,19 @@ export const useAppActions = ({
             
             if (isLiked) {
                 newLikes = currentLikes.filter(id => id !== postId);
+                // Drop full media if not saved/authored; keep thumb until GC
+                const stillSaved = (currentState.savedPostCIDs || []).includes(postId);
+                const isAuthor = loadedPost.authorKey === myPeerId;
+                if (!stillSaved && !isAuthor && loadedPost.mediaCid) {
+                    void dropLocalCid(loadedPost.mediaCid);
+                }
             } else {
                 newLikes = [...currentLikes, postId];
-                reportFetchSuccess(postId); 
-                if (loadedPost) ensureBlockLocal(postId, loadedPost);
-                if (loadedPost.mediaCid && !loadedPost.mediaCid.startsWith('http')) ensureBlockLocal(loadedPost.mediaCid);
-                if (loadedPost.thumbnailCid && !loadedPost.thumbnailCid.startsWith('http')) ensureBlockLocal(loadedPost.thumbnailCid);
+                reportFetchSuccess(postId);
+                // Pin post + thumbnail only (not full video) via P2P if needed
+                void pinForLike(loadedPost).catch((e) =>
+                    console.debug('[likePost] pinForLike', e)
+                );
             }
 
             const newDislikes = (currentState.dislikedPostCIDs || []).filter(id => id !== postId);
@@ -385,7 +469,56 @@ export const useAppActions = ({
             
             return { newState };
         });
-    }, [myIpnsKey, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
+    }, [myPeerId, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
+
+    const savePost = useCallback(async (postId: string) => {
+        const loadedPost = allPostsMapRef.current.get(postId);
+        if (!loadedPost || loadedPost.timestamp === 0) {
+            toast.error('Please wait for post data to load.');
+            return;
+        }
+
+        queueAction('savePost', async (rawState) => {
+            const currentState = mergePendingUpdates(rawState);
+            const currentSaved = currentState.savedPostCIDs || [];
+            const isSaved = currentSaved.includes(postId);
+            let newSaved: string[];
+
+            if (isSaved) {
+                newSaved = currentSaved.filter((id) => id !== postId);
+                const stillLiked = (currentState.likedPostCIDs || []).includes(postId);
+                const isAuthor = loadedPost.authorKey === myPeerId;
+                if (!stillLiked && !isAuthor) {
+                    if (loadedPost.mediaCid) void dropLocalCid(loadedPost.mediaCid);
+                    if (loadedPost.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
+                    void dropLocalCid(postId);
+                } else if (!isAuthor && loadedPost.mediaCid) {
+                    // Still liked — drop full media, keep thumb policy
+                    void dropLocalCid(loadedPost.mediaCid);
+                }
+                toast.success('Removed saved media pin');
+            } else {
+                newSaved = [...currentSaved, postId];
+                const result = await pinForSave(loadedPost);
+                if (result.ok) {
+                    toast.success('Media saved locally (pinned in Helia)');
+                } else {
+                    toast.error(result.reason || 'Could not save media');
+                    return { newState: currentState };
+                }
+            }
+
+            const newState: UserState = {
+                ...currentState,
+                savedPostCIDs: newSaved,
+                updatedAt: Date.now(),
+                extendedUserState: currentState.extendedUserState,
+            };
+            setUserState(newState);
+            queuePersistence(newState);
+            return { newState };
+        });
+    }, [myPeerId, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
 
 
     const dislikePost = useCallback(async (postId: string) => {
@@ -434,7 +567,7 @@ export const useAppActions = ({
                 const currentState = mergePendingUpdates(rawState);
 
                 if (currentState.follows.some(f => f.ipnsKey === key)) {
-                    toast('Already following', { icon: '👋' });
+                    toast('Already following');
                     return { newState: currentState };
                 }
 
@@ -488,7 +621,7 @@ export const useAppActions = ({
                         }
                         if (latestCid) {
                             mirrorUser(key, latestCid).catch(() => {});
-                            const state = await fetchUserStateChunk(latestCid).catch(() => null);
+                            const state = await fetchUserStateChunk(latestCid, key).catch(() => null);
                             if (state?.profile?.name) {
                                 pendingFollowUpdatesRef.current.set(key, {
                                     cid: latestCid,
@@ -598,9 +731,8 @@ export const useAppActions = ({
         queueAction('updateProfile', async (rawState) => {
             const currentState = mergePendingUpdates(rawState);
 
-            const label = sessionStorage.getItem("currentUserLabel") || "";
-            const newName = profileData.name || currentState.profile.name || label;
-            if (profileData.name && profileData.name !== label) sessionStorage.setItem("currentUserLabel", profileData.name);
+    // Identity key name must stay stable for session restore.
+            const newName = profileData.name || currentState.profile.name || myIpnsKey || '';
 
             const newUserState: UserState = {
                 ...currentState,
@@ -617,7 +749,6 @@ export const useAppActions = ({
             
             setLatestHeadCID(stateCid);
 
-            // --- FIX: ADD PUBLISH ---
             publishStateToIpns(stateCid, myIpnsKey).catch(console.error);
             
             toast.success("Profile updated!");
@@ -628,16 +759,19 @@ export const useAppActions = ({
 
     return {
         isProcessing,
+        lastPostAt,
         addPost,
         deletePost, 
         likePost,
         dislikePost,
+        savePost,
         followUser,
         unfollowUser,
         blockUser,
         unblockUser,
         updateProfile,
         repairPins,
+        clearMediaCache,
         queueFollowUpdates,
     };
 };

@@ -1,8 +1,8 @@
 import { getRankedGateways, promoteGateway, demoteGateway } from './gatewayUtils';
 import { IPNS_CACHE_TTL, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
 import { heliaResolveIpnsOffline, getHeliaStatus } from './heliaNode';
+import { isGatewayFallbackEnabled } from '../lib/gatewayFallback';
 
-// --- CACHE ---
 const IPNS_STORAGE_PREFIX = 'dsocial_ipns_cache_';
 interface PersistentIpnsEntry { cid: string; timestamp: number; }
 
@@ -33,12 +33,6 @@ const loadFromPersistentCache = (ipnsKey: string): PersistentIpnsEntry | null =>
 const pendingRequests = new Map<string, Promise<string>>(); 
 const ipnsResolutionCache = new Map<string, { cid: string; timestamp: number }>();
 
-export const invalidateIpnsCache = () => { 
-    ipnsResolutionCache.clear();
-    pendingRequests.clear(); 
-};
-
-// --- HELPER: ROBUST HEADER & URL PARSING ---
 const extractCidFromResponse = (res: Response): string | null => {
     if (res.url && res.url.includes('/ipfs/')) {
         const parts = res.url.split('/ipfs/');
@@ -165,7 +159,9 @@ export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
         const persistent = loadFromPersistentCache(ipnsIdentifier);
         if (persistent?.cid) return persistent.cid;
 
-        // 2) Public gateways — last resort; try at most two (CORS/500 noise for unpublished names)
+        if (!isGatewayFallbackEnabled()) return '';
+
+        // 2) Public gateways — opt-in only; try at most two
         const gateways = getRankedGateways('ipns').slice(0, 2);
         for (const base of gateways) {
             try {

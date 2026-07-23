@@ -1,8 +1,10 @@
-// fileName: src/features/feed/NewPostForm.tsx
 import React, { useState, useRef, useEffect, useId } from 'react';
+import toast from 'react-hot-toast';
 import { Post } from '../../types';
 import { AddMediaIcon } from '../../components/Icons';
 import { sanitizeText } from '../../lib/utils';
+import { MAX_UPLOAD_BYTES } from '../../constants';
+import { formatBytes } from '../../lib/storageQuota';
 
 interface NewPostFormProps {
   onAddPost: (postData: { content: string; referenceCID?: string; file?: File }) => void;
@@ -39,14 +41,21 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(
+        `File too large (${formatBytes(file.size)}). Max is ${formatBytes(MAX_UPLOAD_BYTES)} for P2P.`
+      );
+      event.target.value = '';
+      return;
     }
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
   };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (isProcessing || isCoolingDown) return;
     if (!content.trim() && !selectedFile) return;
 
     onAddPost({
@@ -65,12 +74,13 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const isButtonDisabled = isProcessing || (!content.trim() && !selectedFile);
+  const isButtonDisabled =
+    isProcessing || isCoolingDown || (!content.trim() && !selectedFile);
 
   let buttonText = "Post";
   if (replyingToPost) buttonText = "Reply";
-  if (isProcessing) buttonText = "Processing...";
-  else if (isCoolingDown) buttonText = `Post (Publishing... ${countdown}s)`;
+  if (isProcessing) buttonText = "Publishing…";
+  else if (isCoolingDown) buttonText = `Wait ${countdown}s`;
 
   return (
     <form onSubmit={handleSubmit} className="new-post-form">

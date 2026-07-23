@@ -5,20 +5,14 @@ import { useParentPostFetcher } from '../hooks/useSharedPostFetcher';
 import { useAppFeed } from '../features/feed/useFeed';
 import { useAppExplore } from '../features/feed/useExploreFeed';
 import { useAppPeers } from '../features/feed/useOnlinePeers';
+import { useContentServe } from '../features/feed/useContentServe';
+import { useFollowP2PSync } from '../features/feed/useFollowP2PSync';
 import { useAppActions } from '../state/useActions';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { POST_COOLDOWN_MS } from '../constants';
 import { pinCid } from '../api/admin';
 import * as contentCache from '../lib/contentCache';
-
-// We import the AuthContext hook here if we separate Auth, but for this step
-// we are defining FeedContext. 
-// Ideally, FeedContext depends on Auth.
-
-// TEMPORARY: We will assume we receive Auth State as props or use a hook if available.
-// For now, let's stick to the plan:
-// 1. Create FeedContext that manages the Data (Posts, Profiles, Feeds).
 
 export interface FeedContextState {
     allPostsMap: Map<string, Post>;
@@ -36,6 +30,8 @@ export interface FeedContextState {
     deletePost: (postId: string) => Promise<void>;
     likePost: (postId: string) => Promise<void>;
     dislikePost: (postId: string) => Promise<void>;
+    savePost: (postId: string) => Promise<void>;
+    clearMediaCache: () => Promise<void>;
     followUser: (ipnsKey: string, opts?: { name?: string; stateCid?: string }) => Promise<void>;
     unfollowUser: (ipnsKey: string) => Promise<void>;
     blockUser: (ipnsKey: string) => Promise<void>;
@@ -55,26 +51,21 @@ export interface FeedContextState {
     ensurePostsAreFetched: (postCids: string[], authorHint?: string, force?: boolean) => Promise<void>;
     fetchUser: (ipnsKey: string) => Promise<void>;
 
-    myFeedPosts: Post[];
     exploreFeedPosts: Post[];
-    myFeedIds: string[];
-    exploreFeedIds: string[];
     unifiedIds: string[];
     loadMoreFeed: () => Promise<void>;
     getReplyCount: (postId: string) => number;
-    
-    // --- SETTERS (Exposed for Legacy Compatibility) ---
-    // CAUTION: Use with care. Prefer using Actions.
-    setAllPostsMap?: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
-    setAllUserStatesMap?: React.Dispatch<React.SetStateAction<Map<string, UserState>>>;
-    setUserProfilesMap?: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
+
+    setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
+    setAllUserStatesMap: React.Dispatch<React.SetStateAction<Map<string, UserState>>>;
+    setUserProfilesMap: React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>;
 }
 
 export const FeedContext = createContext<FeedContextState | null>(null);
 
 interface FeedProviderProps {
     children: React.ReactNode;
-    // We inject auth state to avoid circular dependency or complex setup in this step
+    /** Injected to avoid a circular Auth ↔ Feed import. */
     authState: {
         isLoggedIn: boolean | null;
         userState: UserState | null;
@@ -97,10 +88,6 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
     const [followCursors, setFollowCursors] = useState<Map<string, string | null>>(new Map());
     const [isFeedLoaded, setIsFeedLoaded] = useState(false);
-    
-    // Stable Explore
-    const [stableExploreIds, setStableExploreIds] = useState<string[]>([]);
-    const exploreDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
     // Refs
     const allPostsMapRef = React.useRef(allPostsMap);
@@ -108,8 +95,8 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
 
     // Actions
     const { 
-        isProcessing, addPost, deletePost, likePost, dislikePost, followUser, unfollowUser: rawUnfollowUser, updateProfile, 
-        blockUser, unblockUser,
+        isProcessing, lastPostAt, addPost, deletePost, likePost, dislikePost, savePost, followUser, unfollowUser: rawUnfollowUser, updateProfile, 
+        blockUser, unblockUser, clearMediaCache,
         queueFollowUpdates 
     } = useAppActions({
         userState, setUserState, myIpnsKey, myPeerId, latestStateCID,
@@ -135,7 +122,11 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                 if (posts.length > 0) {
                     setAllPostsMap(prev => {
                         if (prev.size > 0) return prev;
-                        return new Map(posts.map(p => [p.id, p]));
+                        return new Map(
+                            posts
+                                .filter(p => p?.id && p.timestamp !== 0)
+                                .map(p => [p.id, p])
+                        );
                     });
                 }
                 if (states.size > 0) {
@@ -151,7 +142,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                         return next;
                     });
                 }
-                console.log(`[Feed] Hydrated ${posts.length} posts, ${states.size} user states from IndexedDB`);
+                console.debug(`[Feed] Hydrated ${posts.length} posts, ${states.size} user states from IndexedDB`);
             } catch (e) {
                 console.warn('[Feed] IndexedDB hydrate failed', e);
             }
@@ -165,6 +156,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
 
     // Peers
     const { otherUsers } = useAppPeers({ isLoggedIn, myPeerId, userState });
+    useContentServe({ isLoggedIn, userState });
 
     // Main Feed
     const { 
@@ -176,82 +168,69 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         updateFollowMetadata: async (updates) => queueFollowUpdates(updates),
         myIpnsKey,
         myLatestStateCID: latestStateCID,
-        allUserStatesMap
+        allUserStatesMap,
+        otherUsers,
+    });
+
+    // Online follows: sync tip over Trystero (clears "Resolving Follows" without IPNS)
+    useFollowP2PSync({
+        otherUsers,
+        userState,
+        myPeerId,
+        setAllPostsMap,
+        setAllUserStatesMap,
+        setUserProfilesMap,
+        setUnresolvedFollows,
+        setFollowCursors,
+        updateFollowMetadata: async (updates) => queueFollowUpdates(updates),
+        ensurePostsAreFetched: originalEnsurePosts,
+        enabled: isLoggedIn === true && !!myPeerId,
     });
 
     // Explore Feed
-    const { 
-        isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore 
+    const {
+        isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore
     } = useAppExplore({
-        myIpnsKey, userState, 
-        allPostsMap, 
+        myPeerId, userState,
+        allPostsMap,
         setAllPostsMap,
         setUserProfilesMap,
         fetchMissingParentPost,
         otherUsers,
-        enabled: isFeedLoaded 
+        enabled: isFeedLoaded
     });
 
-    // Instant Profile Sync
     React.useEffect(() => {
-        if (userState?.profile && myIpnsKey) {
+        if (userState?.profile && myPeerId) {
             setUserProfilesMap(prev => {
-                const existing = prev.get(myIpnsKey);
+                const existing = prev.get(myPeerId);
                 if (existing && existing.name === userState.profile.name && existing.bio === userState.profile.bio) {
                     return prev;
                 }
-                return new Map(prev).set(myIpnsKey, userState.profile);
+                return new Map(prev).set(myPeerId, userState.profile);
             });
         }
-    }, [userState, myIpnsKey]);
+    }, [userState, myPeerId]);
 
-    // OPTIMIZATION: Debounce feed recalculation to reduce excessive recalculations
+    // Debounce feed recalculation — maps update often during hydrate/sync.
     const [debouncedPostsMap, setDebouncedPostsMap] = React.useState(allPostsMap);
     const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-    
+
     React.useEffect(() => {
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
         }
-        
-        // Debounce feed recalculation by 250ms
+
         debounceTimerRef.current = setTimeout(() => {
             setDebouncedPostsMap(new Map(allPostsMap));
         }, 250);
-        
+
         return () => {
             if (debounceTimerRef.current) {
                 clearTimeout(debounceTimerRef.current);
             }
         };
     }, [allPostsMap]);
-
-    // Stabilize Explore
-    React.useEffect(() => {
-        if (!userState) return;
-        if (exploreDebounceRef.current) clearTimeout(exploreDebounceRef.current);
-
-        exploreDebounceRef.current = setTimeout(() => {
-            setStableExploreIds(prev => {
-                const myFeedSet = new Set(userState.follows.map(f => f.ipnsKey));
-                myFeedSet.add(myPeerId);
-
-                const currentExploreIdsSet = new Set(prev);
-                const newIds: string[] = [];
-
-                debouncedPostsMap.forEach((post) => {
-                    if (!myFeedSet.has(post.authorKey) && !currentExploreIdsSet.has(post.id)) {
-                        newIds.push(post.id);
-                    }
-                });
-
-                if (newIds.length === 0) return prev; 
-                return [...prev, ...newIds]; 
-            });
-        }, 500); 
-
-        return () => { if (exploreDebounceRef.current) clearTimeout(exploreDebounceRef.current); };
-    }, [debouncedPostsMap, userState, myPeerId]);
 
     // Backoff Logic / Ensure Posts
     const ensurePostsAreFetched = React.useCallback(async (postCids: string[], authorHint?: string, force: boolean = false) => {
@@ -303,6 +282,39 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         if (shouldSkipRequest(ipnsKey)) return;
         
         try {
+            // Prefer Trystero tip sync — public IPNS/gateways rarely have browser Helia publishes
+            try {
+                const { requestPeerFeed } = await import('../api/pubsub');
+                const p2p = await requestPeerFeed(ipnsKey);
+                if (p2p?.ok && p2p.state) {
+                    setAllUserStatesMap(prev => {
+                        const next = new Map(prev);
+                        next.set(ipnsKey, p2p.state!);
+                        return next;
+                    });
+                    if (p2p.state.profile) {
+                        setUserProfilesMap(prev => new Map(prev).set(ipnsKey, p2p.state!.profile!));
+                    }
+                    if (p2p.posts?.length) {
+                        setAllPostsMap(prev => {
+                            const next = new Map(prev);
+                            for (const p of p2p.posts) {
+                                if (p?.id && !(p.timestamp === 0 && String(p.content || '').includes('Content Unavailable'))) {
+                                    next.set(p.id, { ...p, authorKey: p.authorKey || ipnsKey });
+                                }
+                            }
+                            return next;
+                        });
+                    }
+                    const recentCids = (p2p.state.postCIDs || []).slice(0, 10);
+                    if (recentCids.length > 0) {
+                        await ensurePostsAreFetched(recentCids, ipnsKey);
+                    }
+                    reportFetchSuccess(ipnsKey);
+                    return;
+                }
+            } catch { /* fall through to IPNS / optional gateway */ }
+
             const cid = await resolveIpns(ipnsKey);
             if (cid) {
                 const fetchedState = await fetchUserState(cid, ipnsKey);
@@ -336,12 +348,12 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
             console.warn(`[App] fetchUser failed for ${ipnsKey}`, e);
             reportFetchFailure(ipnsKey);
         }
-    }, [allUserStatesMap, ensurePostsAreFetched]);
+    }, [allUserStatesMap, ensurePostsAreFetched, setAllPostsMap, setAllUserStatesMap, setUserProfilesMap]);
 
-    // Cooldown
+    // Post-only rate limit (not likes/follows/profile — those also bump updatedAt)
     const { isCoolingDown, countdown } = useCooldown(
-        userState?.updatedAt || 0,
-        POST_COOLDOWN_MS 
+        lastPostAt || undefined,
+        POST_COOLDOWN_MS
     );
 
     // Refresh Logic
@@ -351,20 +363,19 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         }
     }, [isLoggedIn, myPeerId, userState, processMainFeed]);
 
-    // OPTIMIZATION: Batch populate allUserStatesMap from lastSeenCids in follows
+    // Populate allUserStatesMap from follow lastSeenCids (batched).
     const allUserStatesMapRef = React.useRef(allUserStatesMap);
     React.useEffect(() => { allUserStatesMapRef.current = allUserStatesMap; }, [allUserStatesMap]);
-    
+
     React.useEffect(() => {
         if (!userState || !userState.follows) return;
-        
+
         const populateUserStatesFromFollows = async () => {
             const followsWithCids = userState.follows.filter(f => f.ipnsKey && f.lastSeenCid && !shouldSkipRequest(f.lastSeenCid));
-            
-            // OPTIMIZATION: Process in batches of 3 to avoid overwhelming gateway
+
             const BATCH_SIZE = 3;
-            const BATCH_DELAY_MS = 500; // Delay between batches
-            
+            const BATCH_DELAY_MS = 500;
+
             for (let i = 0; i < followsWithCids.length; i += BATCH_SIZE) {
                 const batch = followsWithCids.slice(i, i + BATCH_SIZE);
                 
@@ -449,20 +460,15 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     React.useEffect(() => {
         if (isLoggedIn && userState && !hasInitialFetch.current) {
             hasInitialFetch.current = true;
-            console.log("[FeedProvider] Initial fetch triggered.");
             refreshFeed().then(() => setIsFeedLoaded(true));
         }
     }, [isLoggedIn, userState, refreshFeed]);
 
-    // Reply Graph (Incremental Logic)
     const [replyGraph, setReplyGraph] = useState<Map<string, string[]>>(new Map());
     const previousMapSize = React.useRef(0);
 
-    // Effect: Rebuild Graph only when necessary
     React.useEffect(() => {
-        // Optimization: If the size hasn't changed, we likely just updated a timestamp or non-structural field.
-        // This is a heuristic. A true diff would be expensive.
-        // However, since we mainly append, size check is a good proxy for "new posts added".
+        // Size is a cheap proxy for structural changes (we mostly append).
         if (allPostsMap.size === previousMapSize.current && allPostsMap.size > 0) {
             return;
         }
@@ -497,9 +503,10 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         return count;
     }, [replyGraph]);
 
-    // Feed Generation (now uses debounced map)
-    const { myFeedPosts, exploreFeedPosts, myFeedIds, exploreFeedIds, unifiedIds } = useMemo(() => {
-        if (!userState) return { myFeedPosts: [], exploreFeedPosts: [], myFeedIds: [], exploreFeedIds: [], unifiedIds: [] };
+    // Feed Generation (debounced map). Home builds its own my-feed order from allPostsMap;
+    // we only export explore roots + unified nav ids.
+    const { exploreFeedPosts, unifiedIds } = useMemo(() => {
+        if (!userState) return { exploreFeedPosts: [], unifiedIds: [] };
         
         const allPosts = Array.from(debouncedPostsMap.values());
         const followsSet = new Set(userState.follows.map(f => f.ipnsKey));
@@ -526,57 +533,31 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
              }
         });
 
-        // 1. MY FEED
         const myFeed = allPosts.filter(p => {
-            // A. Post is by ME
             if (p.authorKey === myPeerId) return true;
-            
-            // BLOCKED FILTER
             if (blockedSet.has(p.authorKey)) return false;
-            
-            // B. Post is by Followed User
             if (followsSet.has(p.authorKey)) return true;
-
-            // C. Post is a Root of a thread I participated in
             if (myParticipatedRootIds.has(p.id)) return true;
-            
             return false;
         });
-        
-        console.log(`[FeedContext] Recalculating Feed. Total Posts: ${allPosts.length}. MyPeerId: ${myPeerId}. My Feed Count: ${myFeed.length}.`);
-        
-        // 2. EXPLORE FEED
-        // - Logic: Show the ROOT post if it contains any "Explore-Relevant" activity (Stranger Reply).
-        // - This groups the conversation under the original context.
 
+        // Explore: roots that include activity from users outside follows/self/blocks.
         const isStranger = (key: string) => key !== myPeerId && !followsSet.has(key) && !blockedSet.has(key);
-
-
         const exploreRelevantIds = new Set<string>();
-
-        // Scan all posts to find "Stranger Replies"
         allPosts.forEach(post => {
-             // If a stranger posted this (and it's a reply or root)
              if (isStranger(post.authorKey)) {
-                 // The post itself is content. Trace to root.
                  exploreRelevantIds.add(findRoot(post.id));
              }
         });
 
-        // Also check "My Posts" replied to by strangers (already covered if we scan the stranger's reply above)
-        // because the stranger's reply (post.authorKey == stranger) will trigger findRoot(reply) -> MyRoot.
-
         const exploreFeed = Array.from(exploreRelevantIds)
             .map(id => debouncedPostsMap.get(id))
             .filter((p): p is Post => !!p)
-            .filter(p => !blockedSet.has(p.authorKey)); // Final safety check
-        
-        // Sort by timestamp (Newest first)
+            .filter(p => !blockedSet.has(p.authorKey));
+
         myFeed.sort((a, b) => b.timestamp - a.timestamp);
         exploreFeed.sort((a, b) => b.timestamp - a.timestamp);
 
-        // --- Unified IDs Calculation (for Navigation) ---
-        // 1. Filter for Top-Level Posts only (no replies) & remove dislikes
         const dislikedIds = new Set(userState.dislikedPostCIDs || []);
         const isTopLevel = (p: Post) => !p.referenceCID && !dislikedIds.has(p.id);
 
@@ -586,21 +567,17 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         const myIds = myTopLevel.map(p => p.id);
         const myIdsSet = new Set(myIds);
 
-        // 2. Merge Explore (Deduplicated)
         const exploreIds = exploreTopLevel
             .filter(p => !myIdsSet.has(p.id))
             .map(p => p.id);
             
         const unified = [...myIds, ...exploreIds];
 
-        return { 
-            myFeedPosts: myFeed, 
+        return {
             exploreFeedPosts: exploreFeed,
-            myFeedIds: myFeed.map(p => p.id),
-            exploreFeedIds: exploreFeed.map(p => p.id),
             unifiedIds: unified
         };
-    }, [debouncedPostsMap, userState, myPeerId, stableExploreIds, replyGraph]);
+    }, [debouncedPostsMap, userState, myPeerId, replyGraph]);
 
     const loadMoreFeed = React.useCallback(async () => {
         if (canLoadMoreMyFeed) await loadMoreMyFeed();
@@ -610,12 +587,12 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     const value: FeedContextState = {
         allPostsMap, allUserStatesMap, userProfilesMap, unresolvedFollows, otherUsers,
         isLoadingFeed, isProcessing, isCoolingDown, countdown,
-        addPost, deletePost, likePost, dislikePost, followUser, unfollowUser, updateProfile,
+        addPost, deletePost, likePost, dislikePost, savePost, clearMediaCache, followUser, unfollowUser, updateProfile,
         blockUser, unblockUser,
         refreshFeed, isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore,
         loadMoreMyFeed, canLoadMoreMyFeed, ensurePostsAreFetched, fetchUser,
-        myFeedPosts, exploreFeedPosts, 
-        myFeedIds, exploreFeedIds, unifiedIds, loadMoreFeed,
+        exploreFeedPosts,
+        unifiedIds, loadMoreFeed,
         getReplyCount,
         // Expose setters
         setAllPostsMap,

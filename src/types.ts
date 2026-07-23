@@ -1,4 +1,3 @@
-// fileName: src/types.ts
 export interface UserProfile {
     name: string;
     bio?: string;
@@ -31,10 +30,12 @@ export interface UserState {
     profile: UserProfile;
     postCIDs: string[];
     follows: Follow[];
-    // We stick to the existing schema:
     likedPostCIDs?: string[];
-    dislikedPostCIDs?: string[]; 
-    blockedUsers?: string[]; // List of IPNS keys
+    dislikedPostCIDs?: string[];
+    /** Explicitly saved posts — pins full media (not just thumbs). */
+    savedPostCIDs?: string[];
+    /** IPNS keys */
+    blockedUsers?: string[];
     updatedAt: number;
     extendedUserState?: string | null;
 }

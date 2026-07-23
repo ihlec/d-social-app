@@ -3,19 +3,88 @@
  *
  * Libp2p is dial-capped: browsers hit WebSocket/"Insufficient resources"
  * limits quickly under Helia's default bootstrap + DHT client settings.
+ *
+ * All UnixFS writes use IPIP-0499 `unixfs-v1-2025` so CIDs match other
+ * modern importers (Helia/Kubo CIDv1/Storacha) for the same bytes.
  */
 
 import type { Helia } from 'helia';
-import type { UnixFS } from '@helia/unixfs';
+import type { AddOptions, UnixFS } from '@helia/unixfs';
 import type { IPNS } from '@helia/ipns';
 import { CID } from 'multiformats/cid';
+import { fixedSize } from 'ipfs-unixfs-importer/chunker';
+import { balanced } from 'ipfs-unixfs-importer/layout';
 
 const DEFAULT_KEYCHAIN_PASSWORD = 'dsocial-helia-keychain-v1';
+/** How often @helia/ipns re-puts published records (multi-hour browser sessions). */
+const IPNS_REPUBLISH_INTERVAL_MS = 15 * 60 * 1000;
+const IPNS_RECORD_LIFETIME_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+/** IPIP-0499 modern profile — https://specs.ipfs.tech/ipips/ipip-0499/ */
+export const UNIXFS_CID_PROFILE = 'unixfs-v1-2025' as const;
+
+/**
+ * Explicit importer settings for `unixfs-v1-2025`.
+ * Passed on every add so we do not silently inherit a future Helia default drift.
+ */
+export const UNIXFS_V1_2025_ADD_OPTIONS: AddOptions = {
+    profile: UNIXFS_CID_PROFILE,
+    cidVersion: 1,
+    rawLeaves: true,
+    shardSplitStrategy: 'block-bytes',
+    shardSplitThresholdBytes: 262_144,
+    shardFanoutBits: 8, // HAMT fanout 256
+    chunker: fixedSize({ chunkSize: 1_048_576 }),
+    layout: balanced({ maxChildrenPerNode: 1024 }),
+};
 
 let heliaPromise: Promise<Helia> | null = null;
 let fsInstance: UnixFS | null = null;
 let ipnsInstance: IPNS | null = null;
 let activePassword: string = DEFAULT_KEYCHAIN_PASSWORD;
+
+type ClosableStore = { close: () => Promise<void> };
+let activeBlockstore: ClosableStore | null = null;
+let activeDatastore: ClosableStore | null = null;
+
+/** Serialize stop / wipe / start so GC and upload cannot race IndexedDB. */
+let heliaLifecycle: Promise<void> = Promise.resolve();
+let lifecycleHeld = false;
+
+function enqueueHeliaLifecycle<T>(fn: () => Promise<T>): Promise<T> {
+    // Re-entrant: wipe/start call unlocked helpers while already holding the lock.
+    if (lifecycleHeld) return fn();
+    const run = heliaLifecycle.then(
+        async () => {
+            lifecycleHeld = true;
+            try {
+                return await fn();
+            } finally {
+                lifecycleHeld = false;
+            }
+        },
+        async () => {
+            lifecycleHeld = true;
+            try {
+                return await fn();
+            } finally {
+                lifecycleHeld = false;
+            }
+        }
+    );
+    heliaLifecycle = run.then(() => undefined, () => undefined);
+    return run;
+}
+
+/** @helia/ipns starts republisher on Helia `start`; expose start() for late/safe kick. */
+type IPNSWithLifecycle = IPNS & { start?: () => void; stop?: () => void };
+
+function ensureIpnsRepublisherStarted(): void {
+    const api = ipnsInstance as IPNSWithLifecycle | null;
+    if (api && typeof api.start === 'function') {
+        api.start();
+    }
+}
 
 export type HeliaStatus = 'idle' | 'starting' | 'ready' | 'error';
 
@@ -97,25 +166,32 @@ async function createBrowserHelia(pass: string): Promise<Helia> {
         import('multiformats/hashes/sha2'),
     ]);
 
+    const { isGatewayFallbackEnabled } = await import('../lib/gatewayFallback');
+    const allowHttpGateways = isGatewayFallbackEnabled();
+
     const blockstore = new IDBBlockstore('dsocial-helia-blocks');
     const datastore = new IDBDatastore('dsocial-helia-data');
     await blockstore.open();
     await datastore.open();
+    activeBlockstore = blockstore;
+    activeDatastore = datastore;
 
     const build = () => {
         // Same stack as createHelia(), with browser-safe dial limits.
         // Do NOT pass a custom libp2p keychain password — the peer "self" key
         // in IDB was created with libp2p defaults; overriding `pass` breaks boot.
+        // withHTTP (trustless gateways) only when Settings opts in — otherwise
+        // Helia is local CAS + bitswap peers; Trystero is the sync path.
+        const light = createHeliaLight({
+            blockstore,
+            datastore,
+            codecs: [dagCbor, dagJson, jsonCodec],
+            hashers: [sha512],
+        });
+        const routed = allowHttpGateways ? withHTTP(light) : light;
         const node = withBitswap(
             withLibp2p(
-                withHTTP(
-                    createHeliaLight({
-                        blockstore,
-                        datastore,
-                        codecs: [dagCbor, dagJson, jsonCodec],
-                        hashers: [sha512],
-                    })
-                ),
+                routed,
                 {
                     connectionManager: {
                         maxConnections: 6,
@@ -142,6 +218,17 @@ async function createBrowserHelia(pass: string): Promise<Helia> {
         return node;
     };
 
+    // @helia/ipns constructor touches libp2p and throws NotStartedError if wired
+    // before helia.start(). Attach after start, then kick republisher manually
+    // (it only auto-starts on the Helia `start` event, which already fired).
+    const attachServices = (node: Helia) => {
+        fsInstance = unixfs(node);
+        ipnsInstance = ipns(node, {
+            republishInterval: IPNS_REPUBLISH_INTERVAL_MS,
+        });
+        ensureIpnsRepublisherStarted();
+    };
+
     let helia = build();
     try {
         if (helia.status !== 'started') {
@@ -158,13 +245,24 @@ async function createBrowserHelia(pass: string): Promise<Helia> {
         }
     }
 
-    fsInstance = unixfs(helia);
-    ipnsInstance = ipns(helia);
+    attachServices(helia);
     return helia;
 }
 
-export async function stopHelia(): Promise<void> {
-    if (!heliaPromise) return;
+async function closeStores(): Promise<void> {
+    const bs = activeBlockstore;
+    const ds = activeDatastore;
+    activeBlockstore = null;
+    activeDatastore = null;
+    try { await bs?.close(); } catch { /* ignore */ }
+    try { await ds?.close(); } catch { /* ignore */ }
+}
+
+async function stopHeliaUnlocked(): Promise<void> {
+    if (!heliaPromise) {
+        await closeStores();
+        return;
+    }
     const pending = heliaPromise;
     heliaPromise = null;
     fsInstance = null;
@@ -174,18 +272,49 @@ export async function stopHelia(): Promise<void> {
         const h = await pending;
         await h.stop();
     } catch { /* ignore */ }
+    await closeStores();
 }
 
-export async function startHelia(password?: string): Promise<Helia> {
-    const pass = (password && password.length > 0) ? password : DEFAULT_KEYCHAIN_PASSWORD;
+export async function stopHelia(): Promise<void> {
+    return enqueueHeliaLifecycle(() => stopHeliaUnlocked());
+}
 
-    // Reuse ready OR in-flight start with the same keychain password (avoids triple-boot).
+const HELIA_BLOCKSTORE_IDB = 'dsocial-helia-blocks';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Delete an IndexedDB. Must only run after all connections are closed.
+ * Retries on `blocked` — never pretends success while another handle is open.
+ */
+async function deleteIndexedDb(name: string): Promise<void> {
+    if (typeof indexedDB === 'undefined') return;
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const outcome = await new Promise<'ok' | 'blocked' | 'error'>((resolve) => {
+            const req = indexedDB.deleteDatabase(name);
+            req.onsuccess = () => resolve('ok');
+            req.onerror = () => resolve('error');
+            req.onblocked = () => resolve('blocked');
+        });
+        if (outcome === 'ok') return;
+        console.warn(
+            `[Helia] deleteDatabase(${name}) ${outcome} (attempt ${attempt + 1}/8) — closing stores & retrying`
+        );
+        await closeStores();
+        await sleep(400 + attempt * 200);
+    }
+    throw new Error(
+        `Could not delete ${name}. Close other tabs open on this app, then try again.`
+    );
+}
+
+async function startHeliaUnlocked(pass: string): Promise<Helia> {
     if (heliaPromise && activePassword === pass) {
         return heliaPromise;
     }
-
     if (heliaPromise) {
-        await stopHelia();
+        await stopHeliaUnlocked();
     }
 
     activePassword = pass;
@@ -208,6 +337,28 @@ export async function startHelia(password?: string): Promise<Helia> {
     })();
 
     return heliaPromise;
+}
+
+/**
+ * Nuclear reclaim: stop Helia, close IDB handles, delete media blockstore, restart.
+ * Keeps `dsocial-helia-data` (identity / IPNS / libp2p keys).
+ */
+export async function wipeHeliaBlockstore(): Promise<void> {
+    const pass = activePassword;
+    await enqueueHeliaLifecycle(async () => {
+        await stopHeliaUnlocked();
+        await deleteIndexedDb(HELIA_BLOCKSTORE_IDB);
+        console.info('[Helia] Wiped blockstore IndexedDB', HELIA_BLOCKSTORE_IDB);
+        await startHeliaUnlocked(pass);
+    });
+}
+
+export async function startHelia(password?: string): Promise<Helia> {
+    const pass = (password && password.length > 0) ? password : DEFAULT_KEYCHAIN_PASSWORD;
+    if (heliaPromise && activePassword === pass && status === 'ready') {
+        return heliaPromise;
+    }
+    return enqueueHeliaLifecycle(() => startHeliaUnlocked(pass));
 }
 
 export async function getHelia(): Promise<Helia> {
@@ -259,18 +410,67 @@ export async function listIdentityKeys(): Promise<string[]> {
     return names;
 }
 
+function ipnsNameFromPublish(name: string): string {
+    return name.startsWith('/ipns/') ? name.slice(6) : name;
+}
+
+/**
+ * Publish IPNS: local record always, network put + content provide best-effort.
+ * Browser delegated PUT often fails; that must not block the app write path.
+ */
 export async function publishIpns(keyName: string, cidStr: string): Promise<string> {
+    const helia = await getHelia();
     const nameApi = await getIpns();
     const cid = CID.parse(cidStr);
-    const result = await nameApi.publish(keyName, cid, {
-        lifetime: 1000 * 60 * 60 * 24 * 30, // 30 days
-    });
-    const name = result.name.startsWith('/ipns/') ? result.name.slice(6) : result.name;
-    console.log(`[Helia] Published ${cidStr} → ${name}`);
+    ensureIpnsRepublisherStarted();
+
+    let name = '';
+
+    // 1) Local always — IndexedDB-backed record for this browser
     try {
-        const { rememberIpnsResolution } = await import('./resolution');
-        rememberIpnsResolution(name, cidStr);
-    } catch { /* ignore */ }
+        const local = await nameApi.publish(keyName, cid, {
+            lifetime: IPNS_RECORD_LIFETIME_MS,
+            offline: true,
+        });
+        name = ipnsNameFromPublish(local.name);
+        console.log(`[Helia] IPNS local ok ${cidStr} → ${name}`);
+        try {
+            const { rememberIpnsResolution } = await import('./resolution');
+            rememberIpnsResolution(name, cidStr);
+        } catch { /* ignore */ }
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[Helia] IPNS local failed: ${msg}`);
+        throw e;
+    }
+
+    // 2–3) Network put + provide — fire-and-forget so callers (post UI / persistence
+    // queue) never block on delegated routing / DHT, which often stalls in browsers.
+    void (async () => {
+        try {
+            const net = await nameApi.publish(keyName, cid, {
+                lifetime: IPNS_RECORD_LIFETIME_MS,
+            });
+            const netName = ipnsNameFromPublish(net.name);
+            console.log(`[Helia] IPNS network put ok ${cidStr} → ${netName}`);
+            try {
+                const { rememberIpnsResolution } = await import('./resolution');
+                rememberIpnsResolution(netName, cidStr);
+            } catch { /* ignore */ }
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`[Helia] IPNS network put failed: ${msg}`);
+        }
+
+        try {
+            await helia.routing.provide(cid);
+            console.log(`[Helia] provide ok ${cidStr}`);
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`[Helia] provide failed: ${msg}`);
+        }
+    })();
+
     return name;
 }
 
@@ -292,8 +492,29 @@ export async function heliaResolveIpnsOffline(ipnsName: string): Promise<string>
     return '';
 }
 
-/** Read raw bytes from the local Helia node (UnixFS). Returns null if missing locally. */
-export async function heliaCatBytes(cidStr: string): Promise<Uint8Array | null> {
+/** Local UnixFS size in bytes, or null if missing / not a file. Offline only. */
+export async function heliaStatSize(cidStr: string): Promise<number | null> {
+    if (status !== 'ready') return null;
+    try {
+        const helia = await getHelia();
+        const cid = CID.parse(cidStr);
+        if (!(await helia.blockstore.has(cid))) return null;
+        const fs = await getUnixFs();
+        const st = await fs.stat(cid, { offline: true });
+        return Number(st.size);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Read raw bytes from the local Helia node (UnixFS). Returns null if missing.
+ * Optional `maxBytes` aborts before buffering oversized files (avoids tab OOM).
+ */
+export async function heliaCatBytes(
+    cidStr: string,
+    maxBytes?: number
+): Promise<Uint8Array | null> {
     if (status !== 'ready') return null;
     try {
         const helia = await getHelia();
@@ -301,11 +522,22 @@ export async function heliaCatBytes(cidStr: string): Promise<Uint8Array | null> 
         // Prefer local blocks only — avoid bitswap dial storms for missing CIDs.
         if (!(await helia.blockstore.has(cid))) return null;
         const fs = await getUnixFs();
+
+        if (maxBytes != null) {
+            try {
+                const st = await fs.stat(cid, { offline: true });
+                if (Number(st.size) > maxBytes) return null;
+            } catch {
+                /* continue; stream guard below */
+            }
+        }
+
         const chunks: Uint8Array[] = [];
         let total = 0;
         for await (const chunk of fs.cat(cid)) {
-            chunks.push(chunk);
             total += chunk.byteLength;
+            if (maxBytes != null && total > maxBytes) return null;
+            chunks.push(chunk);
         }
         const out = new Uint8Array(total);
         let offset = 0;
@@ -329,16 +561,37 @@ export async function heliaCatJson<T = unknown>(cidStr: string): Promise<T | nul
     }
 }
 
+/** True when IndexedDB / Helia blockstore is out of space. */
+export function isStorageQuotaError(e: unknown): boolean {
+    const msg = e instanceof Error ? e.message : String(e ?? '');
+    const name = e && typeof e === 'object' && 'name' in e ? String((e as { name?: string }).name) : '';
+    return (
+        name === 'QuotaExceededError'
+        || name === 'PutFailedError'
+        || /QuotaExceeded/i.test(msg)
+        || /quota limitations/i.test(msg)
+    );
+}
+
 export async function heliaAddBytes(bytes: Uint8Array, pin: boolean = true): Promise<string> {
     const helia = await getHelia();
     const fs = await getUnixFs();
-    const cid = await fs.addBytes(bytes);
-    if (pin) {
-        try { await helia.pins.add(cid); } catch (e) {
-            console.warn('[Helia] pin failed (content still added)', e);
+    try {
+        const cid = await fs.addBytes(bytes, UNIXFS_V1_2025_ADD_OPTIONS);
+        if (pin) {
+            try { await helia.pins.add(cid); } catch (e) {
+                console.warn('[Helia] pin failed (content still added)', e);
+            }
         }
+        return cid.toString();
+    } catch (e) {
+        if (isStorageQuotaError(e)) {
+            throw new Error(
+                'Browser storage is full (Helia IndexedDB quota). Delete old posts/media or clear this site’s stored data, then try again.'
+            );
+        }
+        throw e;
     }
-    return cid.toString();
 }
 
 export async function heliaAddBlob(blob: Blob, pin: boolean = true): Promise<string> {

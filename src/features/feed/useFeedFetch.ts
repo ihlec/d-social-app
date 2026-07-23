@@ -74,7 +74,7 @@ export const useFeedFetch = ({
 
             if (!stateChunk) {
                 try {
-                    stateChunk = await fetchUserStateChunk(stateCid);
+                    stateChunk = await fetchUserStateChunk(stateCid, authorIpns);
                     if (stateChunk) {
                         reportFetchSuccess(stateCid);
                         // Persist a partial state for hydrate
@@ -84,6 +84,8 @@ export const useFeedFetch = ({
                             follows: stateChunk.follows || [],
                             likedPostCIDs: stateChunk.likedPostCIDs || [],
                             dislikedPostCIDs: stateChunk.dislikedPostCIDs || [],
+                            savedPostCIDs: stateChunk.savedPostCIDs || [],
+                            blockedUsers: stateChunk.blockedUsers || [],
                             updatedAt: stateChunk.updatedAt || 0,
                             extendedUserState: stateChunk.extendedUserState || null,
                         }, stateCid).catch(() => {});
@@ -130,13 +132,13 @@ export const useFeedFetch = ({
 
             const results = await fetchCidsBatched(
                 stillMissing, 
-                (cid) => fetchPostLocal(cid, authorIpns) as Promise<Post>,
+                (cid) => fetchPostLocal(cid, authorIpns),
                 4 
             );
 
             const newPosts = new Map<string, Post>(fromIdb);
             results.forEach((p) => {
-                if (p && p.id) {
+                if (p && p.id && p.timestamp !== 0) {
                     if (!p.authorKey) p.authorKey = authorIpns;
                     newPosts.set(p.id, p);
                     if (p.referenceCID) fetchMissingParentPost(p.referenceCID);
@@ -174,14 +176,14 @@ export const useFeedFetch = ({
         
         const results = await fetchCidsBatched(
             stillMissing,
-            (cid) => fetchPostLocal(cid, authorHint || "Unknown") as Promise<Post>,
+            (cid) => fetchPostLocal(cid, authorHint || ''),
             4
         );
 
         const foundIds: string[] = [];
         fromIdb.forEach((_post, id) => foundIds.push(id));
         results.forEach((post) => {
-            if (post && post.id) {
+            if (post && post.id && post.timestamp !== 0) {
                 newPosts.set(post.id, post);
                 foundIds.push(post.id);
             }

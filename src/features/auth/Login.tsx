@@ -1,4 +1,3 @@
-// fileName: src/features/auth/Login.tsx
 import React, { useState } from 'react';
 import { Tooltip } from '../../components/Tooltip';
 import { InfoIcon } from '../../components/Icons';

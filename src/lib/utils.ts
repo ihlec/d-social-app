@@ -1,18 +1,4 @@
-// fileName: src/lib/utils.ts
 import DOMPurify from 'dompurify';
-
-/**
- * Sanitizes HTML content using DOMPurify with strict settings
- * Use this for user-generated content that may contain HTML
- */
-export const sanitizeHtml = (dirty: string | null | undefined): string => {
-    if (!dirty) return '';
-    return DOMPurify.sanitize(dirty, {
-        ALLOWED_TAGS: [], // No HTML tags allowed - strip everything
-        ALLOWED_ATTR: [],
-        KEEP_CONTENT: true, // Keep text content but strip tags
-    });
-};
 
 /**
  * Sanitizes plain text content (for names, bios, etc.)
@@ -57,7 +43,6 @@ export const eraseCookie = (name: string) => {
     document.cookie = name + '=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
 };
 
-// --- Optimistic State Persistence Helpers ---
 // Moved here to avoid circular dependency between ipfsIpns.ts and stateActions.ts
 import { OptimisticStateCookie } from '../types';
 
@@ -108,7 +93,6 @@ export const loadSessionCookie = <T>(name: string): T | null => {
     return null;
 };
 
-// FIX: Add the missing formatTimeAgo function
 export const formatTimeAgo = (timestamp: number): string => {
     if (!timestamp) return '';
     
@@ -129,6 +113,26 @@ export const formatTimeAgo = (timestamp: number): string => {
         }
     }
     return 'just now';
+};
+
+/** Truncate opaque IDs (IPNS keys / CIDs) for display — full value stays for copy/share. */
+export const shortId = (id: string, head = 6, tail = 4): string => {
+    if (!id) return '';
+    if (id.length <= head + tail + 1) return id;
+    return `${id.slice(0, head)}…${id.slice(-tail)}`;
+};
+
+/**
+ * Accept a raw IPNS key, profile hash route, or /ipns/… URL and return the key.
+ */
+export const parseFollowTarget = (input: string): string => {
+    const raw = input.trim();
+    if (!raw) return '';
+    const profileMatch = raw.match(/(?:#\/|\/)profile\/([a-zA-Z0-9]+)/i);
+    if (profileMatch) return profileMatch[1];
+    const ipnsMatch = raw.match(/\/ipns\/([a-zA-Z0-9]+)/i);
+    if (ipnsMatch) return ipnsMatch[1];
+    return raw;
 };
 
 /**

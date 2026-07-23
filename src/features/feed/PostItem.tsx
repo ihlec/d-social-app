@@ -1,4 +1,3 @@
-// fileName: src/features/feed/PostItem.tsx
 import React, { useMemo, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Post, UserProfile, UserState } from '../../types';
@@ -6,7 +5,7 @@ import PostMedia from './PostMedia';
 import PostHeader from './PostHeader';
 import PostActions from './PostActions';
 import { useAppContext } from '../../state/AppContext';
-import { useGatewayRace } from '../../hooks/useGatewayRace';
+import { useGatewayRace, getMimeType } from '../../hooks/useGatewayRace';
 import { sanitizeText } from '../../lib/utils';
 import './PostItem.css';
 
@@ -18,6 +17,7 @@ interface PostProps {
   onViewProfile: (ipnsKey: string) => void;
   onLikePost?: (postId: string) => void;
   onDislikePost?: (postId: string) => void;
+  onSavePost?: (postId: string) => void;
   onFetchUser?: (ipnsKey: string) => void;
   currentUserState: UserState | null;
   myPeerId: string;
@@ -52,6 +52,7 @@ const PostComponent: React.FC<PostProps> = ({
   onViewProfile,
   onLikePost,
   onDislikePost,
+  onSavePost,
   onFetchUser: propFetchUser,
   currentUserState,
   myPeerId,
@@ -68,16 +69,11 @@ const PostComponent: React.FC<PostProps> = ({
   
   const { userProfilesMap: contextProfiles, fetchUser: contextFetchUser, getReplyCount } = useAppContext();
   
-  // --- FIX: Priority Inversion ---
-  // Props must take precedence because PostPage passes a "Combined Map" (Global + Thread Local)
-  // which contains profiles that are NOT yet in the Global Context.
+  // PostPage may pass a thread-local profile map that is ahead of global context.
   const profilesMap = propProfilesMap || contextProfiles;
   const fetchUser = propFetchUser || contextFetchUser;
-  // -------------------------------
 
   const post = allPostsMap.get(postId);
-  
-  // Instant Profile Resolution
   const isMine = post?.authorKey === myPeerId;
   let authorProfile = post && profilesMap ? profilesMap.get(post.authorKey) : undefined;
   
@@ -123,7 +119,6 @@ const PostComponent: React.FC<PostProps> = ({
        return getReplyCount(postId);
   }, [postId, getReplyCount, post]);
 
-  // Hook Order Fix: Always run this hook
   const loadedReplies = useMemo(() => {
       if (!post) return [];
       
@@ -148,26 +143,18 @@ const PostComponent: React.FC<PostProps> = ({
     
     const rootPost = findRootPost(post, allPostsMap);
 
-    // FIX: If we are already in a modal (backgroundLocation exists), 
-    // we should REPLACE the current entry to avoid stacking modals on top of each other.
-    // NOTE: location.state might be null in some edge cases (e.g. deep linking), 
-    // but usually backgroundLocation implies we are in a modal.
+    // Replace when already in a modal so modal states don't nest.
     const backgroundLocation = location.state?.backgroundLocation;
     const isModal = !!backgroundLocation;
-
-    // Resolve context: Prefer dynamic getter, fallback to prop
     const finalContextIds = getContextIds ? getContextIds() : contextIds;
 
-    navigate(`/post/${rootPost.id}`, { 
+    navigate(`/post/${rootPost.id}`, {
         replace: isModal,
-        state: { 
-            // Reuse the EXISTING background location to keep the stack flat.
-            // If we use 'location' when isModal is true, we nest the previous modal state 
-            // into the new state, creating a recursive stack!
+        state: {
             backgroundLocation: backgroundLocation || location,
             scrollToId: post.id,
-            contextIds: finalContextIds 
-        } 
+            contextIds: finalContextIds,
+        },
     });
   };
 
@@ -189,7 +176,11 @@ const PostComponent: React.FC<PostProps> = ({
   const useOverlayStyle = !isExpandedView && isMediaPost && isShortText && !isDisliked;
 
   // Race the PDF/File URL as well
-  const { bestUrl: attachmentUrl } = useGatewayRace(post.mediaCid);
+  const { bestUrl: attachmentUrl } = useGatewayRace(post.mediaCid, {
+    mimeHint: getMimeType(post.mediaFileName),
+    peerIpnsKey: post.authorKey,
+    rendezvousCid: post.id,
+  });
 
   return (
     <div 
@@ -301,6 +292,7 @@ const PostComponent: React.FC<PostProps> = ({
              currentUserState={currentUserState}
              onLikePost={onLikePost}
              onDislikePost={onDislikePost}
+             onSavePost={onSavePost}
              onReplyClick={handleReplyClick}
              totalReplyCount={totalReplyCount}
           />
@@ -336,6 +328,7 @@ const PostComponent: React.FC<PostProps> = ({
                     onViewProfile={onViewProfile}
                     onLikePost={onLikePost}
                     onDislikePost={onDislikePost}
+                    onSavePost={onSavePost}
                     onFetchUser={fetchUser}
                     currentUserState={currentUserState}
                     myPeerId={myPeerId}
@@ -356,63 +349,43 @@ const PostComponent: React.FC<PostProps> = ({
 function arePropsEqual(prev: PostProps, next: PostProps): boolean {
     if (prev.postId !== next.postId) return false;
     if (prev.isExpandedView !== next.isExpandedView) return false;
-    
-    // 1. Post Content Equality (Fast Reference Check)
+
     const prevPost = prev.allPostsMap.get(prev.postId);
     const nextPost = next.allPostsMap.get(next.postId);
     if (prevPost !== nextPost) return false;
 
-    // 2. Profile Equality
-    // We must handle the case where the post/profile is missing
     const authorKey = prevPost?.authorKey;
     if (authorKey) {
-        // Handle Map Switching (Global -> Thread Local)
         const prevP = prev.userProfilesMap?.get(authorKey);
         const nextP = next.userProfilesMap?.get(authorKey);
-        // Deep compare profile because it's a small object
         if (prevP?.name !== nextP?.name || prevP?.bio !== nextP?.bio) return false;
     }
 
-    // 3. User Interaction State (Likes/Dislikes)
-    // We only care about *this* post's ID in the user's lists
-    const prevLikes = prev.currentUserState?.likedPostCIDs?.includes(prev.postId);
-    const nextLikes = next.currentUserState?.likedPostCIDs?.includes(next.postId);
-    if (prevLikes !== nextLikes) return false;
+    if (
+        prev.currentUserState?.likedPostCIDs?.includes(prev.postId) !==
+        next.currentUserState?.likedPostCIDs?.includes(next.postId)
+    ) {
+        return false;
+    }
+    if (
+        prev.currentUserState?.dislikedPostCIDs?.includes(prev.postId) !==
+        next.currentUserState?.dislikedPostCIDs?.includes(next.postId)
+    ) {
+        return false;
+    }
+    if (
+        prev.currentUserState?.savedPostCIDs?.includes(prev.postId) !==
+        next.currentUserState?.savedPostCIDs?.includes(next.postId)
+    ) {
+        return false;
+    }
 
-    const prevDislikes = prev.currentUserState?.dislikedPostCIDs?.includes(prev.postId);
-    const nextDislikes = next.currentUserState?.dislikedPostCIDs?.includes(next.postId);
-    if (prevDislikes !== nextDislikes) return false;
-
-    // Check Blocked Status Change
     const prevBlocked = prevPost && prev.currentUserState?.blockedUsers?.includes(prevPost.authorKey);
     const nextBlocked = nextPost && next.currentUserState?.blockedUsers?.includes(nextPost.authorKey);
     if (prevBlocked !== nextBlocked) return false;
 
-    // 4. Replies (Tricky)
-    // If renderReplies is true, we must re-render if a NEW reply appeared.
-    // We can't scan O(N) here. 
-    // We rely on 'allPostsMap' reference change being ignored unless 'post.replies' changed 
-    // OR we have a cheap way to know. 
-    // BUT: Current PostComponent calculates dynamic replies:
-    //    if (p.referenceCID === postId) ...
-    // If we return TRUE here (equal), we SKIP the dynamic scan.
-    // Ideally, we need 'replyCount' in props.
-    // Fortunately, we can check if the Map *Size* changed significantly or blindly trust 
-    // that if the parent map updated, we might have new replies.
-    //
-    // Trade-off: To be safe for replies, we re-render if renderReplies is true.
-    if (prev.renderReplies) {
-        // Optimization: Check map size. If map size grew, maybe a reply arrived.
-        if (prev.allPostsMap.size !== next.allPostsMap.size) return false;
-        // Or strictly: return false to be safe, but then we lose memo benefits for threads.
-        // Let's rely on reference equality of 'post' for now (optimistic).
-        // If a new reply arrives, it usually doesn't mutate the parent 'post' object immediately
-        // unless 'replies' field is used.
-        // The 'loadedReplies' hook inside does the work.
-        //
-        // Compromise: Re-render ONLY if this component is responsible for rendering replies.
-        return false; 
-    }
+    // Reply trees scan the map for children; skip memo when this node renders them.
+    if (prev.renderReplies) return false;
 
     return true;
 }

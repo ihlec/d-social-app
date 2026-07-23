@@ -1,4 +1,3 @@
-// fileName: src/pages/HomePage.tsx
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../state/useAppStorage';
@@ -22,6 +21,7 @@ const HomePage: React.FC = () => {
         addPost,
         likePost,
         dislikePost,
+        savePost,
         followUser,
         unfollowUser,
         
@@ -34,7 +34,6 @@ const HomePage: React.FC = () => {
         ensurePostsAreFetched,
         
         // Hybrid Feed Props
-        // myFeedPosts, // <-- IGNORING THIS (It is pre-sorted by date)
         exploreFeedPosts,
         loadMoreMyFeed,
         loadMoreExplore,
@@ -48,7 +47,6 @@ const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    // --- Unified Feed Logic (Load Order / Appended) ---
     // Capture initial dislikes to only filter out historical dislikes, 
     // allowing new ones to remain in the list (handled by PostItem)
     const initialDislikesRef = useRef<Set<string> | null>(null);
@@ -66,9 +64,7 @@ const HomePage: React.FC = () => {
         // Helper: Is this a top-level post we want to see?
         const isValidRootPost = (p: any) => !p.referenceCID && !dislikedIds.has(p.id) && !blockedUsers.has(p.authorKey);
 
-        // 1. Define "My Feed" based on Follows (excluding Self by default now)
-        // We do this manually here to use allPostsMap's insertion order (Load Order)
-        // instead of the pre-sorted 'myFeedPosts' array.
+        // My feed from allPostsMap insertion order (load order), not timestamp sort.
         const followingSet = new Set(userState?.follows?.map(f => f.ipnsKey) || []);
         
         // 2. Iterate map values (Preserves Insertion Order -> Appended behavior)
@@ -104,7 +100,6 @@ const HomePage: React.FC = () => {
         return [...myIds, ...exploreIds];
     }, [allPostsMap, exploreFeedPosts, userState, myIpnsKey]);
 
-    // --- Scroll Restoration ---
     const feedContainerRef = useRef<HTMLDivElement>(null);
     const isAnyLoading = isLoadingFeed || isLoadingExplore;
 
@@ -202,6 +197,7 @@ const HomePage: React.FC = () => {
                     onViewProfile={(key) => navigate(`/profile/${key}`)}
                     onLikePost={likePost}
                     onDislikePost={dislikePost}
+                    onSavePost={savePost}
                     currentUserState={userState}
                     myPeerId={myPeerId}
                     ensurePostsAreFetched={ensurePostsAreFetched}

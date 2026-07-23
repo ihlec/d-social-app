@@ -1,7 +1,8 @@
-// fileName: src/features/feed/useExploreFeed.ts
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Post, UserProfile, UserState, OnlinePeer } from '../../types';
 import { fetchPost, resolveIpns, fetchUserStateChunk, requestPeerFeed } from '../../api/ipfsIpns';
+import { isLocalClusterPeer } from '../../lib/peerShards';
+import { prefetchPeerMedia } from '../../lib/prefetchPeerMedia';
 
 const EXPLORE_CONCURRENCY_LIMIT = 3;
 const ONLINE_PEER_INGEST_LIMIT = 5;
@@ -22,7 +23,8 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 interface UseAppExploreArgs {
-    myIpnsKey: string;
+    /** Resolved k51 identity — same key space as OnlinePeer / follow.ipnsKey. */
+    myPeerId: string;
     userState: UserState | null;
     allPostsMap: Map<string, Post>;
     setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
@@ -40,7 +42,7 @@ export interface UseAppExploreReturn {
 }
 
 export const useAppExplore = ({
-    myIpnsKey,
+    myPeerId,
     userState,
     allPostsMap,
     setAllPostsMap,
@@ -73,7 +75,7 @@ export const useAppExplore = ({
                 return null;
             }
             // Own profile is already in local state — no gateway / P2P round-trip
-            if (key === myIpnsKey) return null;
+            if (key === myPeerId) return null;
 
             let state: Partial<UserState> | null = null;
             let newPosts: Post[] = [];
@@ -96,7 +98,10 @@ export const useAppExplore = ({
                         ...p,
                         authorKey: p.authorKey || key,
                     }));
-                console.log(`[Explore] P2P sync from ${key.slice(0, 12)}… — ${newPosts.length} post(s)`);
+                console.debug(`[Explore] P2P sync from ${key.slice(0, 12)}… — ${newPosts.length} post(s)`);
+                if (newPosts.length > 0) {
+                    void prefetchPeerMedia(key, newPosts);
+                }
             } else if (isOnline) {
                 // Online via Trystero but sync failed — do NOT hammer public gateways.
                 console.warn(`[Explore] P2P sync failed for online peer ${key.slice(0, 12)}… — skipping gateway`);
@@ -106,7 +111,7 @@ export const useAppExplore = ({
                 const stateCid = await resolveIpns(key);
                 if (!stateCid) return null;
 
-                state = await fetchUserStateChunk(stateCid);
+                state = await fetchUserStateChunk(stateCid, key);
                 if (!state) return null;
 
                 if (state.postCIDs && state.postCIDs.length > 0) {
@@ -115,7 +120,7 @@ export const useAppExplore = ({
                     if (cidsToFetch.length > 0) {
                         const fetchedPosts = await Promise.all(cidsToFetch.map(async (cid) => {
                             try {
-                                const postData = await fetchPost(cid);
+                                const postData = await fetchPost(cid, key);
                                 if (postData && postData.id) {
                                     if (!postData.authorKey) postData.authorKey = key;
                                     return postData as Post;
@@ -160,23 +165,27 @@ export const useAppExplore = ({
 
         if (fetchedPostsMap.size > 0) {
             setAllPostsMap(prev => new Map([...prev, ...fetchedPostsMap]));
-            console.log(`[Explore] Ingested ${fetchedPostsMap.size} post(s) from ${keys.length} author(s)`);
+            console.debug(`[Explore] Ingested ${fetchedPostsMap.size} post(s) from ${keys.length} author(s)`);
         }
-    }, [setAllPostsMap, setUserProfilesMap, fetchMissingParentPost, myIpnsKey]);
+    }, [setAllPostsMap, setUserProfilesMap, fetchMissingParentPost, myPeerId]);
 
     const collectSeedKeys = useCallback((): string[] => {
         const blockedSet = new Set(userStateRef.current?.blockedUsers || []);
         const myFollowKeys = (userStateRef.current?.follows || []).map(f => f?.ipnsKey).filter((k): k is string => !!k);
-        const onlinePeerKeys = otherUsersRef.current.map(u => u.ipnsKey).filter((k): k is string => !!k);
+        // otherUsers is already room-local (shards/circles/legacy we joined) — do not
+        // re-filter by home shard or peers on shared rooms (e.g. v1 bridge) are dropped.
+        const onlinePeerKeys = otherUsersRef.current
+            .map(u => u.ipnsKey)
+            .filter((k): k is string => !!k);
         const seedKeys = new Set([...myFollowKeys, ...onlinePeerKeys]);
-        if (myIpnsKey) seedKeys.add(myIpnsKey);
+        if (myPeerId) seedKeys.add(myPeerId);
         return Array.from(seedKeys).filter(
             k => isResolvableKey(k)
-                && k !== myIpnsKey
+                && k !== myPeerId
                 && !processedFollowFetchKeys.current.has(k)
                 && !blockedSet.has(k)
         );
-    }, [myIpnsKey]);
+    }, [myPeerId]);
 
     const loadMoreExplore = useCallback(async () => {
         if (!enabled || busyRef.current) return;
@@ -188,29 +197,32 @@ export const useAppExplore = ({
             // Drain a few batches so peer injections mid-run still get processed.
             for (let step = 0; step < 4; step++) {
                 if (currentBatchKeys.current.length === 0 && nextLayerKeys.current.size === 0) {
-                    console.log('[Explore] Queue empty. Auto-seeding from network...');
+                    console.debug('[Explore] Queue empty. Auto-seeding from network...');
                     currentDepth.current = 0;
 
                     const seeds = collectSeedKeys();
                     if (seeds.length === 0) {
-                        if (step === 0) console.log('[Explore] No new seeds available.');
+                        if (step === 0) console.debug('[Explore] No new seeds available.');
                         break;
                     }
 
                     seeds.forEach(k => processedFollowFetchKeys.current.add(k));
-                    // Prefer currently-online peers (P2P) before gateway-bound follows
+                    // Prefer: local-cluster online → other online → follows/offline
                     const onlineSet = new Set(otherUsersRef.current.map(u => u.ipnsKey));
-                    currentBatchKeys.current = shuffleArray(seeds).sort((a, b) => {
-                        const ao = onlineSet.has(a) ? 0 : 1;
-                        const bo = onlineSet.has(b) ? 0 : 1;
-                        return ao - bo;
-                    });
+                    const rank = (k: string) => {
+                        const online = onlineSet.has(k);
+                        const local = myPeerId ? isLocalClusterPeer(myPeerId, k) : false;
+                        if (online && local) return 0;
+                        if (online) return 1;
+                        return 2;
+                    };
+                    currentBatchKeys.current = shuffleArray(seeds).sort((a, b) => rank(a) - rank(b));
                 }
 
                 if (currentBatchKeys.current.length === 0) {
                     if (nextLayerKeys.current.size > 0) {
                         currentDepth.current += 1;
-                        console.log(`[Explore] Advancing to Depth ${currentDepth.current}`);
+                        console.debug(`[Explore] Advancing to Depth ${currentDepth.current}`);
 
                         const nextBatch = Array.from(nextLayerKeys.current);
                         nextBatch.forEach(k => processedFollowFetchKeys.current.add(k));
@@ -250,7 +262,7 @@ export const useAppExplore = ({
             .filter((k): k is string =>
                 !!k
                 && isResolvableKey(k)
-                && k !== myIpnsKey
+                && k !== myPeerId
                 && !blockedSet.has(k)
                 && !processedFollowFetchKeys.current.has(k)
             );
@@ -258,7 +270,7 @@ export const useAppExplore = ({
         if (fresh.length === 0) return;
 
         const batch = shuffleArray(fresh).slice(0, ONLINE_PEER_INGEST_LIMIT);
-        console.log(`[Explore] Online peers joined — fetching latest from ${batch.length}:`, batch.map(k => k.slice(0, 12) + '…'));
+        console.debug(`[Explore] Online peers joined — fetching latest from ${batch.length}:`, batch.map(k => k.slice(0, 12) + '…'));
         batch.forEach(k => processedFollowFetchKeys.current.add(k));
         currentBatchKeys.current.push(...batch);
         setCanLoadMoreExplore(true);
@@ -275,7 +287,7 @@ export const useAppExplore = ({
         void kick();
 
         return () => { cancelled = true; };
-    }, [otherUsers, enabled, myIpnsKey, userState?.blockedUsers, loadMoreExplore]);
+    }, [otherUsers, enabled, myPeerId, userState?.blockedUsers, loadMoreExplore]);
 
     const refreshExploreFeed = useCallback(async () => {
         if (!enabled) return;

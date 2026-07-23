@@ -1,17 +1,14 @@
-// fileName: src/components/Sidebar.tsx
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { UserState, OnlinePeer } from '../types';
 import { useAppState } from '../state/useAppStorage';
-import { SettingsIcon } from './Icons';
-import { HomeIcon } from './Icons';
-import { sanitizeText } from '../lib/utils';
+import { SettingsIcon, HomeIcon, LockIcon } from './Icons';
+import { sanitizeText, shortId, parseFollowTarget } from '../lib/utils';
 import './Sidebar.css';
 
 const SettingsDialog = lazy(() => import('./SettingsDialog'));
 const UnlockSessionDialog = lazy(() => import('./UnlockSessionDialog'));
 
-// --- Helper Component for Copy Logic ---
 interface CopyableTextProps {
     value: string;
     displayValue?: string;
@@ -107,35 +104,30 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isUnlockOpen, setIsUnlockOpen] = useState(false);
+  const [showIdentity, setShowIdentity] = useState(false);
   const [manualFollowKey, setManualFollowKey] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
-  // FIX: Track attempted fetches to prevent "hammering" the API on re-renders
   const attemptedAutoFetch = useRef<Set<string>>(new Set());
 
-  // 2. AUTO-RESOLVE NAMES: If a friend is missing from cache, fetch them.
   useEffect(() => {
       if (!userState || !isOpen) return;
 
       userState.follows.forEach(follow => {
-          // Check if missing from cache AND not yet attempted in this session
           if (!userProfilesMap.has(follow.ipnsKey) && !attemptedAutoFetch.current.has(follow.ipnsKey)) {
-              
-              // Mark as attempted immediately
               attemptedAutoFetch.current.add(follow.ipnsKey);
-              
-              // console.log(`[Sidebar] Auto-fetching profile for ${follow.ipnsKey}`);
-              fetchUser(follow.ipnsKey); 
+              fetchUser(follow.ipnsKey);
           }
       });
   }, [isOpen, userState, userProfilesMap, fetchUser]);
 
 
   const handleManualFollow = async () => {
-      if (!manualFollowKey.trim()) return;
+      const target = parseFollowTarget(manualFollowKey);
+      if (!target) return;
       setIsAdding(true);
       try {
-          await onFollow(manualFollowKey.trim());
+          await onFollow(target);
           setManualFollowKey('');
       } catch (error) {
           console.error("Manual follow failed", error);
@@ -176,9 +168,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <button
                     onClick={() => setIsUnlockOpen(true)}
                     className="icon-button sidebar-action-btn sidebar-lock-btn"
-                    title="Session Locked (Read-Only). Click to Unlock."
+                    title="Session locked (read-only). Click to unlock."
                 >
-                    🔒
+                    <LockIcon />
                 </button>
             )}
             <button 
@@ -200,14 +192,24 @@ const Sidebar: React.FC<SidebarProps> = ({
             {sanitizeText(userState?.profile.name) || "Anonymous"}
           </span>
       </InfoItem>
-      
-      <InfoItem label="My IPNS Key">
-          <CopyableText value={peerId} />
-      </InfoItem>
 
-      <InfoItem label="Latest State CID">
-          <CopyableText value={latestCid} />
-      </InfoItem>
+      <details
+        className="sidebar-advanced"
+        open={showIdentity}
+        onToggle={(e) => setShowIdentity((e.target as HTMLDetailsElement).open)}
+      >
+        <summary>Identity &amp; debug</summary>
+        <p className="sidebar-advanced-hint">
+          Helia stores your keys and content locally. Peers sync over WebRTC when online.
+          Public gateways are a fallback only.
+        </p>
+        <InfoItem label="My ID (copy to share / follow)">
+          <CopyableText value={peerId} displayValue={shortId(peerId)} title={peerId} />
+        </InfoItem>
+        <InfoItem label="Latest tip (debug)">
+          <CopyableText value={latestCid} displayValue={shortId(latestCid)} title={latestCid} />
+        </InfoItem>
+      </details>
       
       {/* 1. Following List Section */}
       {userState && (
@@ -224,7 +226,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           if (!displayName) {
                               displayName = follow.name;
                               if (!displayName || displayName === follow.ipnsKey) {
-                                  displayName = follow.ipnsKey.substring(0, 8) + '...';
+                                  displayName = shortId(follow.ipnsKey);
                               }
                           }
                           
@@ -240,9 +242,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     </span>
                                     <CopyableText 
                                         value={follow.ipnsKey} 
-                                        displayValue={follow.ipnsKey} 
+                                        displayValue={shortId(follow.ipnsKey)} 
                                         className="peer-key"
-                                        title={follow.ipnsKey}
+                                        title={`Copy ID: ${follow.ipnsKey}`}
                                     />
                                 </div>
                                 <button 
@@ -264,7 +266,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div className="sidebar-add-row">
                   <input
                       type="text"
-                      placeholder="Add Key (k51...)"
+                      placeholder="Paste ID or profile link"
                       value={manualFollowKey}
                       onChange={(e) => setManualFollowKey(e.target.value)}
                       className="sidebar-add-input"
@@ -273,7 +275,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       onClick={handleManualFollow}
                       disabled={!manualFollowKey.trim() || isAdding}
                       className="follow-button-small sidebar-add-btn"
-                      title="Follow this IPNS Key"
+                      title="Follow this person"
                   >
                       {isAdding ? '...' : '+'}
                   </button>
@@ -283,8 +285,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {unresolvedFollows.length > 0 && (
           <div className="info-item" style={{ borderColor: 'orange', marginTop: '1rem' }}>
-              <strong>Resolving Follows...</strong>
+              <strong>Waiting for peers…</strong>
               <code>{unresolvedFollows.length} pending</code>
+              <small style={{ display: 'block', color: '#888', marginTop: '0.35rem', fontSize: '0.75rem' }}>
+                  No tip yet. Online follows sync over WebRTC when they appear.
+              </small>
           </div>
       )}
 
@@ -302,14 +307,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 onClick={() => { onViewProfile(user.ipnsKey); onClose(); }}
                                 style={{ cursor: 'pointer', textDecoration: 'underline' }}
                             >
-                                {sanitizeText(user.name) || user.ipnsKey.substring(0,8) + '...'}
+                                {sanitizeText(user.name) || shortId(user.ipnsKey)}
                             </span>
                             {user.ipnsKey ? (
                                 <CopyableText 
                                     value={user.ipnsKey}
-                                    displayValue={user.ipnsKey}
+                                    displayValue={shortId(user.ipnsKey)}
                                     className="peer-key"
-                                    title={user.ipnsKey}
+                                    title={`Copy ID: ${user.ipnsKey}`}
                                 />
                              ) : (
                                  <span className="peer-key">ID Unavailable</span>

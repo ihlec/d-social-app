@@ -1,4 +1,3 @@
-// fileName: src/pages/ProfilePage.tsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ProfileHeader from '../components/ProfileHeader';
@@ -6,11 +5,38 @@ import Feed from '../features/feed/Feed';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Sidebar from '../components/Sidebar';
 import { useAppState } from '../state/useAppStorage';
-import { resolveIpns, fetchUserStateChunk } from '../api/ipfsIpns';
-import { UserState, Post } from '../types';
+import { resolveIpns, fetchUserStateChunk, requestPeerFeed, ensureRoomForPeer } from '../api/ipfsIpns';
+import { startHelia } from '../api/heliaNode';
+import { UserState, Post, UserProfile } from '../types';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import logo from '/logo.png';
 import { ArrowLeftIcon } from '../components/Icons';
+
+function postsByAuthor(postsMap: Map<string, Post>, authorKey: string): Post[] {
+    const out: Post[] = [];
+    postsMap.forEach(p => {
+        if (p.authorKey === authorKey && !p.referenceCID) out.push(p);
+    });
+    return out.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function synthesizeStateFromLocal(
+    authorKey: string,
+    postsMap: Map<string, Post>,
+    profileHint?: UserProfile | null,
+): UserState {
+    const roots = postsByAuthor(postsMap, authorKey);
+    return {
+        profile: profileHint || { name: authorKey.slice(0, 8) + '…' },
+        postCIDs: roots.map(p => p.id),
+        follows: [],
+        likedPostCIDs: [],
+        dislikedPostCIDs: [],
+        savedPostCIDs: [],
+        updatedAt: roots[0]?.timestamp || Date.now(),
+        extendedUserState: null,
+    };
+}
 
 const getLatestActivityTimestamp = (postId: string, postsMap: Map<string, Post>): number => {
     const post = postsMap.get(postId);
@@ -38,12 +64,15 @@ const ProfilePage: React.FC = () => {
 
     const {
         myIpnsKey,
-        myPeerId, 
+        myPeerId,
+        isLoggedIn,
         userState: currentUserState,
         allPostsMap,
+        setAllPostsMap,
         setUserProfilesMap,
         likePost,
         dislikePost,
+        savePost,
         ensurePostsAreFetched,
         logout,
         otherUsers,
@@ -58,139 +87,299 @@ const ProfilePage: React.FC = () => {
     const [isProfileLoading, setIsProfileLoading] = useState(false);
     const [isFeedLoading, setIsFeedLoading] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [isUsingCachedData, setIsUsingCachedData] = useState(false); // <--- NEW: State for fallback UI
+    const [isUsingCachedData, setIsUsingCachedData] = useState(false);
+    const [peerWaitFailed, setPeerWaitFailed] = useState(false);
 
-    // Track the last key we tried to load to prevent wiping state on background updates
-    const lastFetchedKey = useRef<string | null>(null);
+    // Only skip reload after a successful resolve for this key
+    const resolvedKeyRef = useRef<string | null>(null);
+    const loadGenRef = useRef(0);
+    const allPostsMapRef = useRef(allPostsMap);
+    allPostsMapRef.current = allPostsMap;
+    const otherUsersRef = useRef(otherUsers);
+    otherUsersRef.current = otherUsers;
+    const userProfilesMapRef = useRef(userProfilesMap);
+    userProfilesMapRef.current = userProfilesMap;
+    const currentUserStateRef = useRef(currentUserState);
+    currentUserStateRef.current = currentUserState;
+    const hasOwnState = !!currentUserState;
+    const isOnlineForProfile = otherUsers.some(u => u.ipnsKey === profileKey);
 
     // Robust check for "My Profile" (matches ID or Label)
     const isMyProfile = (myPeerId === profileKey) || (myIpnsKey === profileKey);
 
-    // --- Load Profile Data ---
+    // Deps must stay a fixed-length array. Read mutable maps/state via refs so
+    // feed updates do not re-trigger P2P/IPNS (that caused hundreds of syncs).
     useEffect(() => {
-        // Scroll to top when profile key changes
         window.scrollTo(0, 0);
-        
-        let isMounted = true;
+
+        if (!profileKey) return;
+
+        // Already resolved this profile — ignore parent re-renders / own-state churn
+        if (resolvedKeyRef.current === profileKey) {
+            if (isMyProfile && currentUserStateRef.current) {
+                setProfileState(currentUserStateRef.current);
+            }
+            return;
+        }
+
+        const gen = ++loadGenRef.current;
+        const stillCurrent = () => loadGenRef.current === gen;
 
         const loadProfile = async () => {
-            if (!profileKey) return;
+            const me = currentUserStateRef.current;
+            const guest = isLoggedIn !== true;
 
-            // Optimization: If it's me, rely on global state initially
-            if (isMyProfile && currentUserState) {
-                setProfileState(currentUserState);
-
-                // Force fetch my own posts if they are missing
-                const cids = currentUserState.postCIDs || [];
-                // Check against current map (safe due to effect dependencies usually or acceptable staleness for init)
-                const missing = cids.filter(id => !allPostsMap.has(id));
-                
+            // Own profile: wait until global state exists
+            if (isMyProfile) {
+                if (!me) return;
+                setProfileState(me);
+                setIsProfileLoading(false);
+                setIsUsingCachedData(false);
+                setPeerWaitFailed(false);
+                resolvedKeyRef.current = profileKey;
+                const cids = me.postCIDs || [];
+                const missing = cids.filter(id => !allPostsMapRef.current.has(id));
                 if (missing.length > 0) {
                     setIsFeedLoading(true);
-                    // Force fetch to bypass backoff for the "My Profile" view
                     await ensurePostsAreFetched(cids, profileKey, true);
-                    if (isMounted) setIsFeedLoading(false);
+                    if (stillCurrent()) setIsFeedLoading(false);
                 }
                 return;
             }
 
-            // Otherwise, fetch stranger's data
-            const isRefetch = lastFetchedKey.current === profileKey;
-            
-            if (!isRefetch) {
-                setIsProfileLoading(true);
-                setProfileState(null);
-                if (isMounted) setIsUsingCachedData(false);
-                lastFetchedKey.current = profileKey;
-            }
+            setIsProfileLoading(true);
+            setProfileState(null);
+            setIsUsingCachedData(false);
+            setPeerWaitFailed(false);
 
             try {
-                // 1. Attempt Live Resolve (Network)
-                let headCid = await resolveIpns(profileKey);
                 let usedCache = false;
+                let state: Partial<UserState> | null = null;
+                const isOnline = otherUsersRef.current.some(u => u.ipnsKey === profileKey);
 
-                // 2. FALLBACK: If network fails, check our own follow list
-                // This fixes the "No posts yet" issue if IPNS DHT is slow but we have a pointer.
-                if (!headCid && currentUserState?.follows) {
-                    const followEntry = currentUserState.follows.find(f => f.ipnsKey === profileKey);
+                const applyState = (next: Partial<UserState>, cached: boolean) => {
+                    if (!stillCurrent()) return;
+                    const localRoots = postsByAuthor(allPostsMapRef.current, profileKey);
+                    const mergedCids = [
+                        ...new Set([...(next.postCIDs || []), ...localRoots.map(p => p.id)]),
+                    ];
+                    const fullState = { ...next, postCIDs: mergedCids } as UserState;
+                    setProfileState(fullState);
+                    setIsUsingCachedData(cached);
+                    setPeerWaitFailed(false);
+                    if (fullState.profile) {
+                        setUserProfilesMap(prev => new Map(prev).set(profileKey, fullState.profile));
+                    }
+                    setIsProfileLoading(false);
+                };
+
+                // Guest / share-link: Helia + one on-demand author home shard (no feed crawl)
+                try {
+                    await startHelia();
+                    await ensureRoomForPeer(profileKey);
+                } catch { /* continue */ }
+
+                // 0a) Instant local: posts already in the feed from Explore/P2P
+                {
+                    const online = otherUsersRef.current.find(u => u.ipnsKey === profileKey);
+                    const hint =
+                        userProfilesMapRef.current.get(profileKey)
+                        || (online ? { name: online.name } : null);
+                    const localPosts = postsByAuthor(allPostsMapRef.current, profileKey);
+                    if (localPosts.length > 0) {
+                        state = synthesizeStateFromLocal(profileKey, allPostsMapRef.current, hint);
+                        usedCache = true;
+                        applyState(state, true);
+                        console.log(`[Profile] Instant local posts for ${profileKey.slice(0, 12)}… (${localPosts.length})`);
+                    }
+                }
+
+                // 0b) Trystero P2P — browser Helia peers are not on public IPNS
+                try {
+                    let p2p = await requestPeerFeed(profileKey);
+                    if (!p2p?.ok && (isOnline || guest)) {
+                        for (let attempt = 0; attempt < 4 && !p2p?.ok && stillCurrent(); attempt++) {
+                            await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+                            p2p = await requestPeerFeed(profileKey);
+                        }
+                    }
+                    if (p2p?.ok && p2p.state) {
+                        state = p2p.state;
+                        usedCache = false;
+                        if (p2p.posts?.length) {
+                            const localIds = p2p.posts.map(p => p.id);
+                            state = {
+                                ...state,
+                                postCIDs: [...new Set([...(state.postCIDs || []), ...localIds])],
+                            };
+                            setAllPostsMap(prev => {
+                                const next = new Map(prev);
+                                for (const p of p2p!.posts) {
+                                    if (p?.id) {
+                                        next.set(p.id, {
+                                            ...p,
+                                            authorKey: p.authorKey || profileKey,
+                                        });
+                                    }
+                                }
+                                return next;
+                            });
+                        }
+                        applyState(state, false);
+                        console.log(`[Profile] Loaded via P2P: ${profileKey.slice(0, 12)}…`);
+                    } else if (isOnline && !state?.postCIDs?.length) {
+                        console.warn(`[Profile] P2P sync failed for online peer ${profileKey.slice(0, 12)}…`);
+                    }
+                } catch { /* fall through */ }
+
+                if (!stillCurrent()) return;
+
+                // Guests: stop after author-shard P2P (no explore crawl / IPNS gateway spam)
+                if (guest) {
+                    if (state) {
+                        applyState(state, usedCache);
+                        if (stillCurrent()) resolvedKeyRef.current = profileKey;
+                        const mergedCids = [
+                            ...new Set([
+                                ...(state.postCIDs || []),
+                                ...postsByAuthor(allPostsMapRef.current, profileKey).map(p => p.id),
+                            ]),
+                        ];
+                        const missing = mergedCids.filter(id => !allPostsMapRef.current.has(id));
+                        if (missing.length > 0) {
+                            setIsFeedLoading(true);
+                            await ensurePostsAreFetched(missing, profileKey, true);
+                            if (stillCurrent()) setIsFeedLoading(false);
+                        }
+                    } else {
+                        console.warn('Guest could not resolve profile via P2P:', profileKey);
+                        if (stillCurrent()) {
+                            setIsProfileLoading(false);
+                            setPeerWaitFailed(true);
+                        }
+                    }
+                    return;
+                }
+
+                // 1) Public / local IPNS only for offline peers when we still have nothing
+                let headCid = '';
+                if (!state?.postCIDs?.length && !isOnline) {
+                    headCid = await resolveIpns(profileKey);
+                }
+
+                // 2) Follow-list lastSeenCid
+                if (!state && !headCid && me?.follows) {
+                    const followEntry = me.follows.find(f => f.ipnsKey === profileKey);
                     if (followEntry?.lastSeenCid) {
                         console.warn(`[Profile] Network resolve failed. Falling back to cached Last Seen CID: ${followEntry.lastSeenCid}`);
                         headCid = followEntry.lastSeenCid;
                         usedCache = true;
-                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
                         const { pinCid } = await import('../api/admin');
-                        pinCid(followEntry.lastSeenCid).catch(() => {}); // Fire-and-forget, don't block
+                        pinCid(followEntry.lastSeenCid).catch(() => {});
                     }
                 }
 
-                // Handle direct CID links (legacy or explicit)
+                // Online peer announced stateCid (fetch via content gateways / Helia, not IPNS)
+                if (!state && !headCid) {
+                    const online = otherUsersRef.current.find(u => u.ipnsKey === profileKey);
+                    if (online?.stateCid) {
+                        headCid = online.stateCid;
+                        usedCache = true;
+                    }
+                }
+
                 if (!headCid && profileKey.startsWith('Qm')) {
                     headCid = profileKey;
                 }
 
-                if (headCid) {
-                    if (isMounted) setIsUsingCachedData(usedCache); // Set UI flag
-                    
-                    const state = await fetchUserStateChunk(headCid);
+                if (!state && headCid) {
+                    if (stillCurrent()) setIsUsingCachedData(usedCache);
+                    state = await fetchUserStateChunk(headCid, profileKey).catch(() => null);
+                }
 
-                    if (isMounted && state) {
-                        setProfileState(state as UserState);
+                // 3) Local feed already has their posts — synthesize a profile
+                if (!state) {
+                    const online = otherUsersRef.current.find(u => u.ipnsKey === profileKey);
+                    const hint =
+                        userProfilesMapRef.current.get(profileKey)
+                        || (online ? { name: online.name } : null);
+                    const localPosts = postsByAuthor(allPostsMapRef.current, profileKey);
+                    if (localPosts.length > 0 || hint) {
+                        console.warn(`[Profile] Using local/P2P-visible posts for ${profileKey.slice(0, 12)}… (${localPosts.length})`);
+                        state = synthesizeStateFromLocal(profileKey, allPostsMapRef.current, hint);
+                        usedCache = true;
+                    }
+                }
 
-                        // Update global profile cache
-                        const loadedProfile = state.profile;
-                        if (loadedProfile) {
-                            setUserProfilesMap(prev => new Map(prev).set(profileKey, loadedProfile));
-                        }
+                if (!stillCurrent()) return;
 
-                        setIsProfileLoading(false);
-
-                        // Fetch their posts if missing
-                        const cids = state.postCIDs || [];
-                        if (cids.length > 0) {
-                            setIsFeedLoading(true);
-                            await ensurePostsAreFetched(cids, profileKey, true);
-                            if (isMounted) setIsFeedLoading(false);
-                        }
-                    } else {
-                        if (isMounted) setIsProfileLoading(false);
+                if (state) {
+                    applyState(state, usedCache);
+                    if (stillCurrent()) resolvedKeyRef.current = profileKey;
+                    const mergedCids = [
+                        ...new Set([
+                            ...(state.postCIDs || []),
+                            ...postsByAuthor(allPostsMapRef.current, profileKey).map(p => p.id),
+                        ]),
+                    ];
+                    const missing = mergedCids.filter(id => !allPostsMapRef.current.has(id));
+                    if (missing.length > 0) {
+                        setIsFeedLoading(true);
+                        await ensurePostsAreFetched(missing, profileKey, true);
+                        if (stillCurrent()) setIsFeedLoading(false);
                     }
                 } else {
-                    console.warn("Could not resolve profile key:", profileKey);
-                    if (isMounted) setIsProfileLoading(false);
+                    console.warn('Could not resolve profile key:', profileKey);
+                    setIsProfileLoading(false);
+                    setPeerWaitFailed(true);
+                    // Leave resolvedKeyRef unset so a later online/P2P attempt can retry
                 }
             } catch (e) {
-                console.error("Failed to load profile", e);
-                if (isMounted) setIsProfileLoading(false);
+                console.error('Failed to load profile', e);
+                if (stillCurrent()) {
+                    setIsProfileLoading(false);
+                    setPeerWaitFailed(true);
+                }
             }
         };
 
-        loadProfile();
-        return () => { isMounted = false; };
-    }, [profileKey, ensurePostsAreFetched, setUserProfilesMap, isMyProfile, currentUserState]);
+        void loadProfile();
+        return () => { loadGenRef.current += 1; };
+        // isOnlineForProfile: retry once when a peer appears after a failed resolve
+    }, [profileKey, isMyProfile, hasOwnState, isOnlineForProfile, isLoggedIn, ensurePostsAreFetched, setUserProfilesMap, setAllPostsMap]);
 
 
     const displayData = useMemo(() => {
         const targetState = isMyProfile ? currentUserState : profileState;
 
-        if (!targetState) {
-            return { topLevelIds: [], postsWithReplies: allPostsMap, missingCids: [] };
+        // Even without a resolved UserState, show posts we already have for this author
+        const localAuthorPosts = postsByAuthor(allPostsMap, profileKey);
+
+        if (!targetState && localAuthorPosts.length === 0) {
+            return { topLevelIds: [], postsWithReplies: allPostsMap, missingCids: [] as string[] };
         }
 
         let sourceCids: string[] = [];
 
         if (activeTab === 'posts') {
-            sourceCids = targetState.postCIDs || [];
+            sourceCids = [
+                ...new Set([
+                    ...(targetState?.postCIDs || []),
+                    ...localAuthorPosts.map(p => p.id),
+                ]),
+            ];
         } else if (activeTab === 'likes') {
-            sourceCids = targetState.likedPostCIDs || [];
+            sourceCids = targetState?.likedPostCIDs || [];
         } else if (activeTab === 'dislikes') {
-            sourceCids = targetState.dislikedPostCIDs || [];
+            sourceCids = targetState?.dislikedPostCIDs || [];
         }
 
         const filteredMap = new Map<string, Post>();
 
         sourceCids.forEach(cid => {
             const post = allPostsMap.get(cid);
-            if (post) {
+            // Skip missing / legacy placeholder shells
+            if (post && post.timestamp !== 0) {
                 filteredMap.set(cid, post);
             }
         });
@@ -202,7 +391,7 @@ const ProfilePage: React.FC = () => {
         });
 
         return { topLevelIds: sortedIds, postsWithReplies: allPostsMap, missingCids: sourceCids };
-    }, [profileState, currentUserState, allPostsMap, activeTab, isMyProfile]);
+    }, [profileState, currentUserState, allPostsMap, activeTab, isMyProfile, profileKey]);
 
     // Ensure missing items (likes/dislikes) are fetched
     const attemptedForceCids = useRef(new Set<string>());
@@ -267,8 +456,8 @@ const ProfilePage: React.FC = () => {
 
             <button
                 className="refresh-button"
-                onClick={() => navigate('/')}
-                title="Return to Feed"
+                onClick={() => navigate(isLoggedIn ? '/' : '/login')}
+                title={isLoggedIn ? 'Return to Feed' : 'Log in'}
             >
                 <ArrowLeftIcon />
             </button>
@@ -277,17 +466,55 @@ const ProfilePage: React.FC = () => {
                 {isProfileLoading ? (
                     <div className="center-screen-loader">
                         <LoadingSpinner />
-                        <p style={{ marginTop: '1rem', color: '#666' }}>Resolving Profile Identity...</p>
+                        <p style={{ marginTop: '1rem', color: '#666' }}>
+                            {isLoggedIn ? 'Resolving Profile Identity...' : 'Waiting for a peer who has this…'}
+                        </p>
+                    </div>
+                ) : peerWaitFailed && !profileState && displayData.topLevelIds.length === 0 ? (
+                    <div className="error-message" style={{ padding: '2rem', textAlign: 'center' }}>
+                        <p>Peer offline — not cached.</p>
+                        <p style={{ color: '#888', fontSize: '0.9rem' }}>
+                            Open this profile again while the author is online, or log in if you already follow them.
+                        </p>
+                        {isLoggedIn !== true && (
+                            <button type="button" className="save-button" onClick={() => navigate('/login')}>
+                                Log in
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <>
                         <ProfileHeader
                             profileKey={profileKey}
-                            profile={isMyProfile ? currentUserState?.profile || null : profileState?.profile || null}
+                            profile={
+                                isMyProfile
+                                    ? currentUserState?.profile || null
+                                    : profileState?.profile
+                                        || userProfilesMap.get(profileKey)
+                                        || (otherUsers.find(u => u.ipnsKey === profileKey)
+                                            ? { name: otherUsers.find(u => u.ipnsKey === profileKey)!.name }
+                                            : null)
+                            }
                             isMyProfile={isMyProfile}
                         />
 
-                        {/* --- NEW: Cached Data Warning Banner --- */}
+                        {isLoggedIn !== true && (
+                            <div style={{
+                                margin: '0 1rem 1rem',
+                                padding: '0.75rem 1rem',
+                                textAlign: 'center',
+                                border: '1px solid rgba(128,128,128,0.25)',
+                                borderRadius: '4px',
+                            }}>
+                                <p style={{ margin: '0 0 0.5rem', color: '#888', fontSize: '0.9rem' }}>
+                                    Log in to follow, like, and use your feed.
+                                </p>
+                                <button type="button" className="save-button" onClick={() => navigate('/login')}>
+                                    Log in
+                                </button>
+                            </div>
+                        )}
+
                         {isUsingCachedData && (
                              <div style={{ 
                                  backgroundColor: 'rgba(255, 193, 7, 0.1)', 
@@ -299,7 +526,7 @@ const ProfilePage: React.FC = () => {
                                  fontSize: '0.85rem',
                                  border: '1px solid rgba(255, 193, 7, 0.2)'
                              }}>
-                                 ⚠️ Network unreachable. Showing last known version.
+                                 Network unreachable. Showing last known version.
                              </div>
                         )}
 
@@ -338,6 +565,7 @@ const ProfilePage: React.FC = () => {
                                 myPeerId={myPeerId}
                                 onLikePost={currentUserState ? likePost : undefined}
                                 onDislikePost={currentUserState ? dislikePost : undefined}
+                                onSavePost={currentUserState ? savePost : undefined}
                                 ensurePostsAreFetched={ensurePostsAreFetched}
                             />
                         </div>
@@ -347,8 +575,11 @@ const ProfilePage: React.FC = () => {
 
                             {!isFeedLoading && displayData.topLevelIds.length === 0 && (
                                 <p className="feed-end-message">
-                                    {activeTab === 'posts' ? "No posts yet." :
-                                        activeTab === 'likes' ? "No liked posts." : "No disliked posts."}
+                                    {activeTab === 'posts'
+                                        ? (isLoggedIn !== true
+                                            ? 'Waiting for a peer who has this… or peer offline — not cached.'
+                                            : 'No posts yet.')
+                                        : activeTab === 'likes' ? 'No liked posts.' : 'No disliked posts.'}
                                 </p>
                             )}
                         </div>

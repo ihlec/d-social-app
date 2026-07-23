@@ -1,4 +1,3 @@
-// fileName: src/pages/AppRouter.tsx
 import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAppState } from '../state/useAppStorage';

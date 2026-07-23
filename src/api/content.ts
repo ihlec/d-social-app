@@ -1,9 +1,13 @@
 import { DEFAULT_USER_STATE_CID } from '../constants';
 import { UserState, Post, Follow } from '../types';
-import { fetchFromGateways, getRankedGateways } from './gatewayUtils';
+import { fetchFromGateways } from './gatewayUtils';
 import { heliaCatJson, getHeliaStatus } from './heliaNode';
+import { isGatewayFallbackEnabled } from '../lib/gatewayFallback';
 
-export async function fetchPost<T = Post | UserState | any>(cid: string): Promise<T | null> {
+export async function fetchPost<T = Post | UserState | any>(
+    cid: string,
+    authorHint?: string
+): Promise<T | null> {
     // Local Helia first — content we just wrote never hits public gateways yet.
     if (getHeliaStatus().status === 'ready') {
         try {
@@ -11,8 +15,33 @@ export async function fetchPost<T = Post | UserState | any>(cid: string): Promis
             if (local && typeof local === 'object') {
                 return { ...(local as object), id: cid } as T;
             }
-        } catch { /* fall through to gateways */ }
+        } catch { /* fall through */ }
     }
+
+    // Author home-shard P2P (profile / feed) when we know who holds the CID
+    const author = (authorHint || '').trim();
+    if (author && author.startsWith('k51')) {
+        try {
+            const { requestPeerPost } = await import('./pubsub');
+            const p2p = await requestPeerPost(author, cid);
+            if (p2p && typeof p2p === 'object') {
+                return { ...(p2p as object), id: cid } as T;
+            }
+        } catch { /* fall through */ }
+    }
+
+    // Content-room P2P only when already joined (PostPage sticky) — avoids explore stalls
+    try {
+        const { isContentRoomJoined, requestContentPost } = await import('./pubsub');
+        if (isContentRoomJoined(cid)) {
+            const p2p = await requestContentPost(cid);
+            if (p2p && typeof p2p === 'object') {
+                return { ...(p2p as object), id: cid } as T;
+            }
+        }
+    } catch { /* fall through */ }
+
+    if (!isGatewayFallbackEnabled()) return null;
 
     const result = await fetchFromGateways(
         `/ipfs/${cid}`,
@@ -25,19 +54,43 @@ export async function fetchPost<T = Post | UserState | any>(cid: string): Promis
     return result;
 }
 
-export async function fetchPostLocal(cid: string, authorHint: string): Promise<Post | UserState | any> {
-    const data = await fetchPost(cid);
-    if (data) return data;
-    return { id: cid, authorKey: authorHint, content: `[Content Unavailable]`, timestamp: 0, replies: [] };
+/**
+ * Fetch a post for feed/profile. Returns null on miss — never inserts
+ * "[Content Unavailable]" placeholders into the post map.
+ */
+export async function fetchPostLocal(cid: string, authorHint: string): Promise<Post | null> {
+    const data = await fetchPost<Post>(cid, authorHint);
+    if (data && typeof data === 'object' && data.id) {
+        if (!data.authorKey && authorHint) data.authorKey = authorHint;
+        // Reject legacy / accidental placeholders
+        if (data.timestamp === 0 && typeof data.content === 'string' && data.content.includes('Content Unavailable')) {
+            return null;
+        }
+        return data;
+    }
+    return null;
 }
 
 export const createEmptyUserState = (profile: { name: string }): UserState => ({
-    profile: profile, postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], updatedAt: 0, extendedUserState: null,
+    profile: profile,
+    postCIDs: [],
+    follows: [],
+    likedPostCIDs: [],
+    dislikedPostCIDs: [],
+    savedPostCIDs: [],
+    blockedUsers: [],
+    updatedAt: 0,
+    extendedUserState: null,
 });
 
-export async function fetchUserStateChunk(cid: string): Promise<Partial<UserState>> {
+export async function fetchUserStateChunk(
+    cid: string,
+    authorHint?: string
+): Promise<Partial<UserState>> {
     try {
-        const data = await fetchPost(cid);
+        const author =
+            authorHint && authorHint.startsWith('k51') ? authorHint : undefined;
+        const data = await fetchPost(cid, author);
         if (!data) {
             throw new Error(`Failed to fetch state chunk: ${cid}`);
         }
@@ -53,16 +106,28 @@ export async function fetchUserStateChunk(cid: string): Promise<Partial<UserStat
 }
 
 export async function fetchUserState(cid: string, profileNameHint?: string): Promise<UserState> {
-    let aggregatedState: Partial<UserState> = { postCIDs: [], follows: [], likedPostCIDs: [], dislikedPostCIDs: [], profile: undefined, updatedAt: 0 };
+    let aggregatedState: Partial<UserState> = {
+        postCIDs: [],
+        follows: [],
+        likedPostCIDs: [],
+        dislikedPostCIDs: [],
+        savedPostCIDs: [],
+        blockedUsers: [],
+        profile: undefined,
+        updatedAt: 0,
+    };
     let currentCid: string | null = cid; 
     let isHead = true; 
-    let chunksProcessed = 0; 
+    let chunksProcessed = 0;
+    /** Callers often pass IPNS key as the second arg — use it for home-shard P2P. */
+    const authorHint =
+        profileNameHint && profileNameHint.startsWith('k51') ? profileNameHint : undefined;
 
     while (currentCid && chunksProcessed < 50) {
         if (currentCid === DEFAULT_USER_STATE_CID) return createEmptyUserState({ name: profileNameHint || "User" });
         chunksProcessed++; 
         try {
-            const chunk = await fetchUserStateChunk(currentCid); 
+            const chunk = await fetchUserStateChunk(currentCid, authorHint); 
             if (!chunk) throw new Error("Empty chunk");
             if (isHead) { 
                 aggregatedState.profile = chunk.profile; 
@@ -73,6 +138,8 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
             aggregatedState.follows = [...(aggregatedState.follows || []), ...(chunk.follows || [])];
             aggregatedState.likedPostCIDs = [...(aggregatedState.likedPostCIDs || []), ...(chunk.likedPostCIDs || [])];
             aggregatedState.dislikedPostCIDs = [...(aggregatedState.dislikedPostCIDs || []), ...(chunk.dislikedPostCIDs || [])];
+            aggregatedState.savedPostCIDs = [...(aggregatedState.savedPostCIDs || []), ...(chunk.savedPostCIDs || [])];
+            aggregatedState.blockedUsers = [...(aggregatedState.blockedUsers || []), ...(chunk.blockedUsers || [])];
             currentCid = chunk.extendedUserState || null;
         } catch (error) { if (isHead) throw error; else currentCid = null; }
     }
@@ -84,6 +151,8 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
         follows: Array.from(uniqueFollows.values()),
         likedPostCIDs: [...new Set(aggregatedState.likedPostCIDs)],
         dislikedPostCIDs: [...new Set(aggregatedState.dislikedPostCIDs)],
+        savedPostCIDs: [...new Set(aggregatedState.savedPostCIDs)],
+        blockedUsers: [...new Set(aggregatedState.blockedUsers)],
         updatedAt: aggregatedState.updatedAt || 0,
         extendedUserState: null 
     };
@@ -114,22 +183,3 @@ export async function fetchCidsBatched<T>(
     return results;
 }
 
-export const getMediaUrl = (cidOrUrl: string): string => {
-    if (!cidOrUrl) return '';
-    let cid = cidOrUrl;
-    const cidMatch = cidOrUrl.match(/(baf[a-z0-9]{50,}|Qm[a-zA-Z0-9]{44,})/);
-    if (cidMatch) {
-        cid = cidMatch[0]; 
-    } else if (cidOrUrl.startsWith('http') || cidOrUrl.startsWith('blob:')) {
-        return cidOrUrl;
-    }
-    
-    const gateways = getRankedGateways('ipfs');
-    const bestGateway = gateways.length > 0 ? gateways[0] : 'https://ipfs.io/ipfs/';
-    if (bestGateway.includes('{cid}')) {
-        return bestGateway.replace('{cid}', cid);
-    }
-    const base = bestGateway.replace(/\/+$/, '');
-    if (base.endsWith('/ipfs')) return `${base}/${cid}`;
-    return `${base}/ipfs/${cid}`;
-};

@@ -1,4 +1,3 @@
-// fileName: src/components/InitializeUserDialog.tsx
 import React from 'react';
 
 interface InitializeUserDialogProps {

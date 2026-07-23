@@ -1,4 +1,3 @@
-// fileName: src/state/stateActions.ts
 import { 
     saveOptimisticCookie
 } from '../lib/utils';
@@ -6,17 +5,22 @@ import {
     getSession,
     resolveIpns,
     fetchUserState,
-    fetchUserStateChunk,
 } from '../api/ipfsIpns';
 import { uploadJson, uploadFile } from '../api/contentUpload';
-import { publishIpns, heliaUnpin } from '../api/heliaNode';
+import { publishIpns } from '../api/heliaNode';
 import { createThumbnail } from '../lib/media';
 import { UserProfile, UserState, OptimisticStateCookie, NewPostData, Post } from '../types';
 
-// --- Data Fetching Helpers ---
 export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> {
     try {
+        try {
+            const { requestPeerFeed } = await import('../api/pubsub');
+            const p2p = await requestPeerFeed(ipnsKey);
+            if (p2p?.ok && p2p.state?.profile) return p2p.state.profile;
+        } catch { /* fall through */ }
+
         const profileCid = await resolveIpns(ipnsKey);
+        if (!profileCid) return { name: 'Unknown User' };
         const authorState = await fetchUserState(profileCid);
         if (authorState?.profile) {
             return authorState.profile;
@@ -28,18 +32,6 @@ export async function fetchUserProfile(ipnsKey: string): Promise<UserProfile> {
     }
 }
 
-export async function fetchUserStateByIpns(ipnsKey: string): Promise<{ state: UserState, cid: string }> {
-    const cid = await resolveIpns(ipnsKey);
-    const state = await fetchUserState(cid, ipnsKey);
-    return { state, cid };
-}
-
-export async function fetchUserStateChunkByIpns(ipnsKey: string): Promise<Partial<UserState>> {
-    const cid = await resolveIpns(ipnsKey);
-    return await fetchUserStateChunk(cid);
-}
-
-// --- Complex Action Helpers ---
 export async function uploadPost(postData: NewPostData, authorPeerId: string) {
     const { content, referenceCID, file } = postData;
     const session = getSession();
@@ -98,7 +90,6 @@ export async function uploadPost(postData: NewPostData, authorPeerId: string) {
     return { finalPost, finalPostCID };
 }
 
-// --- NEW: Phase 1 - Upload JSON to IPFS (Fast) ---
 export async function uploadStateToIpfs(
     stateToUpload: UserState | Partial<UserState>,
     myIpnsKeyLabel: string 
@@ -133,35 +124,4 @@ export async function publishStateToIpns(
     console.log(`[publishStateToIpns] Done.`);
     
     return cid;
-}
-
-// --- Deprecated (kept for reference or manual use) ---
-export async function _uploadStateAndPublishToIpns(
-    stateToPublish: UserState | Partial<UserState>,
-    myIpnsKeyLabel: string 
-): Promise<string> {
-    const cid = await uploadStateToIpfs(stateToPublish, myIpnsKeyLabel);
-    await publishStateToIpns(cid, myIpnsKeyLabel);
-    return cid;
-}
-
-export async function _uploadStateOnly(stateToUpload: UserState | Partial<UserState>): Promise<string> {
-    return uploadJson(stateToUpload);
-}
-
-export async function pruneContent(postToPrune: Post) {
-    const session = getSession();
-    if (session.sessionType !== 'helia') {
-        console.warn("Cannot prune content: No active Helia session.");
-        return;
-    }
-
-    const cids = [postToPrune.id, postToPrune.mediaCid, postToPrune.thumbnailCid]
-        .filter((cid): cid is string => !!cid);
-
-    await Promise.allSettled(cids.map(async (cid) => {
-        console.log(`[prune] Unpinning CID: ${cid}`);
-        await heliaUnpin(cid);
-    }));
-    console.log("[prune] Unpinning complete.");
 }

@@ -1,10 +1,9 @@
-import { PUBLIC_CONTENT_GATEWAYS, PUBLIC_IPNS_GATEWAYS, LOCAL_GATEWAY_TIMEOUT_MS, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
+import { PUBLIC_CONTENT_GATEWAYS, PUBLIC_IPNS_GATEWAYS, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
 import { getCookie, setCookie } from '../lib/utils';
 
 const gatewayCooldowns = new Map<string, number>();
 const COOLDOWN_DURATION = 60 * 1000; // 1 minute cooldown
 
-// --- DYNAMIC RANKING SYSTEM ---
 const GATEWAY_COOKIE_IPFS = 'dsocial_gateway_rank_ipfs_v6'; 
 const GATEWAY_COOKIE_IPNS = 'dsocial_gateway_rank_ipns_v6';
 
@@ -149,14 +148,6 @@ const isOnCooldown = (fullUrl: string) => {
     }
 };
 
-export const toGatewayUrl = (rpcUrl: string): string => {
-    let url = rpcUrl.replace('5001', '8080');
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = `http://${url}`;
-    }
-    return url;
-};
-
 export const getAllGatewayUrls = (cid?: string): string[] => {
     if (!cid) return [];
     
@@ -199,12 +190,10 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
     );
 };
 
-// --- SHARED GATEWAY FETCHING UTILITY ---
 export async function fetchFromGateways<T>(
     resourcePath: string, // e.g., "/ipfs/{cid}" or "/ipns/{key}"
     gatewayType: 'ipfs' | 'ipns',
     responseProcessor: (response: Response) => Promise<T>,
-    _localTimeoutMs: number = LOCAL_GATEWAY_TIMEOUT_MS,
     publicTimeoutMs: number = PUBLIC_GATEWAY_TIMEOUT_MS
 ): Promise<T | null> {
     const gateways = getRankedGateways(gatewayType);

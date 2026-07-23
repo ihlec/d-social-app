@@ -1,4 +1,3 @@
-// fileName: src/features/feed/PostMedia.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Post } from '../../types';
 import { PlayIcon } from '../../components/Icons';
@@ -15,9 +14,29 @@ const PostMedia: React.FC<PostMediaProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Use the Racing Hook for Media and Thumbnails
-  const { bestUrl: activeImgUrl, allUrls: mediaUrls } = useGatewayRace(post.mediaCid);
-  const { bestUrl: activeThumbUrl, allUrls: thumbnailUrls } = useGatewayRace(post.thumbnailCid);
+  const mimeType = getMimeType(post.mediaFileName);
+  const thumbMime =
+    post.mediaType === 'image' ? mimeType : 'image/jpeg';
+  const isImage = post.mediaType === 'image';
+  const isVideo = post.mediaType === 'video';
+
+  // Feed cards only need the thumbnail — loading full video via Helia blobs
+  // into RAM can kill the Chromium renderer. Resolution order: Helia → P2P → gateway.
+  const mediaCidForRace =
+    isExpandedView || isImage || !post.thumbnailCid ? post.mediaCid : undefined;
+
+  const { bestUrl: activeImgUrl, allUrls: mediaUrls } = useGatewayRace(mediaCidForRace, {
+    mimeHint: mimeType,
+    peerIpnsKey: post.authorKey,
+    rendezvousCid: post.id,
+    // Post page / expanded: allow up to P2P max from local Helia (feed stays ≤8MB)
+    allowLarge: isExpandedView,
+  });
+  const { bestUrl: activeThumbUrl, allUrls: thumbnailUrls } = useGatewayRace(post.thumbnailCid, {
+    mimeHint: thumbMime,
+    peerIpnsKey: post.authorKey,
+    rendezvousCid: post.id,
+  });
 
   // Fallback State (if the "Best" URL fails during actual loading)
   const [imgErrorCount, setImgErrorCount] = useState(0);
@@ -26,6 +45,12 @@ const PostMedia: React.FC<PostMediaProps> = ({
   const finalImgUrl = imgErrorCount > 0 && mediaUrls[imgErrorCount] ? mediaUrls[imgErrorCount] : activeImgUrl;
   const finalThumbUrl = thumbErrorCount > 0 && thumbnailUrls[thumbErrorCount] ? thumbnailUrls[thumbErrorCount] : activeThumbUrl;
 
+  const thumbExhausted = thumbnailUrls.length === 0 || thumbErrorCount >= thumbnailUrls.length;
+  /** Images: prefer full media when thumb is missing/failed (common with gateway CORS). */
+  const useMediaAsPreview = isImage && mediaUrls.length > 0 && (thumbExhausted || !finalThumbUrl);
+  const previewUrl = useMediaAsPreview ? finalImgUrl : finalThumbUrl;
+  const previewIsThumb = !useMediaAsPreview;
+
   useEffect(() => {
     // When the active source changes (e.g. race winner updated), reload the video element
     if (videoRef.current) {
@@ -33,7 +58,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
     }
   }, [activeImgUrl]);
 
-  const aspectRatio = post.mediaAspectRatio || (post.mediaType === 'video' ? 0.5625 : 1.77); 
+  const aspectRatio = post.mediaAspectRatio || (isVideo ? 0.5625 : 1.77); 
   const paddingBottom = `${(1 / aspectRatio) * 100}%`;
 
   const mediaContainerStyle = isExpandedView 
@@ -48,11 +73,10 @@ const PostMedia: React.FC<PostMediaProps> = ({
       }
   };
 
-  const mimeType = getMimeType(post.mediaFileName);
+  const previewAlt = isVideo ? 'Video thumbnail' : 'Post image';
 
-  // --- EXPANDED VIEW ---
   if (isExpandedView) {
-     if (mediaUrls.length > 0 && post.mediaType === 'image') {
+     if (mediaUrls.length > 0 && isImage) {
          return (
              <div className="post-media-expanded">
                  <img 
@@ -64,7 +88,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
                  />
              </div>
          );
-     } else if (mediaUrls.length > 0 && post.mediaType === 'video') {
+     } else if (mediaUrls.length > 0 && isVideo) {
          return (
              <div className="post-media-expanded">
                  <video 
@@ -78,13 +102,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
                     crossOrigin="anonymous" 
                     poster={finalThumbUrl || undefined}
                  >
-                     {/* 
-                        Use the RACED best URL as the first source.
-                        This effectively makes the video player switch source priority based on the race.
-                     */}
                      {activeImgUrl && <source src={activeImgUrl} type={mimeType} />}
-                     
-                     {/* Fallbacks (excluding the one we just added to avoid dupes if possible, but harmless) */}
                      {mediaUrls.filter(u => u !== activeImgUrl).map(url => (
                          <source key={url} src={url} type={mimeType} />
                      ))}
@@ -92,36 +110,37 @@ const PostMedia: React.FC<PostMediaProps> = ({
                  </video>
              </div>
          );
-     } else if (thumbnailUrls.length > 0) {
+     } else if (previewUrl) {
          return (
              <div className="post-media-expanded">
                  <img 
-                    src={finalThumbUrl || undefined} 
-                    alt="Video thumbnail" 
-                    onError={() => handleImgError(true)}
+                    src={previewUrl || undefined} 
+                    alt={previewAlt}
+                    onError={() => handleImgError(previewIsThumb)}
                     crossOrigin="anonymous"
                  />
-                 <div className="play-icon-overlay"><PlayIcon /></div>
+                 {isVideo && (
+                   <div className="play-icon-overlay"><PlayIcon /></div>
+                 )}
              </div>
          );
      }
      return null;
   }
-  // --- FEED VIEW ---
   else {
-      if (thumbnailUrls.length > 0) {
+      if (previewUrl) {
           return (
             <div className="post-media-container" style={mediaContainerStyle}>
                 <div className="video-thumbnail-container">
                   <img
-                    src={finalThumbUrl || undefined}
-                    alt="Video thumbnail"
+                    src={previewUrl || undefined}
+                    alt={previewAlt}
                     className="post-media-thumbnail"
                     loading="lazy"
-                    onError={() => handleImgError(true)}
+                    onError={() => handleImgError(previewIsThumb)}
                     crossOrigin="anonymous"
                   />
-                  {post.mediaType === 'video' && (
+                  {isVideo && (
                       <div className="play-icon-overlay">
                           <PlayIcon />
                       </div>
@@ -129,22 +148,8 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 </div>
             </div>
           );
-      } else if (post.mediaType === 'image' && mediaUrls.length > 0) {
-           return (
-            <div className="post-media-container" style={mediaContainerStyle}>
-                <img
-                  src={finalImgUrl || undefined}
-                  alt="Post content"
-                  className="post-media-thumbnail"
-                  loading="lazy"
-                  onError={() => handleImgError(false)}
-                  crossOrigin="anonymous"
-                />
-            </div>
-          );
-      } else {
-          return null; 
       }
+      return null; 
   }
 };
 

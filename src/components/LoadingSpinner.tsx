@@ -1,4 +1,3 @@
-// fileName: src/components/LoadingSpinner.tsx
 import React from 'react';
 
 const LoadingSpinner: React.FC = () => {

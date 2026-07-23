@@ -1,4 +1,3 @@
-// fileName: src/features/profile/ProfileHeader.tsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserProfile, Follow } from '../types';
@@ -29,7 +28,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
 
   const handleFollowClick = async () => {
     if (!userState) {
-      toast("Please log in to follow.", { icon: '🔒' });
+      toast('Please log in to follow.');
       navigate('/login');
     } else {
       isFollowing ? await unfollowUser(profileKey) : await followUser(profileKey);

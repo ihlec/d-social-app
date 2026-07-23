@@ -1,7 +1,6 @@
-// fileName: src/features/feed/PostHeader.tsx
 import React from 'react';
 import { Post, UserProfile } from '../../types';
-import { formatTimeAgo, sanitizeText } from '../../lib/utils';
+import { formatTimeAgo, sanitizeText, shortId } from '../../lib/utils';
 
 interface PostHeaderProps {
   post: Post;
@@ -26,21 +25,17 @@ const PostHeader: React.FC<PostHeaderProps> = ({
       const parentPost = allPostsMap.get(post.referenceCID);
       if (parentPost) {
           const parentProfile = userProfilesMap.get(parentPost.authorKey);
-          return sanitizeText(parentProfile?.name) || parentPost.authorKey.substring(0, 8);
+          return sanitizeText(parentProfile?.name) || shortId(parentPost.authorKey);
       }
       return "Deleted Post";
   };
 
   const replyingToName = getReplyingToName();
 
-  // FIX: Robust Fallback for Name Display
-  // If authorProfile.name exists and is not empty, use it.
-  // Otherwise, use truncated IPNS key (e.g., k51qzi...1234)
+  // Prefer display name; fall back to short opaque ID (full ID in title for copy/debug)
   const displayName = authorProfile && authorProfile.name && authorProfile.name.trim().length > 0
       ? sanitizeText(authorProfile.name)
-      : (post.authorKey.length > 12 
-          ? `${post.authorKey.substring(0, 6)}...${post.authorKey.substring(post.authorKey.length - 4)}` 
-          : post.authorKey);
+      : shortId(post.authorKey);
 
   return (
     <div className="post-header" style={{ color: isOverlay ? 'white' : 'inherit' }}>

@@ -1,8 +1,6 @@
-// fileName: src/hooks/useScrollRestoration.ts
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 
 export const useScrollRestoration = (
-    // FIX: Allow null in the RefObject type to match useRef(null)
     containerRef: React.RefObject<HTMLDivElement | null>,
     isLoadingMore: boolean,
     dataDependency: any[] 
@@ -12,7 +10,6 @@ export const useScrollRestoration = (
     const wasLoadingMore = useRef(false);
     const isRestoringScroll = useRef(false);
 
-    // --- 1. Lock/Unlock Scroll Effect ---
     useEffect(() => {
         if (isScrollLocked) {
             document.body.style.overflowY = 'hidden';
@@ -27,7 +24,6 @@ export const useScrollRestoration = (
         }
     }, [isScrollLocked]);
 
-    // --- 2. Capture Anchor ---
     const captureScrollAnchor = useCallback(() => {
         if (containerRef.current) {
             const posts = containerRef.current.querySelectorAll('.post[data-post-id]');
@@ -52,7 +48,6 @@ export const useScrollRestoration = (
         setIsScrollLocked(true); 
     }, [containerRef]);
 
-    // --- 3. Restore Scroll ---
     useLayoutEffect(() => {
         if (wasLoadingMore.current && !isLoadingMore && scrollAnchorRef.current.id && !isRestoringScroll.current) {
             const anchorId = scrollAnchorRef.current.id;

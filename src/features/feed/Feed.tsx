@@ -1,10 +1,40 @@
-// fileName: src/features/feed/Feed.tsx
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Masonry } from "masonic";
 import PostComponent from './PostItem'; 
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { Post, UserProfile, UserState } from '../../types';
 import './Feed.css';
+
+/**
+ * Masonic caches cell heights by index. Appending at the end is fine; inserting
+ * or reordering (e.g. own post before explore items) leaves stale heights and
+ * cards overlap. Remount only when the id sequence is not a pure append.
+ */
+function useMasonryLayoutKey(ids: string[]): number {
+  const prevIdsRef = useRef<string[]>([]);
+  const [layoutKey, setLayoutKey] = useState(0);
+
+  useEffect(() => {
+    const prev = prevIdsRef.current;
+    const next = ids;
+    prevIdsRef.current = next;
+
+    if (prev.length === 0) return;
+
+    let needsReset = next.length < prev.length;
+    if (!needsReset) {
+      for (let i = 0; i < prev.length; i++) {
+        if (prev[i] !== next[i]) {
+          needsReset = true;
+          break;
+        }
+      }
+    }
+    if (needsReset) setLayoutKey((k) => k + 1);
+  }, [ids]);
+
+  return layoutKey;
+}
 
 interface FeedProps {
   isLoading: boolean;
@@ -14,19 +44,20 @@ interface FeedProps {
   onViewProfile: (key: string) => void;
   onLikePost?: (postId: string) => void;
   onDislikePost?: (postId: string) => void;
+  onSavePost?: (postId: string) => void;
   currentUserState: UserState | null;
   myPeerId: string;
   ensurePostsAreFetched: (postCids: string[], authorHint?: string) => Promise<void>;
 }
 
-// 1. Create a Context to pass props to the Masonic Render Component
-// because masonic instantiates it and we can't easily pass closures without recreating the component on every render (which kills performance).
+// Masonic owns the card instance; context avoids recreating the render fn each update.
 interface FeedPropsContextType {
     allPostsMap: Map<string, Post>;
     userProfilesMap: Map<string, UserProfile>;
     onViewProfile: (key: string) => void;
     onLikePost?: (postId: string) => void;
     onDislikePost?: (postId: string) => void;
+    onSavePost?: (postId: string) => void;
     currentUserState: UserState | null;
     myPeerId: string;
     ensurePostsAreFetched: (postCids: string[], authorHint?: string) => Promise<void>;
@@ -35,15 +66,12 @@ interface FeedPropsContextType {
 
 const FeedPropsContext = React.createContext<FeedPropsContextType | null>(null);
 
-// 2. The Render Component for Masonic (moved outside)
-// Receives { index, data, width }
 const FeedPostCard = ({ data: item }: { index: number, data: { id: string }, width: number }) => {
     const props = React.useContext(FeedPropsContext);
-    // FIX: Never return null, masonic might not like it if it tries to measure the node
     if (!props) return <div style={{ height: 0 }} />;
 
     const { 
-        allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, 
+        allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, onSavePost,
         currentUserState, myPeerId, ensurePostsAreFetched, getContextIds 
     } = props;
 
@@ -68,6 +96,7 @@ const FeedPostCard = ({ data: item }: { index: number, data: { id: string }, wid
                 onViewProfile={onViewProfile}
                 onLikePost={onLikePost}
                 onDislikePost={onDislikePost}
+                onSavePost={onSavePost}
                 currentUserState={currentUserState}
                 myPeerId={myPeerId}
                 ensurePostsAreFetched={ensurePostsAreFetched}
@@ -85,28 +114,23 @@ const Feed: React.FC<FeedProps> = ({
   onViewProfile,
   onLikePost,
   onDislikePost,
+  onSavePost,
   currentUserState,
   myPeerId,
   ensurePostsAreFetched,
 }) => {
 
-  // Prepare items for Masonic (requires objects)
-  // FIX: Stable reference cache is REQUIRED for Masonic to prevent WeakMap errors.
-  // Masonic uses the item object reference as a key in a WeakMap to store measurements.
-  // If we return new objects every render, we break this association and potentially crash 
-  // if an old reference is accessed.
+  // Stable item object refs — Masonic keys height cache by object identity.
   const stableItemsRef = React.useRef<Map<string, { id: string }>>(new Map());
 
-  // Stable Accessor for Context IDs to avoid re-rendering all posts when list grows
   const topLevelIdsRef = React.useRef(topLevelIds);
   React.useEffect(() => { topLevelIdsRef.current = topLevelIds; }, [topLevelIds]);
-  
+
   const getContextIds = React.useCallback(() => topLevelIdsRef.current, []);
 
   const items = useMemo(() => {
-      // Deduplicate IDs first
       const uniqueIds = Array.from(new Set(topLevelIds));
-      
+
       const result = uniqueIds
         .filter(id => id && typeof id === 'string')
         .map(id => {
@@ -116,7 +140,6 @@ const Feed: React.FC<FeedProps> = ({
             return stableItemsRef.current.get(id)!;
         });
 
-      // Cleanup: Remove IDs that are no longer present to prevent memory leaks
       const currentIdSet = new Set(uniqueIds);
       for (const [key] of stableItemsRef.current) {
           if (!currentIdSet.has(key)) {
@@ -127,6 +150,10 @@ const Feed: React.FC<FeedProps> = ({
       return result;
   }, [topLevelIds]);
 
+  // Stable id list for layout invalidation (same order as items)
+  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
+  const masonryLayoutKey = useMasonryLayoutKey(itemIds);
+
   // Context value object
   const contextValue = useMemo(() => ({
       allPostsMap,
@@ -134,11 +161,12 @@ const Feed: React.FC<FeedProps> = ({
       onViewProfile,
       onLikePost,
       onDislikePost,
+      onSavePost,
       currentUserState,
       myPeerId,
       ensurePostsAreFetched,
       getContextIds
-  }), [allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, currentUserState, myPeerId, ensurePostsAreFetched, getContextIds]);
+  }), [allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, onSavePost, currentUserState, myPeerId, ensurePostsAreFetched, getContextIds]);
 
   if (isLoading) {
     return (
@@ -150,15 +178,8 @@ const Feed: React.FC<FeedProps> = ({
   
   return (
     <FeedPropsContext.Provider value={contextValue}>
-        {/* 
-           FIX: Jitter/Centering Issues & Crash Safety
-           1. autoHeight={false}: Forces Masonic to use absolute positioning logic.
-           2. overscanBy: Increased buffer.
-           3. itemHeightEstimate: Helps initial layout.
-           4. itemKey: Explicitly tell Masonic how to identify items to prevent WeakMap errors on updates.
-        */}
         <Masonry
-            // Removed key={items.length} to restore smooth scrolling
+            key={masonryLayoutKey}
             items={items}
             render={FeedPostCard}
             itemKey={(data) => data?.id || 'unknown'} 

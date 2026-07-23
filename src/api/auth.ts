@@ -1,10 +1,9 @@
 import toast from 'react-hot-toast';
 import { Session, UserState } from '../types';
-import { saveSessionCookie, getDynamicSessionCookieName, logoutSession, setSessionMemoryPassword } from './session';
+import { logoutSession, setSessionMemoryPassword, persistSession } from './session';
 import { resolveIpns } from './resolution';
 import { fetchUserStateChunk, createEmptyUserState, fetchUserState } from './content';
 import { getLatestLocalCid } from '../lib/utils';
-import { CURRENT_USER_LABEL_KEY } from '../constants';
 import { uploadJson } from './contentUpload';
 import {
     startHelia,
@@ -107,9 +106,7 @@ export async function loginWithHelia(
         requiresPassword,
     };
 
-    sessionStorage.setItem(CURRENT_USER_LABEL_KEY, trimmed);
-    const cookieName = getDynamicSessionCookieName(trimmed);
-    if (cookieName) saveSessionCookie(cookieName, session);
+    persistSession(session);
 
     return { session, state: initialState!, cid: initialCid };
 }

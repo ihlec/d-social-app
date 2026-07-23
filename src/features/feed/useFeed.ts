@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Post, UserProfile, UserState, Follow } from '../../types';
+import { useState, useCallback } from 'react';
+import { Post, UserProfile, UserState, Follow, OnlinePeer } from '../../types';
 import { useFeedFetch } from './useFeedFetch';
-import { useFeedSync } from './useFeedSync';
+import { useFeedSync, mergePeerFeedIntoMaps } from './useFeedSync';
 import { useFeedPagination } from './useFeedPagination';
+import type { PeerFeedSnapshot } from '../../api/pubsub';
 
 interface UseAppFeedArgs {
     allPostsMap: Map<string, Post>;
@@ -16,6 +17,7 @@ interface UseAppFeedArgs {
     myIpnsKey: string;
     myLatestStateCID: string;
     allUserStatesMap?: Map<string, UserState>;
+    otherUsers?: OnlinePeer[];
 }
 
 export interface UseAppFeedReturn {
@@ -37,7 +39,8 @@ export const useAppFeed = ({
     updateFollowMetadata,
     myIpnsKey,
     myLatestStateCID,
-    allUserStatesMap
+    allUserStatesMap,
+    otherUsers = [],
 }: UseAppFeedArgs): UseAppFeedReturn => {
     
     const [isLoadingFeed, setIsLoadingFeed] = useState(false);
@@ -51,6 +54,14 @@ export const useAppFeed = ({
         allUserStatesMap
     });
 
+    const ingestPeerFeed = useCallback(async (ipnsKey: string, snap: PeerFeedSnapshot) => {
+        mergePeerFeedIntoMaps(ipnsKey, snap, setAllPostsMap, setUserProfilesMap);
+        const cids = snap.state?.postCIDs?.slice(0, 20) || [];
+        if (cids.length > 0) {
+            await ensurePostsAreFetched(cids, ipnsKey);
+        }
+    }, [setAllPostsMap, setUserProfilesMap, ensurePostsAreFetched]);
+
     // 2. Sync Logic (Initial Load & Background Refresh)
     const { processMainFeed } = useFeedSync({
         fetchStateAndPosts,
@@ -60,7 +71,9 @@ export const useAppFeed = ({
         updateFollowMetadata,
         myIpnsKey,
         myLatestStateCID,
-        setIsLoadingFeed
+        setIsLoadingFeed,
+        otherUsers,
+        ingestPeerFeed,
     });
 
     // 3. Pagination Logic (Load More)

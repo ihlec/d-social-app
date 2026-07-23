@@ -1,17 +1,12 @@
-// fileName: src/state/AppContext.tsx
 import React, { createContext, useContext } from 'react';
 import { UseAppStateReturn } from './useAppStorage'; // Type def only
 import { AuthProvider, useAuthContext } from './AuthContext';
 import { FeedProvider, useFeedContext } from './FeedContext';
 
-// We want to maintain compatibility for now, so we expose the aggregated state via the old Context name
-// But internally, we will assume consumers should ideally migrate.
-// For now, AppStateContext will be a "facade" context or we just provide a hook that aggregates.
-
+/** Facade over AuthContext + FeedContext for useAppState / useAppContext consumers. */
 export const AppStateContext = createContext<UseAppStateReturn | null>(null);
 
-// Wrapper that combines the two contexts into the legacy shape
-const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const StateAggregator: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const auth = useAuthContext();
     const feed = useFeedContext();
 
@@ -46,6 +41,8 @@ const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ childr
         deletePost: feed.deletePost,
         likePost: feed.likePost,
         dislikePost: feed.dislikePost,
+        savePost: feed.savePost,
+        clearMediaCache: feed.clearMediaCache,
         followUser: feed.followUser,
         unfollowUser: feed.unfollowUser,
         blockUser: feed.blockUser,
@@ -60,27 +57,17 @@ const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ childr
         canLoadMoreMyFeed: feed.canLoadMoreMyFeed,
         ensurePostsAreFetched: feed.ensurePostsAreFetched,
         fetchUser: feed.fetchUser,
-        myFeedPosts: feed.myFeedPosts,
         exploreFeedPosts: feed.exploreFeedPosts,
         getReplyCount: feed.getReplyCount,
         unifiedIds: feed.unifiedIds,
         loadMoreFeed: feed.loadMoreFeed,
         
-        // setters (Less used in consumers, but maintained for compatibility if needed)
-        // These are actually problematic because FeedContext doesn't expose raw setters usually.
-        // But for 'useAppStateInternal' return type, they were there.
-        // We might need to mock them or update the interface.
-        // FeedContext exposes the STATE, but maybe not the raw setState.
-        // Checking FeedContextState... it has map but not setAllPostsMap.
-        // FIX: Add setters to FeedContext if consumers heavily rely on them, OR cast as any if unused.
-        setAllPostsMap: feed.setAllPostsMap || (() => console.warn("setAllPostsMap deprecated")),
-        setAllUserStatesMap: feed.setAllUserStatesMap || (() => console.warn("setAllUserStatesMap deprecated")),
-        setUserProfilesMap: feed.setUserProfilesMap || (() => console.warn("setUserProfilesMap deprecated")),
-        
-        // Session Unlock
+        setAllPostsMap: feed.setAllPostsMap,
+        setAllUserStatesMap: feed.setAllUserStatesMap,
+        setUserProfilesMap: feed.setUserProfilesMap,
         isSessionLocked: auth.isSessionLocked,
         unlockSession: auth.unlockSession,
-    } as UseAppStateReturn;
+    };
 
     return (
         <AppStateContext.Provider value={aggregated}>
@@ -103,9 +90,9 @@ const FeedProviderBridge: React.FC<{ children: React.ReactNode }> = ({ children 
             setLatestStateCID: auth.setLatestStateCID,
             setUserState: auth.setUserState,
         }}>
-            <LegacyStateAggregator>
+            <StateAggregator>
                 {children}
-            </LegacyStateAggregator>
+            </StateAggregator>
         </FeedProvider>
     );
 };

@@ -1,4 +1,3 @@
-// fileName: src/features/feed/useOnlinePeers.ts
 import { useEffect, useRef, useState } from 'react';
 import { UserState, OnlinePeer, Post } from '../../types';
 import {
@@ -7,15 +6,29 @@ import {
     subscribeToPubsub,
     getDiscoveryTopics,
     setPeerFeedProvider,
+    setSelfPresenceKey,
     heliaCatJson,
+    publishIpns,
+    getHeliaStatus,
 } from '../../api/ipfsIpns';
 import { getLatestLocalCid } from '../../lib/utils';
+import {
+    DEV_LOCAL_RENDEZVOUS_TOPIC,
+    MAX_MAPPED_ONLINE_PEERS,
+    PEER_DISCOVERY_TOPIC,
+} from '../../constants';
 import type { PresencePayload, PeerFeedSnapshot } from '../../api/pubsub';
+import { circleTopic, homeShard, shardTopic } from '../../lib/peerShards';
 
 const HEARTBEAT_INTERVAL_MS = 30000;
+/** Social/circle rooms: lower announce rate. */
+const CIRCLE_HEARTBEAT_EVERY_N = 2;
 const PRUNE_INTERVAL_MS = 5000;
 const PEER_TIMEOUT_MS = 90000;
-const MAX_SYNC_POSTS = 5;
+/** Posts bundled in syncFeed — enough for a profile first screen without N round-trips. */
+const MAX_SYNC_POSTS = 20;
+/** App-level nudge so multi-hour tabs re-advertise IPNS while visible. */
+const IPNS_KEEPALIVE_MS = 18 * 60 * 1000;
 
 interface UseAppPeersArgs {
     isLoggedIn: boolean | null;
@@ -81,6 +94,11 @@ export const useAppPeers = ({
         return () => setPeerFeedProvider(null);
     }, [isLoggedIn, myPeerId]);
 
+    const followKeysKey = (userState?.follows || [])
+        .map((f) => f?.ipnsKey)
+        .filter(Boolean)
+        .join(',');
+
     useEffect(() => {
         if (isLoggedIn !== true || !myPeerId) return;
 
@@ -89,8 +107,13 @@ export const useAppPeers = ({
             return;
         }
 
+        setSelfPresenceKey(myPeerId);
+
         const abortController = new AbortController();
         const keyLabel = session.ipnsKeyName || '';
+        const followKeys = followKeysKey
+            ? followKeysKey.split(',').filter(Boolean)
+            : [];
 
         const handleMessage = (msg: PresencePayload, trysteroPeerId?: string) => {
             if (!msg?.ipnsKey || !msg.name || !msg.timestamp) return;
@@ -105,13 +128,53 @@ export const useAppPeers = ({
                 },
                 lastSeen: Date.now(),
             });
+
+            // Cap local UI peer map (same order of magnitude as pubsub LRU).
+            if (peersMapRef.current.size > MAX_MAPPED_ONLINE_PEERS) {
+                let oldestKey: string | null = null;
+                let oldest = Infinity;
+                peersMapRef.current.forEach((val, key) => {
+                    if (val.lastSeen < oldest) {
+                        oldest = val.lastSeen;
+                        oldestKey = key;
+                    }
+                });
+                if (oldestKey) peersMapRef.current.delete(oldestKey);
+            }
         };
 
-        const topics = getDiscoveryTopics();
-        for (const topic of topics) {
-            void subscribeToPubsub(topic, handleMessage, abortController.signal);
-        }
+        // Hash shards + circle rooms + custom (+ legacy only if Settings opts in).
+        // Prefer home / ego circle first; legacy last so it never starves shard ICE.
+        const topics = getDiscoveryTopics(myPeerId, followKeys);
+        const circleTopics = new Set(topics.filter((t) => t.startsWith('dsocial-circle/')));
+        const homeTopic = shardTopic(homeShard(myPeerId));
+        const egoCircle = circleTopic(myPeerId);
+        const joinOrder = [...topics].sort((a, b) => {
+            const rank = (t: string) => {
+                if (t === homeTopic) return 0;
+                if (t === egoCircle) return 1;
+                if (t === DEV_LOCAL_RENDEZVOUS_TOPIC) return 2;
+                if (t.startsWith('dsocial-peers-v2/')) return 3;
+                if (t.startsWith('dsocial-circle/')) return 4;
+                if (t === PEER_DISCOVERY_TOPIC) return 6;
+                return 5;
+            };
+            return rank(a) - rank(b);
+        });
 
+        // Stagger joins — parallel room joins cause ICE storms / failed SDP.
+        const JOIN_STAGGER_MS = 400;
+        void (async () => {
+            for (let i = 0; i < joinOrder.length; i++) {
+                if (abortController.signal.aborted) return;
+                void subscribeToPubsub(joinOrder[i], handleMessage, abortController.signal);
+                if (i < joinOrder.length - 1) {
+                    await new Promise((r) => setTimeout(r, JOIN_STAGGER_MS));
+                }
+            }
+        })();
+
+        let beat = 0;
         const heartbeat = () => {
             const name = profileNameRef.current;
             if (!name) return;
@@ -125,7 +188,12 @@ export const useAppPeers = ({
                 timestamp: Date.now(),
                 ...(stateCid ? { stateCid } : {}),
             };
+            beat += 1;
             for (const topic of topics) {
+                // Circle rooms: every Nth beat to cut announce traffic
+                if (circleTopics.has(topic) && beat % CIRCLE_HEARTBEAT_EVERY_N !== 0) {
+                    continue;
+                }
                 publishToPubsub(topic, presence)
                     .catch((e: any) => console.warn('[useAppPeers] Heartbeat failed:', e));
             }
@@ -133,6 +201,21 @@ export const useAppPeers = ({
 
         const heartbeatInterval = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
         heartbeat();
+
+        const republishIpnsKeepalive = () => {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            if (getHeliaStatus().status !== 'ready') return;
+            if (!keyLabel) return;
+            const stateCid =
+                getLatestLocalCid(keyLabel) ||
+                getLatestLocalCid(myPeerId) ||
+                '';
+            if (!stateCid) return;
+            publishIpns(keyLabel, stateCid).catch((e: unknown) => {
+                console.warn('[useAppPeers] IPNS keepalive failed:', e);
+            });
+        };
+        const keepaliveInterval = setInterval(republishIpnsKeepalive, IPNS_KEEPALIVE_MS);
 
         const updatePeersState = () => {
             const now = Date.now();
@@ -152,14 +235,16 @@ export const useAppPeers = ({
         return () => {
             abortController.abort();
             clearInterval(heartbeatInterval);
+            clearInterval(keepaliveInterval);
             clearInterval(pruneInterval);
         };
-    }, [isLoggedIn, myPeerId]);
+    }, [isLoggedIn, myPeerId, followKeysKey]);
 
     useEffect(() => {
         if (isLoggedIn !== true) {
             peersMapRef.current.clear();
             setOtherUsers([]);
+            setSelfPresenceKey('');
         }
     }, [isLoggedIn]);
 

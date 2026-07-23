@@ -1,4 +1,3 @@
-// fileName: src/features/auth/useAuth.ts
 import { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { UserState } from '../../types';
@@ -12,7 +11,10 @@ import {
     loadOptimisticCookie,
     getSessionMemoryPassword,
     startHelia,
+    ensureIdentityKey,
 } from '../../api/ipfsIpns';
+import { persistSession } from '../../api/session';
+import { getLatestLocalCid } from '../../lib/utils';
 
 export interface UseAppAuthReturn {
     isLoggedIn: boolean | null;
@@ -62,82 +64,89 @@ export const useAppAuth = (): UseAppAuthReturn => {
         setMyPeerId(''); 
         setUserState(null);
         setLatestStateCID('');
+        setIsSessionLocked(false);
     }, []);
 
     useEffect(() => {
         const checkSession = async () => {
             const session = getSession();
 
-            if (session.sessionType === 'helia' && session.ipnsKeyName) {
-                if (session.requiresPassword && !getSessionMemoryPassword()) {
-                    setIsSessionLocked(true);
-                    setMyIpnsKey(session.ipnsKeyName);
-                    if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
-                    setIsLoggedIn(true);
-                    return;
-                }
-
-                try {
-                    await startHelia(getSessionMemoryPassword());
-                    setMyIpnsKey(session.ipnsKeyName);
-                    if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
-                    setIsSessionLocked(false);
-
-                    let cidToFetch = '';
-                    let source = 'network';
-
-                    const optimistic = loadOptimisticCookie(session.ipnsKeyName);
-                    if (optimistic?.cid) {
-                        cidToFetch = optimistic.cid;
-                        source = 'cookie';
-                    }
-
-                    if (!cidToFetch) {
-                        const name = session.resolvedIpnsKey || session.ipnsKeyName;
-                        try {
-                            cidToFetch = await resolveIpns(name);
-                        } catch (e) {
-                            console.warn("Could not resolve IPNS during session check:", e);
-                        }
-                    }
-
-                    if (cidToFetch) {
-                        try {
-                            const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
-                            setUserState(state);
-                            setLatestStateCID(cidToFetch);
-                            setIsLoggedIn(true);
-                        } catch (e) {
-                            console.warn(`Failed to load state from ${source} (${cidToFetch}). Trying fallback...`, e);
-                            if (source === 'cookie') {
-                                try {
-                                    const name = session.resolvedIpnsKey || session.ipnsKeyName;
-                                    const networkCid = await resolveIpns(name);
-                                    const fallbackState = await fetchUserState(networkCid, session.ipnsKeyName);
-                                    setUserState(fallbackState);
-                                    setLatestStateCID(networkCid);
-                                    setIsLoggedIn(true);
-                                } catch (netErr) {
-                                    console.error("Fallback IPNS load also failed:", netErr);
-                                    setIsLoggedIn(true);
-                                }
-                            } else {
-                                setIsLoggedIn(true);
-                            }
-                        }
-                    } else {
-                        setIsLoggedIn(true);
-                    }
-                } catch (e) {
-                    console.error("Session check failed:", e);
-                    logoutSession();
-                    setIsLoggedIn(false);
-                }
-            } else {
+            if (session.sessionType !== 'helia' || !session.ipnsKeyName) {
                 setIsLoggedIn(false);
+                return;
+            }
+
+            // Passphrase sessions: stay logged-in but locked until unlock
+            if (session.requiresPassword && !getSessionMemoryPassword()) {
+                setIsSessionLocked(true);
+                setMyIpnsKey(session.ipnsKeyName);
+                if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
+                setIsLoggedIn(true);
+                return;
+            }
+
+            try {
+                await startHelia(getSessionMemoryPassword());
+                setMyIpnsKey(session.ipnsKeyName);
+
+                let peerId = session.resolvedIpnsKey || '';
+                try {
+                    const { ipnsName } = await ensureIdentityKey(session.ipnsKeyName);
+                    peerId = ipnsName || peerId;
+                } catch (e) {
+                    console.warn('[Auth] ensureIdentityKey on restore failed', e);
+                }
+                if (peerId) setMyPeerId(peerId);
+
+                // Refresh persisted session with resolved IPNS (cookie/localStorage)
+                persistSession({
+                    ...session,
+                    resolvedIpnsKey: peerId || session.resolvedIpnsKey,
+                });
+
+                setIsSessionLocked(false);
+
+                // Prefer local tip — public IPNS often missing for browser publishes
+                let cidToFetch =
+                    loadOptimisticCookie(session.ipnsKeyName)?.cid
+                    || getLatestLocalCid(session.ipnsKeyName)
+                    || getLatestLocalCid(peerId)
+                    || '';
+
+                if (!cidToFetch) {
+                    const name = peerId || session.resolvedIpnsKey || session.ipnsKeyName;
+                    try {
+                        cidToFetch = await resolveIpns(name);
+                    } catch (e) {
+                        console.warn('[Auth] IPNS resolve during restore failed:', e);
+                    }
+                }
+
+                if (cidToFetch) {
+                    try {
+                        const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
+                        setUserState(state);
+                        setLatestStateCID(cidToFetch);
+                    } catch (e) {
+                        console.warn('[Auth] State load on restore failed — staying logged in', e);
+                    }
+                }
+
+                setIsLoggedIn(true);
+            } catch (e) {
+                // Intentionally stay logged in: localStorage session + tip often still
+                // work for read paths when Helia boot is flaky. Unlock covers writes.
+                console.error('[Auth] Session restore failed (keeping persisted login):', e);
+                setMyIpnsKey(session.ipnsKeyName);
+                if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
+                if (session.requiresPassword) {
+                    setIsSessionLocked(true);
+                }
+                setIsLoggedIn(true);
+                toast.error('Could not fully restore session. Try unlocking or reloading.');
             }
         };
-        checkSession();
+        void checkSession();
     }, []);
 
     const loginWithHeliaFn = useCallback(async (keyName: string, passphrase?: string) => {
