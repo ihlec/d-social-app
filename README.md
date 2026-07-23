@@ -20,7 +20,7 @@ Day-to-day UX hides raw CIDs / IPNS keys (copy from **Identity & debug** in the 
 
 -> Join a Social Network with it OR just use it for blogging. 
 
-You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51qzi5uqu5dl65eg14adz5ceu6k9dna2s55io6iyr1qpyd1wwxqf2g7wm3tf8
+You can find the latest version of D. Social App here: https://ipfs.io/ipfs/bafybeidovuomwdop7yvhnh7g4hfxughirjpgj2nm4huvaqollter67hevq
 
 ## You want to contribute?
 
@@ -63,17 +63,20 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51q
 
 ## Online presence (cluster of clusters)
 
-Presence is **not** one global WebRTC mesh. Each peer joins a capped set of rooms (default **≤ 8 sticky rooms**):
+Presence is **not** one unbounded WebRTC mesh. Each logged-in peer joins a capped set of rooms (default **≤ 8 sticky rooms**):
 
 * a **home shard** and **neighbor shards** derived from `hash(ipnsKey) % NUM_SHARDS`
 * a **follow-circle** room (ego + capped follow circles)
+* **`dsocial-bootstrap`** — **on by default** so strangers on a shared IPFS app link find each other without follows or Settings tweaks (opt out in Settings when the network grows)
 * optional **affinity channels** from Settings
 
-Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join another peer’s home shard, then leave. Explore seeds from follows plus peers already seen in joined rooms — not a global online directory.
+Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join another peer’s home shard, then leave. Explore seeds from follows plus peers already seen in joined rooms.
 
-**Legacy global room** (`dsocial-peers-v1`) is **off by default**. It cannot scale to ~100k concurrent online users. Opt in only via Settings (“Join legacy global peer room”) for migration or local debugging. Cross-shard discovery should use follow-circles or on-demand home-shard joins.
+**Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` with no other fiddling. Console noise like `wss://…libp2p.direct` failing is Helia dialing public IPFS peers; peer sync uses Trystero (Nostr + WebRTC), not those sockets.
 
-**Localhost testing:** on `localhost` / `127.0.0.1`, peers also join `dsocial-dev-local` so two browsers on the same machine can meet without mutual follows or the global v1 room. Production hosts do not join that topic.
+**Legacy global room** (`dsocial-peers-v1`) stays **off by default** (migration escape hatch only). Prefer bootstrap for normal discovery.
+
+**Localhost testing:** on `localhost` / `127.0.0.1`, peers also join `dsocial-dev-local`. Production hosts rely on `dsocial-bootstrap` instead.
 
 **Signaling relays** are configurable in Settings (`custom_nostr_relays`). They only carry Trystero signaling; content and presence payloads stay on peer WebRTC. Run or use community Nostr relays — the app does not depend on a single operator. Defaults ship with several public relays for bootstrap.
 
@@ -83,12 +86,12 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 
 **Mesh debug:** set `localStorage.dsocial_debug_mesh = '1'` or open with `?debugMesh=1`, then inspect `window.__dsocialMesh` (sticky topics, `contentTopics`, peers/room, sync ok/fail). Console snapshots log every 30s.
 
-### Quick two-browser check (bridge off)
+### Quick two-browser check (IPFS or localhost)
 
-1. Open the app in two browsers with legacy bridge **unchecked** (default). Use `?debugMesh=1`.
-2. Confirm `window.__dsocialMesh.stickyTopics` has **no** `dsocial-peers-v1` and length ≤ 8.
-3. In browser A, follow browser B (paste ID from **Identity & debug**, or a profile link). Wait for presence / Explore seed.
-4. Optional: enable legacy bridge in Settings on both, reload — you should see `dsocial-peers-v1` in sticky topics (migration escape hatch only).
+1. Open the app in two browsers/profiles. Both **log in**. Bootstrap room left on (default). Use `?debugMesh=1`.
+2. Confirm `window.__dsocialMesh.stickyTopics` includes `dsocial-bootstrap` and length ≤ 8.
+3. Testers should see each other in Explore / online peers without following. Optional: follow for circle rooms.
+4. To isolate shards later: uncheck “Public bootstrap room” in Settings on both, reload — strangers stop meeting unless they follow.
 
 ### Guest share-link check
 

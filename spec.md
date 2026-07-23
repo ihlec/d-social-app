@@ -32,7 +32,7 @@ No local Kubo node. Session type is Helia-only.
 
 ## Presence
 
-Hash-sharded rooms + follow-circles (capped sticky rooms). Legacy global room is Settings opt-in only. Localhost joins `dsocial-dev-local` for two-browser testing. Content rooms are not part of the sticky identity budget except the one currently viewed CID.
+Hash-sharded rooms + follow-circles (capped sticky rooms). Default-on `dsocial-bootstrap` for stranger discovery on production hosts (Settings opt-out). Legacy global room is Settings opt-in only. Localhost also joins `dsocial-dev-local`. Content rooms are not part of the sticky identity budget except the one currently viewed CID.
 
 ## Out of scope here
 

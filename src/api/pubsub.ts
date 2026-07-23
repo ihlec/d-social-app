@@ -38,6 +38,7 @@ import {
     contentTopic,
     homeShard,
     hashIpnsKey,
+    isBootstrapRoomEnabled,
     isLegacyPeerBridgeEnabled,
     parseCustomChannels,
     topicForPeer,
@@ -562,18 +563,21 @@ export async function ensureRoomForPeer(ipnsKey: string): Promise<RoomEntry> {
 
 /**
  * Discovery topics for this identity: sharded home+neighbors, circle rooms,
- * custom channels, and optional legacy v1 bridge (Settings opt-in).
+ * default bootstrap room, custom channels, and optional legacy v1 bridge.
  */
 export function getDiscoveryTopics(myIpnsKey?: string, followKeys?: string[]): string[] {
     if (myIpnsKey) {
         return topicsForSelf(myIpnsKey, {
             includeLegacy: isLegacyPeerBridgeEnabled(),
+            includeBootstrap: isBootstrapRoomEnabled(),
             customChannels: parseCustomChannels(),
             followKeys: followKeys || [],
         });
     }
-    // Pre-login: custom affinity channels only — never auto-join global v1
-    return parseCustomChannels().filter((t) => t && t !== 'dsocial-peers-v1');
+    // Pre-login: custom affinity channels only — never auto-join global/bootstrap mesh
+    return parseCustomChannels().filter(
+        (t) => t && t !== 'dsocial-peers-v1' && t !== 'dsocial-bootstrap'
+    );
 }
 
 function asPresencePayload(data: unknown): PresencePayload | null {

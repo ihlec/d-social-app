@@ -7,6 +7,11 @@ export const PEER_DISCOVERY_TOPIC = 'dsocial-peers-v1';
  * the global v1 mesh or mutual follows. Never joined on production hosts.
  */
 export const DEV_LOCAL_RENDEZVOUS_TOPIC = 'dsocial-dev-local';
+/**
+ * Default-on public rendezvous so logged-in peers on production hosts (e.g. IPFS
+ * gateways) find each other without follows or Settings fiddling. Opt out via Settings.
+ */
+export const BOOTSTRAP_TOPIC = 'dsocial-bootstrap';
 /** Hash-sharded presence rooms: `dsocial-peers-v2/<0..NUM_SHARDS-1>`. */
 export const PEER_TOPIC_PREFIX_V2 = 'dsocial-peers-v2';
 export const CIRCLE_TOPIC_PREFIX = 'dsocial-circle';
@@ -54,6 +59,10 @@ export const MAX_STICKY_ROOMS = 8;
 export const INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT = false;
 /** localStorage key for opt-in legacy global peer room. */
 export const LEGACY_PEER_BRIDGE_STORAGE_KEY = 'legacy_peer_bridge';
+/** Join `dsocial-bootstrap` when unset / `1` (PoC tester discovery). */
+export const INCLUDE_BOOTSTRAP_ROOM_DEFAULT = true;
+/** localStorage key — set `0` to opt out of the public bootstrap room. */
+export const BOOTSTRAP_ROOM_STORAGE_KEY = 'bootstrap_room';
 /** Opt-in public IPFS gateway fallback (off by default). */
 export const GATEWAY_FALLBACK_STORAGE_KEY = 'gateway_fallback';
 /** localStorage / query flag for mesh debug metrics. */

@@ -13,6 +13,7 @@ import {
 } from '../../api/ipfsIpns';
 import { getLatestLocalCid } from '../../lib/utils';
 import {
+    BOOTSTRAP_TOPIC,
     DEV_LOCAL_RENDEZVOUS_TOPIC,
     MAX_MAPPED_ONLINE_PEERS,
     PEER_DISCOVERY_TOPIC,
@@ -153,11 +154,12 @@ export const useAppPeers = ({
             const rank = (t: string) => {
                 if (t === homeTopic) return 0;
                 if (t === egoCircle) return 1;
-                if (t === DEV_LOCAL_RENDEZVOUS_TOPIC) return 2;
-                if (t.startsWith('dsocial-peers-v2/')) return 3;
-                if (t.startsWith('dsocial-circle/')) return 4;
-                if (t === PEER_DISCOVERY_TOPIC) return 6;
-                return 5;
+                if (t === BOOTSTRAP_TOPIC) return 2;
+                if (t === DEV_LOCAL_RENDEZVOUS_TOPIC) return 3;
+                if (t.startsWith('dsocial-peers-v2/')) return 4;
+                if (t.startsWith('dsocial-circle/')) return 5;
+                if (t === PEER_DISCOVERY_TOPIC) return 7;
+                return 6;
             };
             return rank(a) - rank(b);
         });

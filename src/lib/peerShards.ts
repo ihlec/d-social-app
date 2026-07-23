@@ -4,9 +4,12 @@
  */
 
 import {
+    BOOTSTRAP_ROOM_STORAGE_KEY,
+    BOOTSTRAP_TOPIC,
     CIRCLE_TOPIC_PREFIX,
     CONTENT_TOPIC_PREFIX,
     DEV_LOCAL_RENDEZVOUS_TOPIC,
+    INCLUDE_BOOTSTRAP_ROOM_DEFAULT,
     INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT,
     LEGACY_PEER_BRIDGE_STORAGE_KEY,
     MAX_CIRCLE_ROOMS,
@@ -143,6 +146,16 @@ export function isLegacyPeerBridgeEnabled(): boolean {
     return INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT;
 }
 
+/** Public bootstrap room — on by default; set `bootstrap_room=0` to opt out. */
+export function isBootstrapRoomEnabled(): boolean {
+    try {
+        const v = localStorage.getItem(BOOTSTRAP_ROOM_STORAGE_KEY);
+        if (v === '1' || v === 'true') return true;
+        if (v === '0' || v === 'false') return false;
+    } catch { /* ignore */ }
+    return INCLUDE_BOOTSTRAP_ROOM_DEFAULT;
+}
+
 /** True on local Vite/dev hosts — enables same-machine cross-browser rendezvous. */
 export function isLocalDevHost(): boolean {
     try {
@@ -157,6 +170,8 @@ export function isLocalDevHost(): boolean {
 export interface TopicsForSelfOptions {
     /** Dual-publish on legacy global room during migration. Default from constant / Settings. */
     includeLegacy?: boolean;
+    /** Public bootstrap room for stranger discovery. Default on. */
+    includeBootstrap?: boolean;
     /** Extra affinity rooms from settings. */
     customChannels?: string[];
     /** Follow IPNS keys — join their circle rooms (capped). */
@@ -167,11 +182,12 @@ export interface TopicsForSelfOptions {
 
 /**
  * Rooms this tab should stay joined to, ranked and capped:
- * home → ego circle → localhost rendezvous → neighbors → follow circles → custom → legacy.
+ * home → ego circle → bootstrap → localhost rendezvous → neighbors → follow circles → custom → legacy.
  */
 export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}): string[] {
     const {
         includeLegacy = INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT,
+        includeBootstrap = INCLUDE_BOOTSTRAP_ROOM_DEFAULT,
         customChannels = parseCustomChannels(),
         followKeys = [],
         maxStickyRooms = MAX_STICKY_ROOMS,
@@ -188,6 +204,11 @@ export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}
     if (myIpnsKey) {
         push(shardTopic(homeShard(myIpnsKey)));
         push(circleTopic(myIpnsKey));
+
+        // Production PoC: strangers meet without follows (opt-out in Settings)
+        if (includeBootstrap) {
+            push(BOOTSTRAP_TOPIC);
+        }
 
         // Same-machine Firefox↔Chromium without mutual follows / global v1
         if (isLocalDevHost()) {
@@ -210,8 +231,8 @@ export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}
     }
 
     for (const t of customChannels) {
-        // Never sneak the global v1 mesh in via custom channels
-        if (t === PEER_DISCOVERY_TOPIC) continue;
+        // Never sneak reserved mesh rooms in via custom channels
+        if (t === PEER_DISCOVERY_TOPIC || t === BOOTSTRAP_TOPIC) continue;
         push(t);
     }
 

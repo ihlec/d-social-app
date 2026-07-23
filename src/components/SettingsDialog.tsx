@@ -5,9 +5,11 @@ import {
     DEFAULT_NOSTR_RELAYS,
     PEER_TOPIC_PREFIX_V2,
     NUM_SHARDS,
+    BOOTSTRAP_ROOM_STORAGE_KEY,
+    BOOTSTRAP_TOPIC,
     LEGACY_PEER_BRIDGE_STORAGE_KEY,
 } from '../constants';
-import { isLegacyPeerBridgeEnabled } from '../lib/peerShards';
+import { isBootstrapRoomEnabled, isLegacyPeerBridgeEnabled } from '../lib/peerShards';
 import {
     isGatewayFallbackEnabled,
     setGatewayFallbackEnabled,
@@ -37,6 +39,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
     const [channels, setChannels] = useState('');
     const [relays, setRelays] = useState('');
     const [turnServers, setTurnServers] = useState('');
+    const [bootstrapRoom, setBootstrapRoom] = useState(true);
     const [legacyBridge, setLegacyBridge] = useState(false);
     const [gatewayFallback, setGatewayFallback] = useState(false);
     const [storageEst, setStorageEst] = useState<StorageEstimate | null>(null);
@@ -56,6 +59,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
             // null → built-in Open Relay; '' → disable TURN; JSON → custom
             const storedTurn = localStorage.getItem('custom_turn_servers');
             setTurnServers(storedTurn === null ? '' : storedTurn);
+            setBootstrapRoom(isBootstrapRoomEnabled());
             setLegacyBridge(isLegacyPeerBridgeEnabled());
             setGatewayFallback(isGatewayFallbackEnabled());
             void refreshStorage();
@@ -68,6 +72,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
         localStorage.setItem('custom_channels', channels);
         localStorage.setItem('custom_nostr_relays', relays);
         setGatewayFallbackEnabled(gatewayFallback);
+        if (bootstrapRoom) {
+            localStorage.removeItem(BOOTSTRAP_ROOM_STORAGE_KEY);
+        } else {
+            localStorage.setItem(BOOTSTRAP_ROOM_STORAGE_KEY, '0');
+        }
         if (legacyBridge) {
             localStorage.setItem(LEGACY_PEER_BRIDGE_STORAGE_KEY, '1');
         } else {
@@ -155,6 +164,23 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
                     <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
                         <input
                             type="checkbox"
+                            checked={bootstrapRoom}
+                            onChange={e => setBootstrapRoom(e.target.checked)}
+                            style={{ marginTop: '0.2rem' }}
+                        />
+                        <span>Public bootstrap room (find other people on this app)</span>
+                    </label>
+                    <small style={{ display: 'block', color: '#888', marginTop: '0.25rem' }}>
+                        On by default. Joins <code>{BOOTSTRAP_TOPIC}</code> so logged-in peers meet without
+                        following each other — what you want when sharing an IPFS app link with testers.
+                        Turn off later if the mesh grows too large; shards and follow-circles still apply.
+                    </small>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
                             checked={legacyBridge}
                             onChange={e => setLegacyBridge(e.target.checked)}
                             style={{ marginTop: '0.2rem' }}
@@ -162,9 +188,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
                         <span>Join legacy global peer room (migration only)</span>
                     </label>
                     <small style={{ display: 'block', color: '#888', marginTop: '0.25rem' }}>
-                        Off by default. Enables <code>dsocial-peers-v1</code> — a single full-mesh room that
-                        cannot scale toward 100k online users. Use only for short-term migration or local debugging;
-                        prefer follow-circle / on-demand home-shard sync instead.
+                        Off by default. Extra room <code>dsocial-peers-v1</code> for old clients — not needed
+                        for normal tester discovery (use the bootstrap room above).
                     </small>
                 </div>
 
