@@ -10,6 +10,7 @@ import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestP
 import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { POST_COOLDOWN_MS } from '../constants';
 import { pinCid } from '../api/admin';
+import * as contentCache from '../lib/contentCache';
 
 // We import the AuthContext hook here if we separate Auth, but for this step
 // we are defining FeedContext. 
@@ -35,7 +36,7 @@ export interface FeedContextState {
     deletePost: (postId: string) => Promise<void>;
     likePost: (postId: string) => Promise<void>;
     dislikePost: (postId: string) => Promise<void>;
-    followUser: (ipnsKey: string) => Promise<void>;
+    followUser: (ipnsKey: string, opts?: { name?: string; stateCid?: string }) => Promise<void>;
     unfollowUser: (ipnsKey: string) => Promise<void>;
     blockUser: (ipnsKey: string) => Promise<void>;
     unblockUser: (ipnsKey: string) => Promise<void>;
@@ -107,13 +108,55 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
 
     // Actions
     const { 
-        isProcessing, addPost, deletePost, likePost, dislikePost, followUser, unfollowUser, updateProfile, 
+        isProcessing, addPost, deletePost, likePost, dislikePost, followUser, unfollowUser: rawUnfollowUser, updateProfile, 
         blockUser, unblockUser,
         queueFollowUpdates 
     } = useAppActions({
         userState, setUserState, myIpnsKey, myPeerId, latestStateCID,
         setAllPostsMap, setLatestStateCID, setUserProfilesMap, allPostsMap
     });
+
+    const unfollowUser = React.useCallback(async (ipnsKey: string) => {
+        await rawUnfollowUser(ipnsKey);
+        contentCache.markAuthorEvictable(ipnsKey).catch(() => {});
+    }, [rawUnfollowUser]);
+
+    // Hydrate posts/states from IndexedDB before network crawl
+    const hasHydrated = React.useRef(false);
+    React.useEffect(() => {
+        if (hasHydrated.current) return;
+        hasHydrated.current = true;
+        (async () => {
+            try {
+                const [posts, states] = await Promise.all([
+                    contentCache.hydrateRecentPosts(),
+                    contentCache.hydrateRecentUserStates(),
+                ]);
+                if (posts.length > 0) {
+                    setAllPostsMap(prev => {
+                        if (prev.size > 0) return prev;
+                        return new Map(posts.map(p => [p.id, p]));
+                    });
+                }
+                if (states.size > 0) {
+                    setAllUserStatesMap(prev => {
+                        if (prev.size > 0) return prev;
+                        return states;
+                    });
+                    setUserProfilesMap(prev => {
+                        const next = new Map(prev);
+                        states.forEach((st, key) => {
+                            if (st.profile && !next.has(key)) next.set(key, st.profile);
+                        });
+                        return next;
+                    });
+                }
+                console.log(`[Feed] Hydrated ${posts.length} posts, ${states.size} user states from IndexedDB`);
+            } catch (e) {
+                console.warn('[Feed] IndexedDB hydrate failed', e);
+            }
+        })();
+    }, []);
 
     // Shared Fetcher
     const { fetchMissingParentPost } = useParentPostFetcher({
@@ -326,10 +369,25 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                 const batch = followsWithCids.slice(i, i + BATCH_SIZE);
                 
                 const promises = batch.map(async (follow) => {
-                    // Skip if already in map
+                    // Skip if already in map (feed sync or hydrate may have filled it)
                     if (allUserStatesMapRef.current.has(follow.ipnsKey)) return;
                     
-                    // Check backoff
+                    // Prefer IndexedDB before network (avoids duplicate crawl with processMainFeed)
+                    const idb = await contentCache.getUserState(follow.ipnsKey);
+                    if (idb?.state) {
+                        setAllUserStatesMap(prev => {
+                            if (prev.has(follow.ipnsKey)) return prev;
+                            return new Map(prev).set(follow.ipnsKey, idb.state);
+                        });
+                        if (idb.state.profile) {
+                            setUserProfilesMap(prev => {
+                                if (prev.has(follow.ipnsKey)) return prev;
+                                return new Map(prev).set(follow.ipnsKey, idb.state.profile);
+                            });
+                        }
+                        return;
+                    }
+
                     if (shouldSkipRequest(follow.lastSeenCid!)) return;
                     
                     markRequestPending(follow.lastSeenCid!);
@@ -337,17 +395,15 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                     try {
                         const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
                         
-                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
-                        pinCid(follow.lastSeenCid!).catch(() => {}); // Fire-and-forget, don't block
+                        pinCid(follow.lastSeenCid!).catch(() => {});
+                        contentCache.putUserState(follow.ipnsKey, fetchedState, follow.lastSeenCid!).catch(() => {});
                         
-                        // Store in map
                         setAllUserStatesMap(prev => {
                             const next = new Map(prev);
                             next.set(follow.ipnsKey, fetchedState);
                             return next;
                         });
                         
-                        // Update profile map
                         if (fetchedState.profile) {
                             setUserProfilesMap(prev => {
                                 const next = new Map(prev);
@@ -361,7 +417,6 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                         reportFetchSuccess(follow.lastSeenCid!);
                     } catch (e: any) {
                         reportFetchFailure(follow.lastSeenCid!);
-                        // Check if it's a 504 or timeout error
                         if (e?.message?.includes('504') || e?.message?.includes('Gateway Timeout') || e?.message?.includes('timeout')) {
                             console.warn(`[Feed] Gateway timeout for ${follow.ipnsKey} (${follow.lastSeenCid}), will retry later via backoff`);
                         } else {

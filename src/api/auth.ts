@@ -1,14 +1,19 @@
 import toast from 'react-hot-toast';
-import { Session, UserState, KuboAuth } from '../types';
+import { Session, UserState } from '../types';
 import { saveSessionCookie, getDynamicSessionCookieName, logoutSession, setSessionMemoryPassword } from './session';
-import { fetchKubo, uploadJsonToIpfs, publishToIpns } from './kuboClient';
 import { resolveIpns } from './resolution';
 import { fetchUserStateChunk, createEmptyUserState, fetchUserState } from './content';
 import { getLatestLocalCid } from '../lib/utils';
-import { KUBO_PUBLISH_TIMEOUT_MS, CURRENT_USER_LABEL_KEY } from '../constants';
+import { CURRENT_USER_LABEL_KEY } from '../constants';
+import { uploadJson } from './contentUpload';
+import {
+    startHelia,
+    ensureIdentityKey,
+    publishIpns,
+} from './heliaNode';
 
 export class UserStateNotFoundError extends Error {
-    public readonly identifier: string; 
+    public readonly identifier: string;
     constructor(message: string, identifier: string) {
         super(message);
         this.name = 'UserStateNotFoundError';
@@ -16,84 +21,97 @@ export class UserStateNotFoundError extends Error {
     }
 }
 
-export async function loginToKubo(apiUrl: string, keyName: string, forceInitialize: boolean = false, username?: string, password?: string): Promise<{ session: Session, state: UserState, cid: string }> {
-     setSessionMemoryPassword(password);
-     
-     const auth: KuboAuth = { username, password };
-     try {
-         await fetchKubo(apiUrl, '/api/v0/id', undefined, undefined, auth);
-         const keysResponse = await fetchKubo(apiUrl, '/api/v0/key/list', undefined, undefined, auth);
-         let keyInfo = Array.isArray(keysResponse?.Keys) ? keysResponse.Keys.find((k: any) => k.Name === keyName) : undefined;
+/**
+ * Login with browser Helia identity.
+ * @param keyName - local keychain label / display name
+ * @param passphrase - optional custom keychain password
+ * @param forceInitialize - create empty profile if none found
+ */
+export async function loginWithHelia(
+    keyName: string,
+    passphrase?: string,
+    forceInitialize: boolean = false
+): Promise<{ session: Session; state: UserState; cid: string }> {
+    const trimmed = keyName.trim();
+    if (!trimmed) throw new Error('Identity name is required');
 
-         let resolvedIpnsKey: string;
-         let initialCid = '';
-         let initialState: UserState;
+    setSessionMemoryPassword(passphrase);
+    const requiresPassword = !!(passphrase && passphrase.length > 0);
 
-         if (!keyInfo?.Id) {
-            try {
-                const genResponse = await fetchKubo(apiUrl, '/api/v0/key/gen', { arg: keyName, type: 'ed25519' }, undefined, auth);
-                keyInfo = genResponse;
-                resolvedIpnsKey = keyInfo.Id;
-                initialState = createEmptyUserState({ name: keyName });
-                initialCid = await uploadJsonToIpfs(apiUrl, initialState, auth);
-                await publishToIpns(apiUrl, initialCid, keyName, auth, KUBO_PUBLISH_TIMEOUT_MS);
-                toast.success(`Created new profile: ${keyName}`);
-            } catch (genError) { throw new Error(`Failed to create profile "${keyName}"`); }
-         } else {
-             resolvedIpnsKey = keyInfo.Id;
-             try {
-                 const remoteCidPromise = resolveIpns(resolvedIpnsKey);
-                 const localCid = getLatestLocalCid(keyName);
-                 
-                 initialCid = await remoteCidPromise; 
+    // Reuse warm node when password matches; only restart on keychain password change.
+    await startHelia(passphrase);
 
-                 if (localCid && localCid !== initialCid) {
-                     console.log(`[Login] Found optimistic CID ${localCid} (Remote: ${initialCid || 'None'}). Verifying timestamps...`);
-                     try {
-                         const [remoteState, localState] = await Promise.all([
-                             initialCid ? fetchUserStateChunk(initialCid).catch(() => null) : null,
-                             fetchUserStateChunk(localCid).catch(() => null)
-                         ]);
+    const { ipnsName } = await ensureIdentityKey(trimmed);
 
-                         const remoteTime = remoteState?.updatedAt || 0;
-                         const localTime = localState?.updatedAt || 0;
+    let initialCid = '';
+    let initialState: UserState;
 
-                         if (localTime > remoteTime) {
-                             console.log(`[Login] 🟢 Using newer local state (${localTime} > ${remoteTime})`);
-                             initialCid = localCid;
-                             initialState = localState as UserState;
-                         } else {
-                             console.log(`[Login] 🟡 Remote state is newer/equal.`);
-                             initialState = remoteState ? remoteState as UserState : await fetchUserState(initialCid, keyName);
-                         }
-                     } catch (e) {
-                         initialState = await fetchUserState(initialCid, keyName);
-                     }
-                 } else {
-                     initialState = await fetchUserState(initialCid, keyName); 
-                 }
+    const localCid = getLatestLocalCid(trimmed);
+    let networkCid = '';
+    try {
+        networkCid = await resolveIpns(ipnsName);
+    } catch { /* ignore */ }
 
-             } catch (e) {
-                 if (forceInitialize) {
-                     initialState = createEmptyUserState({ name: keyName });
-                     initialCid = await uploadJsonToIpfs(apiUrl, initialState, auth);
-                     await publishToIpns(apiUrl, initialCid, keyName, auth, KUBO_PUBLISH_TIMEOUT_MS);
-                 } else { throw new UserStateNotFoundError(`Profile not found for ${keyName}`, keyName); }
-             }
-         }
-         const requiresPassword = !!password && password.length > 0;
-         const session: Session = { 
-             sessionType: 'kubo', 
-             rpcApiUrl: apiUrl, 
-             ipnsKeyName: keyName, 
-             resolvedIpnsKey, 
-             kuboUsername: username, 
-             kuboPassword: password,
-             requiresPassword 
-         };
-         const cookieName = getDynamicSessionCookieName(keyName);
-         if (cookieName) saveSessionCookie(cookieName, session);
-         sessionStorage.setItem(CURRENT_USER_LABEL_KEY, keyName);
-         return { session, state: initialState, cid: initialCid };
-     } catch (error) { logoutSession(); throw error; }
+    if (localCid || networkCid) {
+        try {
+            if (localCid && networkCid && localCid !== networkCid) {
+                const [remoteState, localState] = await Promise.all([
+                    fetchUserStateChunk(networkCid).catch(() => null),
+                    fetchUserStateChunk(localCid).catch(() => null),
+                ]);
+                const remoteTime = remoteState?.updatedAt || 0;
+                const localTime = localState?.updatedAt || 0;
+                if (localTime > remoteTime && localState) {
+                    initialCid = localCid;
+                    initialState = localState as UserState;
+                } else {
+                    initialCid = networkCid || localCid;
+                    initialState = (remoteState as UserState) || await fetchUserState(initialCid, trimmed);
+                }
+            } else {
+                initialCid = networkCid || localCid!;
+                initialState = await fetchUserState(initialCid, trimmed);
+            }
+        } catch (e) {
+            if (forceInitialize) {
+                initialState = createEmptyUserState({ name: trimmed });
+                initialCid = await uploadJson(initialState);
+                await publishIpns(trimmed, initialCid);
+                toast.success(`Created new profile: ${trimmed}`);
+            } else {
+                throw new UserStateNotFoundError(`Profile not found for ${trimmed}`, trimmed);
+            }
+        }
+    } else {
+        // New identity — create empty state + publish
+        try {
+            initialState = createEmptyUserState({ name: trimmed });
+            initialCid = await uploadJson(initialState);
+            await publishIpns(trimmed, initialCid);
+            toast.success(`Created new profile: ${trimmed}`);
+        } catch (e) {
+            console.error('[loginWithHelia] create failed', e);
+            throw new Error(`Failed to create profile "${trimmed}"`);
+        }
+    }
+
+    // Ensure IPNS points at latest if we only had local
+    if (initialCid && initialCid !== networkCid) {
+        publishIpns(trimmed, initialCid).catch(e => console.warn('[loginWithHelia] background publish', e));
+    }
+
+    const session: Session = {
+        sessionType: 'helia',
+        ipnsKeyName: trimmed,
+        resolvedIpnsKey: ipnsName,
+        requiresPassword,
+    };
+
+    sessionStorage.setItem(CURRENT_USER_LABEL_KEY, trimmed);
+    const cookieName = getDynamicSessionCookieName(trimmed);
+    if (cookieName) saveSessionCookie(cookieName, session);
+
+    return { session, state: initialState!, cid: initialCid };
 }
+
+export { logoutSession };

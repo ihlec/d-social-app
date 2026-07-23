@@ -4,12 +4,12 @@ import { Tooltip } from '../../components/Tooltip';
 import { InfoIcon } from '../../components/Icons';
 
 interface LoginProps {
-    onLoginKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<void>;
+    onLoginHelia: (keyName: string, passphrase?: string) => Promise<void>;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginKubo }) => {
+const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [showCredentials, setShowCredentials] = useState(false);
+    const [showPassphrase, setShowPassphrase] = useState(false);
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -17,18 +17,16 @@ const Login: React.FC<LoginProps> = ({ onLoginKubo }) => {
         const formData = new FormData(event.currentTarget);
         
         try {
-            const apiUrl = formData.get('apiUrl') as string;
-            const keyName = formData.get('keyName') as string;
-            const username = formData.get('username') as string || undefined;
-            const password = formData.get('password') as string || undefined;
+            const keyName = (formData.get('keyName') as string)?.trim();
+            const passphrase = (formData.get('passphrase') as string) || undefined;
 
-            if (!apiUrl || !keyName) {
-                alert("API URL and Key Name are required.");
+            if (!keyName) {
+                alert("Identity name is required.");
                 setIsLoading(false);
                 return;
             }
 
-            await onLoginKubo(apiUrl, keyName, username, password);
+            await onLoginHelia(keyName, passphrase);
         } catch (error) {
             console.error("Login failed", error);
             setIsLoading(false);
@@ -38,74 +36,36 @@ const Login: React.FC<LoginProps> = ({ onLoginKubo }) => {
     return (
         <div className="login-container">
             <h1>Welcome to dSocial</h1>
-            <p style={{ color: '#888', margin: '1rem 0' }}>Connect to your local Kubo node to enter the decentralized social graph.</p>
+            <p style={{ color: '#888', margin: '1rem 0' }}>
+                Sign in with a browser identity. Your key lives in this device’s Helia keychain — no local Kubo node required.
+            </p>
             
             <form onSubmit={handleSubmit} className="login-form">
-                
-                {/* 1. API URL Input with Tooltip */}
-                <div className="input-with-tooltip-container">
-                    <input 
-                        type="text" 
-                        name="apiUrl" 
-                        placeholder="RPC API URL (e.g., http://127.0.0.1:5001)" 
-                        defaultValue="http://127.0.0.1:5001"
-                        className="login-input"
-                        disabled={isLoading}
-                    />
-                    <Tooltip text={
-                        <div style={{ textAlign: 'left' }}>
-                            <strong>Required CORS Config:</strong><br/>
-                            <code>ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'</code><br/><br/>
-
-                            <code>ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET"]'</code><br/><br/>
-
-                            <code>ipfs config --json Pubsub.Enabled true</code><br/><br/>
-
-                            <code>ipfs config --json Ipns.UsePubsub true</code>
-                        </div>
-                    }>
-                        <InfoIcon />
-                    </Tooltip>
-                </div>
-                
-                {/* 2. Key Name Input */}
                 <div className="input-with-tooltip-container">
                     <input 
                         type="text" 
                         name="keyName" 
-                        placeholder="IPNS Key Name (Identity)" 
+                        placeholder="Identity name (e.g. alice)" 
                         className="login-input"
                         disabled={isLoading}
+                        autoFocus
                     />
-                     <Tooltip text={<span>The name of the key in your Kubo node (e.g., 'self' or 'my-identity'). If it doesn't exist, it will be generated.</span>}>
+                     <Tooltip text={<span>A label for your IPNS key in this browser. Reuse the same name on this device to open the same identity. New names create a fresh profile.</span>}>
                         <InfoIcon />
                     </Tooltip>
                 </div>
 
-                {/* 3. Advanced Credentials */}
-                {showCredentials && (
+                {showPassphrase && (
                     <div className="login-credentials-section">
                         <div className="input-with-tooltip-container" style={{ marginTop: '1rem' }}>
                             <input 
-                                type="text" 
-                                name="username" 
-                                placeholder="Username (optional)" 
-                                className="login-input"
-                                disabled={isLoading} 
-                            />
-                             <Tooltip text={<span>Optional username for Kubo RPC API basic authentication.</span>}>
-                                <InfoIcon />
-                            </Tooltip>
-                        </div>
-                        <div className="input-with-tooltip-container" style={{ marginTop: '0.5rem' }}>
-                            <input 
                                 type="password" 
-                                name="password" 
-                                placeholder="Password (optional)" 
+                                name="passphrase" 
+                                placeholder="Keychain passphrase (optional)" 
                                 className="login-input"
                                 disabled={isLoading} 
                             />
-                            <Tooltip text={<span>Optional password for Kubo RPC API basic authentication.</span>}>
+                            <Tooltip text={<span>Optional passphrase that encrypts your Helia keychain on this device. Leave empty for the default. You will need the same passphrase after a refresh to post.</span>}>
                                 <InfoIcon />
                             </Tooltip>
                         </div>
@@ -114,15 +74,15 @@ const Login: React.FC<LoginProps> = ({ onLoginKubo }) => {
 
                 <button
                     type="button"
-                    onClick={() => setShowCredentials(!showCredentials)}
+                    onClick={() => setShowPassphrase(!showPassphrase)}
                     disabled={isLoading}
                     className="toggle-credentials-button"
                 >
-                    {showCredentials ? 'Hide Advanced Credentials' : 'Show Advanced Credentials'}
+                    {showPassphrase ? 'Hide Passphrase' : 'Add Passphrase (optional)'}
                 </button>
 
                 <button type="submit" disabled={isLoading} className="login-button">
-                    {isLoading ? 'Connecting...' : 'Connect'}
+                    {isLoading ? 'Starting Helia...' : 'Enter'}
                 </button>
             </form>
         </div>

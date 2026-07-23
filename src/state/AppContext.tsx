@@ -23,8 +23,8 @@ const LegacyStateAggregator: React.FC<{ children: React.ReactNode }> = ({ childr
         myIpnsKey: auth.myIpnsKey,
         myPeerId: auth.myPeerId,
         latestStateCID: auth.latestStateCID,
-        loginWithKubo: async (apiUrl: string, keyName: string, username?: string, password?: string) => {
-            await auth.loginWithKubo(apiUrl, keyName, username, password);
+        loginWithHelia: async (keyName: string, passphrase?: string) => {
+            await auth.loginWithHelia(keyName, passphrase);
         },
         logout: auth.logout,
         isInitializeDialogOpen: auth.isInitializeDialogOpen,

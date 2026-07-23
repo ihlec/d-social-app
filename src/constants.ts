@@ -7,6 +7,9 @@ export const DEFAULT_USER_STATE_CID = "QmRh23Gd4AJLBH82CN9wz2MAe6sY95AqDSDBMFW1q
 // Timeouts & Intervals
 export const POST_COOLDOWN_MS = 300 * 1000; // 5 minutes
 export const IPNS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+/** Skip Phase-2 IPNS revalidation for a follow if checked within this window */
+export const IPNS_REVALIDATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+export const FEED_FOLLOW_BATCH_SIZE = 4;
 
 // --- PERFORMANCE TUNING ---
 export const KUBO_RPC_TIMEOUT_MS = 5000;       // 5s: Fast reads (content)

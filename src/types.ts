@@ -48,6 +48,10 @@ export interface OptimisticStateCookie {
 export interface OnlinePeer {
     ipnsKey: string;
     name: string;
+    /** Latest state CID announced over Trystero (may not be on public gateways yet). */
+    stateCid?: string;
+    /** Trystero/WebRTC peer id for direct feed sync. */
+    trysteroPeerId?: string;
 }
 
 export interface NewPostData {
@@ -57,16 +61,11 @@ export interface NewPostData {
 }
 
 export interface Session {
-    sessionType: 'kubo' | null;
-    rpcApiUrl?: string;
+    sessionType: 'helia' | null;
+    /** Local keychain label (e.g. display name) */
     ipnsKeyName?: string;
+    /** Public IPNS name (k51…) */
     resolvedIpnsKey?: string;
-    kuboUsername?: string;
-    kuboPassword?: string;
+    /** User set a custom keychain passphrase */
     requiresPassword?: boolean;
-}
-
-export interface KuboAuth {
-    username?: string;
-    password?: string;
 }

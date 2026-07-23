@@ -13,7 +13,7 @@ const Login = lazy(() => import('../features/auth/Login'));
 function AppRouter() {
   const { 
     isLoggedIn, 
-    loginWithKubo,
+    loginWithHelia,
     isInitializeDialogOpen,
     onInitializeUser,
     onRetryLogin
@@ -43,7 +43,7 @@ function AppRouter() {
             path="/login"
             element={
               !isLoggedIn ? (
-                <Login onLoginKubo={loginWithKubo} />
+                <Login onLoginHelia={loginWithHelia} />
               ) : (
                 <Navigate to="/" replace />
               )

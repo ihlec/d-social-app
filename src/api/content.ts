@@ -1,9 +1,19 @@
 import { DEFAULT_USER_STATE_CID } from '../constants';
 import { UserState, Post, Follow } from '../types';
-import { fetchFromGateways, toGatewayUrl, getRankedGateways } from './gatewayUtils';
-import { getSession } from './session';
+import { fetchFromGateways, getRankedGateways } from './gatewayUtils';
+import { heliaCatJson, getHeliaStatus } from './heliaNode';
 
 export async function fetchPost<T = Post | UserState | any>(cid: string): Promise<T | null> {
+    // Local Helia first — content we just wrote never hits public gateways yet.
+    if (getHeliaStatus().status === 'ready') {
+        try {
+            const local = await heliaCatJson<T>(cid);
+            if (local && typeof local === 'object') {
+                return { ...(local as object), id: cid } as T;
+            }
+        } catch { /* fall through to gateways */ }
+    }
+
     const result = await fetchFromGateways(
         `/ipfs/${cid}`,
         'ipfs',
@@ -114,12 +124,12 @@ export const getMediaUrl = (cidOrUrl: string): string => {
         return cidOrUrl;
     }
     
-    const session = getSession();
-    if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-         return `${toGatewayUrl(session.rpcApiUrl)}/ipfs/${cid}`;
-    }
-
     const gateways = getRankedGateways('ipfs');
     const bestGateway = gateways.length > 0 ? gateways[0] : 'https://ipfs.io/ipfs/';
-    return `${bestGateway}${cid}`;
+    if (bestGateway.includes('{cid}')) {
+        return bestGateway.replace('{cid}', cid);
+    }
+    const base = bestGateway.replace(/\/+$/, '');
+    if (base.endsWith('/ipfs')) return `${base}/${cid}`;
+    return `${base}/ipfs/${cid}`;
 };

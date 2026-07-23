@@ -13,6 +13,7 @@ import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { shouldSkipRequest, reportFetchFailure, reportFetchSuccess, markRequestPending } from '../lib/fetchBackoff';
 import { pinCid } from '../api/admin';
 import { POST_COOLDOWN_MS } from '../constants';
+import * as contentCache from '../lib/contentCache';
 
 export interface UseAppStateReturn {
     isLoggedIn: boolean | null;
@@ -24,13 +25,13 @@ export interface UseAppStateReturn {
     isProcessing: boolean;
     isCoolingDown: boolean;
     countdown: number;
-    loginWithKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<void>;
+    loginWithHelia: (keyName: string, passphrase?: string) => Promise<void>;
     logout: () => void;
     addPost: (postData: NewPostData) => Promise<void>;
     deletePost: (postId: string) => Promise<void>;
     likePost: (postId: string) => Promise<void>;
     dislikePost: (postId: string) => Promise<void>;
-    followUser: (ipnsKeyToFollow: string) => Promise<void>;
+    followUser: (ipnsKeyToFollow: string, opts?: { name?: string; stateCid?: string }) => Promise<void>;
     unfollowUser: (ipnsKeyToUnfollow: string) => Promise<void>;
     blockUser: (ipnsKey: string) => Promise<void>;
     unblockUser: (ipnsKey: string) => Promise<void>;
@@ -70,7 +71,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
     const { 
         isLoggedIn, myIpnsKey, myPeerId, userState, setUserState, 
         latestStateCID, setLatestStateCID,
-        loginWithKubo, logout, isInitializeDialogOpen,
+        loginWithHelia, logout, isInitializeDialogOpen,
         onInitializeUser, onRetryLogin,
         isSessionLocked, unlockSession
     } = useAppAuth();
@@ -299,8 +300,8 @@ export const useAppStateInternal = (): UseAppStateReturn => {
         POST_COOLDOWN_MS 
     );
 
-    const loginWithKuboWrapper = async (apiUrl: string, keyName: string, username?: string, password?: string) => {
-        await loginWithKubo(apiUrl, keyName, username, password);
+    const loginWithHeliaWrapper = async (keyName: string, passphrase?: string) => {
+        await loginWithHelia(keyName, passphrase);
     };
 
     const refreshFeed = useCallback(async (_force: boolean = false) => {
@@ -327,10 +328,23 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                 const batch = followsWithCids.slice(i, i + BATCH_SIZE);
                 
                 const promises = batch.map(async (follow) => {
-                    // Skip if already in map
                     if (allUserStatesMapRef.current.has(follow.ipnsKey)) return;
+
+                    const idb = await contentCache.getUserState(follow.ipnsKey);
+                    if (idb?.state) {
+                        setAllUserStatesMap(prev => {
+                            if (prev.has(follow.ipnsKey)) return prev;
+                            return new Map(prev).set(follow.ipnsKey, idb.state);
+                        });
+                        if (idb.state.profile) {
+                            setUserProfilesMap(prev => {
+                                if (prev.has(follow.ipnsKey)) return prev;
+                                return new Map(prev).set(follow.ipnsKey, idb.state.profile);
+                            });
+                        }
+                        return;
+                    }
                     
-                    // Check backoff
                     if (shouldSkipRequest(follow.lastSeenCid!)) return;
                     
                     markRequestPending(follow.lastSeenCid!);
@@ -338,17 +352,15 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                     try {
                         const fetchedState = await fetchUserState(follow.lastSeenCid!, follow.ipnsKey);
                         
-                        // Pin the lastSeenCid to avoid waiting for IPNS resolution in future
-                        pinCid(follow.lastSeenCid!).catch(() => {}); // Fire-and-forget, don't block
+                        pinCid(follow.lastSeenCid!).catch(() => {});
+                        contentCache.putUserState(follow.ipnsKey, fetchedState, follow.lastSeenCid!).catch(() => {});
                         
-                        // Store in map
                         setAllUserStatesMap(prev => {
                             const next = new Map(prev);
                             next.set(follow.ipnsKey, fetchedState);
                             return next;
                         });
                         
-                        // Update profile map
                         if (fetchedState.profile) {
                             setUserProfilesMap(prev => {
                                 const next = new Map(prev);
@@ -362,7 +374,6 @@ export const useAppStateInternal = (): UseAppStateReturn => {
                         reportFetchSuccess(follow.lastSeenCid!);
                     } catch (e: any) {
                         reportFetchFailure(follow.lastSeenCid!);
-                        // Check if it's a 504 or timeout error
                         if (e?.message?.includes('504') || e?.message?.includes('Gateway Timeout') || e?.message?.includes('timeout')) {
                             console.warn(`[App] Gateway timeout for ${follow.ipnsKey} (${follow.lastSeenCid}), will retry later via backoff`);
                         } else {
@@ -498,7 +509,7 @@ export const useAppStateInternal = (): UseAppStateReturn => {
     return {
         isLoggedIn, userState, myIpnsKey, myPeerId, latestStateCID,
         isLoadingFeed, isProcessing, isCoolingDown, countdown,
-        loginWithKubo: loginWithKuboWrapper, logout,
+        loginWithHelia: loginWithHeliaWrapper, logout,
         addPost, deletePost, likePost, dislikePost, followUser, unfollowUser, blockUser, unblockUser,
         refreshFeed,
         isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore,

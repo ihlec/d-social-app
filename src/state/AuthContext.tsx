@@ -9,7 +9,7 @@ export interface AuthContextState {
     myPeerId: string;
     latestStateCID: string;
     setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
-    loginWithKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<{ success: boolean; state?: import('../types').UserState; key?: string }>;
+    loginWithHelia: (keyName: string, passphrase?: string) => Promise<{ success: boolean; state?: import('../types').UserState; key?: string }>;
     logout: () => void;
     isInitializeDialogOpen: boolean;
     onInitializeUser: () => void;

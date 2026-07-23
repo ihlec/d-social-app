@@ -4,13 +4,14 @@ import toast from 'react-hot-toast';
 import { UserState } from '../../types';
 import {
     getSession,
-    loginToKubo,
+    loginWithHelia,
     logoutSession,
     resolveIpns,
     fetchUserState,
     UserStateNotFoundError,
-    fetchKubo,
-    loadOptimisticCookie
+    loadOptimisticCookie,
+    getSessionMemoryPassword,
+    startHelia,
 } from '../../api/ipfsIpns';
 
 export interface UseAppAuthReturn {
@@ -22,7 +23,7 @@ export interface UseAppAuthReturn {
     setUserState: React.Dispatch<React.SetStateAction<UserState | null>>;
     latestStateCID: string;
     setLatestStateCID: React.Dispatch<React.SetStateAction<string>>;
-    loginWithKubo: (apiUrl: string, keyName: string, username?: string, password?: string) => Promise<{ success: boolean; state?: UserState; key?: string }>;
+    loginWithHelia: (keyName: string, passphrase?: string) => Promise<{ success: boolean; state?: UserState; key?: string }>;
     logout: () => void;
     resetAllState: () => void;
     isInitializeDialogOpen: boolean;
@@ -66,55 +67,40 @@ export const useAppAuth = (): UseAppAuthReturn => {
     useEffect(() => {
         const checkSession = async () => {
             const session = getSession();
-            
-            // Determine Lock Status
-            if (session.sessionType === 'kubo' && session.ipnsKeyName) {
-                 // Locked ONLY if password was required but is missing from memory
-                 if (session.requiresPassword && !session.kuboPassword) {
-                     setIsSessionLocked(true);
-                 } else {
-                     setIsSessionLocked(false);
-                 }
-            }
 
-            if (session.sessionType === 'kubo' && session.ipnsKeyName && session.rpcApiUrl) {
-                try {
-                    // 1. Verify Connection & GET Peer ID
-                    // FIX: Capture the response to get the ID
-                    const idResponse = await fetchKubo(session.rpcApiUrl, '/api/v0/id', undefined, undefined, { username: session.kuboUsername, password: session.kuboPassword });
-                    
+            if (session.sessionType === 'helia' && session.ipnsKeyName) {
+                if (session.requiresPassword && !getSessionMemoryPassword()) {
+                    setIsSessionLocked(true);
                     setMyIpnsKey(session.ipnsKeyName);
+                    if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
+                    setIsLoggedIn(true);
+                    return;
+                }
 
-                    // FIX: Use the ID from the Node if cookie is missing it
-                    if (session.resolvedIpnsKey) {
-                        setMyPeerId(session.resolvedIpnsKey);
-                    } else if (idResponse && idResponse.ID) {
-                        console.log("[useAuth] Recovered Peer ID from node:", idResponse.ID);
-                        setMyPeerId(idResponse.ID);
-                    }
+                try {
+                    await startHelia(getSessionMemoryPassword());
+                    setMyIpnsKey(session.ipnsKeyName);
+                    if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
+                    setIsSessionLocked(false);
 
-                    // 2. Load User State with Fallback Strategy
                     let cidToFetch = '';
                     let source = 'network';
 
-                    // A. Try Optimistic Cookie First
                     const optimistic = loadOptimisticCookie(session.ipnsKeyName);
-                    if (optimistic && optimistic.cid) {
-                        console.log(`[useAuth] Found optimistic cookie: ${optimistic.cid}`);
+                    if (optimistic?.cid) {
                         cidToFetch = optimistic.cid;
                         source = 'cookie';
                     }
 
-                    // B. If no cookie, resolve IPNS
                     if (!cidToFetch) {
+                        const name = session.resolvedIpnsKey || session.ipnsKeyName;
                         try {
-                            cidToFetch = await resolveIpns(session.ipnsKeyName);
+                            cidToFetch = await resolveIpns(name);
                         } catch (e) {
                             console.warn("Could not resolve IPNS during session check:", e);
                         }
                     }
 
-                    // 3. Fetch the State Data
                     if (cidToFetch) {
                         try {
                             const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
@@ -123,11 +109,10 @@ export const useAppAuth = (): UseAppAuthReturn => {
                             setIsLoggedIn(true);
                         } catch (e) {
                             console.warn(`Failed to load state from ${source} (${cidToFetch}). Trying fallback...`, e);
-                            
-                            // C. Fallback
                             if (source === 'cookie') {
                                 try {
-                                    const networkCid = await resolveIpns(session.ipnsKeyName);
+                                    const name = session.resolvedIpnsKey || session.ipnsKeyName;
+                                    const networkCid = await resolveIpns(name);
                                     const fallbackState = await fetchUserState(networkCid, session.ipnsKeyName);
                                     setUserState(fallbackState);
                                     setLatestStateCID(networkCid);
@@ -141,11 +126,10 @@ export const useAppAuth = (): UseAppAuthReturn => {
                             }
                         }
                     } else {
-                         setIsLoggedIn(true);
+                        setIsLoggedIn(true);
                     }
-
                 } catch (e) {
-                    console.error("Session check failed (node unreachable?):", e);
+                    console.error("Session check failed:", e);
                     logoutSession();
                     setIsLoggedIn(false);
                 }
@@ -156,10 +140,10 @@ export const useAppAuth = (): UseAppAuthReturn => {
         checkSession();
     }, []);
 
-    const loginWithKubo = useCallback(async (apiUrl: string, keyName: string, username?: string, password?: string) => {
+    const loginWithHeliaFn = useCallback(async (keyName: string, passphrase?: string) => {
         const attemptLogin = async (forceInit: boolean) => {
             try {
-                const { session, state, cid } = await loginToKubo(apiUrl, keyName, forceInit, username, password);
+                const { session, state, cid } = await loginWithHelia(keyName, passphrase, forceInit);
                 
                 setUserState(state);
                 setMyIpnsKey(keyName);
@@ -167,7 +151,7 @@ export const useAppAuth = (): UseAppAuthReturn => {
                 
                 setLatestStateCID(cid);
                 setIsLoggedIn(true);
-                setIsSessionLocked(false); // Password provided, unlocked
+                setIsSessionLocked(false);
                 closeInitializeDialog();
                 toast.success(`Connected as ${keyName}`);
                 return { success: true, state, key: keyName };
@@ -193,19 +177,19 @@ export const useAppAuth = (): UseAppAuthReturn => {
 
     const unlockSession = useCallback(async (password: string) => {
         const session = getSession();
-        if (!session.rpcApiUrl || !session.ipnsKeyName) {
+        if (!session.ipnsKeyName) {
             toast.error("No active session found. Please login again.");
             return false;
         }
         try {
-            await loginWithKubo(session.rpcApiUrl, session.ipnsKeyName, session.kuboUsername, password);
+            await loginWithHeliaFn(session.ipnsKeyName, password);
             return true;
         } catch (e) {
             console.error("Unlock failed", e);
-            toast.error("Incorrect password.");
+            toast.error("Incorrect passphrase.");
             return false;
         }
-    }, [loginWithKubo]);
+    }, [loginWithHeliaFn]);
 
     return {
         isLoggedIn,
@@ -215,7 +199,7 @@ export const useAppAuth = (): UseAppAuthReturn => {
         myPeerId, 
         userState, setUserState,
         latestStateCID, setLatestStateCID,
-        loginWithKubo,
+        loginWithHelia: loginWithHeliaFn,
         logout,
         resetAllState,
         isInitializeDialogOpen,

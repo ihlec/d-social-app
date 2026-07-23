@@ -10,13 +10,25 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@helia/ipns": "^10.0.5",
+    "@helia/libp2p": "^1.0.6",
+    "@helia/unixfs": "^8.0.4",
+    "@libp2p/crypto": "^5.1.21",
+    "@libp2p/gossipsub": "^16.0.5",
+    "@libp2p/peer-id": "^6.0.12",
+    "blockstore-idb": "^4.0.1",
+    "datastore-idb": "^5.0.1",
     "dompurify": "^3.3.1",
+    "helia": "^7.1.0",
     "masonic": "^4.1.0",
+    "multiformats": "^14.0.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-hot-toast": "^2.6.0",
     "react-responsive-masonry": "^2.7.1",
-    "react-router-dom": "^7.10.1"
+    "react-router-dom": "^7.10.1",
+    "trystero": "^0.25.3",
+    "uint8arrays": "^6.1.1"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",

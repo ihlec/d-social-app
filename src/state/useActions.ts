@@ -13,9 +13,11 @@ import {
     pinCid, 
     unpinCid, 
     getSession, 
-    ensureBlockLocal, 
-    fetchKubo,
-    fetchUserStateChunk 
+    ensureBlockLocal,
+    startHelia,
+    heliaListPins,
+    listIdentityKeys,
+    fetchUserStateChunk,
 } from '../api/ipfsIpns'; 
 import { MAX_POSTS_PER_STATE } from '../constants';
 import { reportFetchSuccess } from '../lib/fetchBackoff';
@@ -153,7 +155,7 @@ export const useAppActions = ({
         }
     }, []);
 
-    // --- SELF HEALING: MULTI-USER AWARE GC ---
+    // --- SELF HEALING: MULTI-USER AWARE GC (Helia pins) ---
     const repairPins = useCallback(async () => {
         const currentUserState = userStateRef.current;
         const currentPostsMap = allPostsMapRef.current;
@@ -161,8 +163,13 @@ export const useAppActions = ({
         if (!currentUserState) return;
         
         const session = getSession();
-        if (session.sessionType !== 'kubo' || !session.rpcApiUrl) return;
-        const auth = { username: session.kuboUsername, password: session.kuboPassword };
+        if (session.sessionType !== 'helia') return;
+
+        try {
+            await startHelia();
+        } catch {
+            return;
+        }
 
         const keepSet = new Set<string>();
         
@@ -175,23 +182,24 @@ export const useAppActions = ({
         addToKeepSet(currentUserState.likedPostCIDs);
         
         try {
-            const keysRes = await fetchKubo(session.rpcApiUrl, '/api/v0/key/list', undefined, undefined, auth);
-            if (keysRes && Array.isArray(keysRes.Keys)) {
-                const otherLocalKeys = keysRes.Keys.filter((k: { Id: string }) => k.Id !== myPeerId);
-                for (const key of otherLocalKeys) {
-                    try {
-                        const stateCid = await resolveIpns(key.Id);
-                        if (stateCid) {
-                            const peerState = await fetchUserStateChunk(stateCid);
-                            if (peerState) {
-                                if (peerState.postCIDs) peerState.postCIDs.forEach(cid => keepSet.add(cid));
-                                if (peerState.likedPostCIDs) peerState.likedPostCIDs.forEach(cid => keepSet.add(cid));
-                            }
+            const localKeys = await listIdentityKeys();
+            for (const keyName of localKeys) {
+                if (keyName === session.ipnsKeyName) continue;
+                try {
+                    const { ensureIdentityKey } = await import('../api/heliaNode');
+                    const { ipnsName } = await ensureIdentityKey(keyName);
+                    if (ipnsName === myPeerId) continue;
+                    const stateCid = await resolveIpns(ipnsName);
+                    if (stateCid) {
+                        const peerState = await fetchUserStateChunk(stateCid);
+                        if (peerState) {
+                            if (peerState.postCIDs) peerState.postCIDs.forEach(cid => keepSet.add(cid));
+                            if (peerState.likedPostCIDs) peerState.likedPostCIDs.forEach(cid => keepSet.add(cid));
                         }
-                    } catch (e) { /* ignore */ }
-                }
+                    }
+                } catch { /* ignore */ }
             }
-        } catch (e) { return; }
+        } catch { /* ignore */ }
 
         for (const cid of Array.from(keepSet)) {
              const post = currentPostsMap.get(cid);
@@ -202,47 +210,42 @@ export const useAppActions = ({
         }
 
         let gcCount = 0;
-        let localPinSet: Set<string> | null = null;
+        let localPinSet: Set<string>;
         try {
-            const pinRes = await fetchKubo(session.rpcApiUrl!, '/api/v0/pin/ls', { type: 'recursive' }, undefined, auth, 20000);
-            if (pinRes && pinRes.Keys) localPinSet = new Set(Object.keys(pinRes.Keys));
-        } catch (e) { return; }
+            localPinSet = await heliaListPins();
+        } catch {
+            return;
+        }
 
-        // Repair
         for (const cid of keepSet) {
-             if (localPinSet && localPinSet.has(cid)) continue;
+             if (localPinSet.has(cid)) continue;
              try {
-                await fetchKubo(session.rpcApiUrl!, '/api/v0/block/stat', { arg: cid }, undefined, auth, 1000);
-                pinCid(cid).catch(() => {});
-             } catch(e) {
+                await ensureBlockLocal(cid);
+             } catch {
                 if (currentUserState.postCIDs.includes(cid) || currentUserState.likedPostCIDs?.includes(cid)) {
-                    await ensureBlockLocal(cid);
-                    await sleep(2000);
+                    pinCid(cid).catch(() => {});
                 }
              }
              await sleep(20);
         }
 
-        // GC
-        if (localPinSet && localPinSet.size > 0) {
-            const safeUnpin = async (cid: string) => {
-                if (!cid || cid.startsWith('http')) return;
-                if (localPinSet!.has(cid) && !keepSet.has(cid)) {
-                    try {
-                        await unpinCid(cid);
-                        gcCount++;
-                        localPinSet!.delete(cid); 
-                    } catch(e) { /* ignore */ }
-                    await sleep(1000); 
-                }
-            };
-            const postsArray = Array.from(currentPostsMap.entries());
-            for (const [id, post] of postsArray) {
-                 await safeUnpin(id);
-                 if (post.mediaCid) await safeUnpin(post.mediaCid);
-                 if (post.thumbnailCid) await safeUnpin(post.thumbnailCid);
-                 if (gcCount > 0 && gcCount % 5 === 0) await sleep(500); 
+        const safeUnpin = async (cid: string) => {
+            if (!cid || cid.startsWith('http')) return;
+            if (localPinSet.has(cid) && !keepSet.has(cid)) {
+                try {
+                    await unpinCid(cid);
+                    gcCount++;
+                    localPinSet.delete(cid); 
+                } catch { /* ignore */ }
+                await sleep(1000); 
             }
+        };
+        const postsArray = Array.from(currentPostsMap.entries());
+        for (const [id, post] of postsArray) {
+             await safeUnpin(id);
+             if (post.mediaCid) await safeUnpin(post.mediaCid);
+             if (post.thumbnailCid) await safeUnpin(post.thumbnailCid);
+             if (gcCount > 0 && gcCount % 5 === 0) await sleep(500); 
         }
         if (gcCount > 0) toast.success(`Cleaned up ${gcCount} stale files.`);
         
@@ -415,60 +418,100 @@ export const useAppActions = ({
     }, [myIpnsKey, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
 
 
-    const followUser = useCallback(async (ipnsKey: string) => {
+    const followUser = useCallback(async (
+        ipnsKey: string,
+        opts?: { name?: string; stateCid?: string }
+    ) => {
+        const key = (ipnsKey || '').trim();
+        if (!key) {
+            toast.error('Missing peer key');
+            return;
+        }
+
         setIsProcessing(true);
         try {
             await queueAction('followUser', async (rawState) => {
                 const currentState = mergePendingUpdates(rawState);
 
-                if (currentState.follows.some(f => f.ipnsKey === ipnsKey)) return currentState;
-
-                // Default to a placeholder
-                let name = ipnsKey.substring(0,8) + '...';
-                let latestCid = '';
-                
-                try {
-                     // OPTIMIZATION: Race network vs 2s timeout. 
-                     // If network is slow, don't block the UI. The background healer will fix it later.
-                     const resolvePromise = resolveIpns(ipnsKey);
-                     const timeoutPromise = new Promise<string>((_, reject) => 
-                        setTimeout(() => reject(new Error("Timeout")), 2000)
-                     );
-
-                     latestCid = await Promise.race([resolvePromise, timeoutPromise]);
-                     
-                     if (latestCid) {
-                         const state = await fetchUserStateChunk(latestCid);
-                         if (state?.profile?.name) name = state.profile.name;
-                     }
-                } catch(e) { 
-                    console.log("[Follow] Network resolve slow/failed, proceeding with optimistic follow.");
+                if (currentState.follows.some(f => f.ipnsKey === key)) {
+                    toast('Already following', { icon: '👋' });
+                    return { newState: currentState };
                 }
-                
-                const newFollow: Follow = { ipnsKey, name, lastSeenCid: latestCid, updatedAt: Date.now() };
-                const newFollows = [...currentState.follows, newFollow];
-                
-                const newState = { 
-                    ...currentState, 
-                    follows: newFollows, 
+
+                // Prefer Trystero-announced name/CID — never block the UI on public IPNS/gateways.
+                let name = opts?.name?.trim() || `${key.slice(0, 8)}…`;
+                let latestCid = opts?.stateCid || '';
+
+                try {
+                    const { requestPeerFeed } = await import('../api/pubsub');
+                    const p2p = await Promise.race([
+                        requestPeerFeed(key),
+                        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+                    ]);
+                    if (p2p?.ok && p2p.state) {
+                        if (p2p.state.profile?.name) name = p2p.state.profile.name;
+                        if (p2p.stateCid) latestCid = p2p.stateCid;
+                        if (p2p.state.profile) {
+                            setUserProfilesMap(prev => new Map(prev).set(key, p2p.state!.profile));
+                        }
+                    }
+                } catch {
+                    /* optimistic follow below */
+                }
+
+                const newFollow: Follow = {
+                    ipnsKey: key,
+                    name,
+                    lastSeenCid: latestCid || undefined,
                     updatedAt: Date.now(),
-                    extendedUserState: currentState.extendedUserState 
                 };
-                
+                const newState: UserState = {
+                    ...currentState,
+                    follows: [...currentState.follows, newFollow],
+                    updatedAt: Date.now(),
+                    extendedUserState: currentState.extendedUserState,
+                };
+
                 setUserState(newState);
+                userStateRef.current = newState;
                 queuePersistence(newState);
 
-                mirrorUser(ipnsKey, latestCid).catch(e => console.warn(`[Follow] Mirror failed`, e));
+                // Background enrichment only (must not gate the follow)
+                void (async () => {
+                    try {
+                        if (!latestCid) {
+                            const cid = await resolveIpns(key);
+                            if (cid) {
+                                latestCid = cid;
+                                pendingFollowUpdatesRef.current.set(key, { cid, name });
+                            }
+                        }
+                        if (latestCid) {
+                            mirrorUser(key, latestCid).catch(() => {});
+                            const state = await fetchUserStateChunk(latestCid).catch(() => null);
+                            if (state?.profile?.name) {
+                                pendingFollowUpdatesRef.current.set(key, {
+                                    cid: latestCid,
+                                    name: state.profile.name,
+                                });
+                                setUserProfilesMap(prev => new Map(prev).set(key, state.profile!));
+                            }
+                        }
+                    } catch (e) {
+                        console.debug('[Follow] Background enrich failed', e);
+                    }
+                })();
 
-                toast.success(`Followed user!`);
+                toast.success(`Followed ${name}`);
                 return { newState };
             });
-        } catch(e) {
-            toast.error("Follow failed");
+        } catch (e) {
+            console.error('[Follow] failed', e);
+            toast.error('Follow failed');
         } finally {
             setIsProcessing(false);
         }
-    }, [myIpnsKey, latestStateCID, queueAction, setUserState, mergePendingUpdates, queuePersistence]);
+    }, [queueAction, setUserState, setUserProfilesMap, mergePendingUpdates, queuePersistence]);
 
 
     const unfollowUser = useCallback(async (ipnsKey: string) => {
@@ -486,6 +529,9 @@ export const useAppActions = ({
             
             setUserState(newState);
             queuePersistence(newState);
+
+            // Mark IndexedDB cache for this author as eviction-preferred
+            import('../lib/contentCache').then(m => m.markAuthorEvictable(ipnsKey)).catch(() => {});
             
             toast.success(`Unfollowed user`);
             return { newState };

@@ -1,8 +1,8 @@
 # D. Social App 
 
-A decentralized social media proof-of-concept application built with React, TypeScript, and integrating with IPFS (via Kubo).
+A decentralized social media proof-of-concept built with React, TypeScript, and a browser Helia (IPFS) node.
 
-## I have a IPFS node, what now?
+## I have an identity, what now?
 
 -> Join a Social Network with it OR just use it for blogging. 
 
@@ -21,20 +21,17 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51q
     yarn install
     ```
 
-2.  **Set up Environment (if needed):**
-    * Ensure you have access to a Kubo node (if using Kubo login).
-    * Configure CORS settings for the Kubo API endpoint as required by the application logic.
-    * ```ipfs config --json Pubsub.Enabled true```
-    * ```ipfs config --json Ipns.UsePubsub true```
-
-
-3.  **Run Development Server:**
+2.  **Run Development Server:**
     ```bash
     npm run dev
     ```
     This will start the Vite development server, typically at `http://localhost:5173`.
 
-4.  **Build for Production:**
+    **Helia (browser IPFS):** The app runs a full browser Helia node for identity (keychain),
+    content add/pin, and IPNS publish. No local Kubo node is required. Watch the console for
+    `[Helia] Browser node ready`.
+
+3.  **Build for Production:**
     ```bash
     npm run build
     ```
@@ -48,7 +45,7 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51q
 * React Router DOM
 * React Hot Toast (for notifications)
 * React Responsive Masonry (for space efficient feed rendering)
-* Kubo (for decentralized storage and identity)
+* Helia (browser IPFS for storage and identity)
 
 
 ## TODO
@@ -58,21 +55,4 @@ You can find the latest version of D. Social App here: https://ipfs.io/ipns/k51q
 - export/import of user's private key
 - moderator features / filter disliked posts of followed users in the role of moderators
 - scale through users - the more users cache (view) and pin (like) content, the faster the network will become.
-
-## Remote IPFS nodes need CORS rules
-
-For remote IPFS nodes (not localhost), configure CORS to allow the application:
-
-```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'```
-
-```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST", "GET", "PUT", "OPTIONS"]'```
-
-```ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers '["Authorization", "Content-Type", "X-Requested-With"]'```
-
-## Future Enhancements
-
-* Allow creating user aliases
-* Export/import of user's private key
-* Moderator features / filter disliked posts of followed users in the role of moderators
-* Scale through users - the more users cache (view) and pin (like) content, the faster the network will become
-* Friend-pinning: When following a user, automatically pin their latest Profile CID to improve data availability 
+- wire Helia gossipsub for peer presence (explore still works without it)

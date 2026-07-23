@@ -41,17 +41,17 @@ const UnlockSessionDialog: React.FC<UnlockSessionDialogProps> = ({
                 
                 <p style={{ color: '#ccc', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
                     Your session is in <strong>Read-Only</strong> mode because the page was refreshed. 
-                    Re-enter your password to enable posting and updates.
+                    Re-enter your keychain passphrase to enable posting and updates.
                 </p>
 
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
-                        <label>RPC Password (Optional)</label>
+                        <label>Keychain passphrase</label>
                         <input 
                             type="password"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
-                            placeholder="Enter password..."
+                            placeholder="Enter passphrase..."
                             autoFocus
                         />
                     </div>

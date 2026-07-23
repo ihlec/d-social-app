@@ -80,7 +80,7 @@ interface SidebarProps {
   latestCid: string;
   unresolvedFollows: string[];
   otherUsers: OnlinePeer[];
-  onFollow: (ipnsKey: string) => Promise<void>;
+  onFollow: (ipnsKey: string, opts?: { name?: string; stateCid?: string }) => Promise<void>;
   onUnfollow: (ipnsKey: string) => Promise<void>;
   onViewProfile: (ipnsKey: string) => void;
   onLogout: () => void;
@@ -293,7 +293,7 @@ const Sidebar: React.FC<SidebarProps> = ({
          <h3>Online Peers ({otherUsers.length})</h3>
          <ul className="peer-list">
              {otherUsers.map(user => {
-                 const isFollowing = userState?.follows.some(f => f.ipnsKey === user.ipnsKey);
+                 const isFollowing = userState?.follows?.some(f => f.ipnsKey === user.ipnsKey) ?? false;
                  return (
                      <li key={user.ipnsKey}>
                           <div className="peer-item-content">
@@ -319,15 +319,28 @@ const Sidebar: React.FC<SidebarProps> = ({
                           {userState && user.ipnsKey && (
                               isFollowing ? (
                                 <button 
+                                    type="button"
                                     className="unfollow-button-small" 
-                                    onClick={() => onUnfollow(user.ipnsKey)} 
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void onUnfollow(user.ipnsKey);
+                                    }}
                                 >
                                     Unfollow
                                 </button>
                               ) : (
                                 <button 
+                                    type="button"
                                     className="follow-button-small" 
-                                    onClick={() => onFollow(user.ipnsKey)} 
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void onFollow(user.ipnsKey, {
+                                            name: user.name,
+                                            stateCid: user.stateCid,
+                                        });
+                                    }}
                                 >
                                     Follow
                                 </button>

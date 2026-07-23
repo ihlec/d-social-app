@@ -1,5 +1,4 @@
 import { PUBLIC_CONTENT_GATEWAYS, PUBLIC_IPNS_GATEWAYS, LOCAL_GATEWAY_TIMEOUT_MS, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
-import { getSession } from '../api/ipfsIpns';
 import { getCookie, setCookie } from '../lib/utils';
 
 const gatewayCooldowns = new Map<string, number>();
@@ -164,47 +163,24 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
     // Clean the CID to avoid DNS errors from invisible whitespace
     const cleanCid = cid.trim();
     
-    const localUrls: string[] = [];
     const publicUrls: string[] = [];
-
-    // 1. Process Local Gateway (Priority)
-    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
-    const session = getSession();
-    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    if (session && session.sessionType === 'kubo' && session.rpcApiUrl && session.rpcApiUrl.startsWith('http')) {
-        const gatewayUrl = toGatewayUrl(session.rpcApiUrl);
-        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
-        if (gatewayUrl.startsWith('https://') || !isHttpsPage) {
-            localUrls.push(`${gatewayUrl}/ipfs/${cleanCid}`);
-        }
-    }
-
-    // 2. Process Public Gateways (Ranked & Custom Unified)
     const rankedGateways = getRankedGateways('ipfs');
     
     rankedGateways.forEach(gwUrl => {
         let fullUrl = '';
 
         if (gwUrl.includes('{cid}')) {
-            // Subdomain Gateway Pattern
             if (cleanCid && !cleanCid.startsWith('Qm')) {
                  fullUrl = gwUrl.replace('{cid}', cleanCid);
             }
         } else {
-            // Path Gateway Pattern
-            let baseUrl = gwUrl.trim();
+            let baseUrl = gwUrl.trim().replace(/\/+$/, '');
             
-            // Normalize: Remove trailing slashes
-            baseUrl = baseUrl.replace(/\/+$/, '');
-            
-            // Check if baseUrl already ends with /ipfs or /ipns
             if (baseUrl.endsWith('/ipfs')) {
                 fullUrl = `${baseUrl}/${cleanCid}`;
             } else if (baseUrl.endsWith('/ipns')) {
-                // Shouldn't happen for IPFS content, but handle gracefully
                 fullUrl = `${baseUrl}/${cleanCid}`;
             } else {
-                // Add /ipfs/ prefix if missing
                 fullUrl = `${baseUrl}/ipfs/${cleanCid}`;
             }
         }
@@ -214,13 +190,7 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
         }
     });
 
-    // 3. Construct Final Priority List
-    const allUrls = [
-        ...localUrls,      
-        ...publicUrls        
-    ];
-
-    return [...new Set(allUrls)].filter(u => 
+    return [...new Set(publicUrls)].filter(u => 
         u && 
         (u.startsWith('http://') || u.startsWith('https://')) && 
         !u.includes('undefined') && 
@@ -230,118 +200,52 @@ export const getAllGatewayUrls = (cid?: string): string[] => {
 };
 
 // --- SHARED GATEWAY FETCHING UTILITY ---
-// Common pattern for racing local vs public gateways
 export async function fetchFromGateways<T>(
     resourcePath: string, // e.g., "/ipfs/{cid}" or "/ipns/{key}"
     gatewayType: 'ipfs' | 'ipns',
     responseProcessor: (response: Response) => Promise<T>,
-    localTimeoutMs: number = LOCAL_GATEWAY_TIMEOUT_MS,
+    _localTimeoutMs: number = LOCAL_GATEWAY_TIMEOUT_MS,
     publicTimeoutMs: number = PUBLIC_GATEWAY_TIMEOUT_MS
 ): Promise<T | null> {
-    const session = getSession();
-    const controllers: AbortController[] = [];
-    const promises: Promise<T>[] = [];
-
-    // Local Gateway Promise
-    // Skip HTTP local gateway when page is served over HTTPS to avoid mixed content errors
-    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-        const localGw = toGatewayUrl(session.rpcApiUrl);
-        // Only use local gateway if it's HTTPS or if the page is HTTP (avoid mixed content)
-        if (localGw.startsWith('https://') || !isHttpsPage) {
-            const ctrl = new AbortController();
-            controllers.push(ctrl);
-            
-            promises.push(new Promise<T>(async (resolve, reject) => {
-                const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, localTimeoutMs);
-                try {
-                    const res = await fetch(`${localGw}${resourcePath}`, { signal: ctrl.signal });
-                    clearTimeout(id);
-                    if (res.ok) {
-                        const result = await responseProcessor(res);
-                        resolve(result);
-                    } else if (res.status === 504) {
-                        // Gateway Timeout from Kubo - fail fast to allow public gateways to try
-                        reject(new Error("Local Gateway Timeout (504)"));
-                    } else {
-                        reject(new Error(`Local ${res.status}`));
-                    }
-                } catch(e) { 
-                    clearTimeout(id); 
-                    reject(e); 
-                }
-            }));
-        }
-    }
-
-    // Public Gateway Promise (Starts 600ms after local to give it a headstart, then sequential fallback)
     const gateways = getRankedGateways(gatewayType);
     const pathPrefix = gatewayType === 'ipfs' ? '/ipfs/' : '/ipns/';
-    const LOCAL_HEADSTART_MS = 400;
-    
-    if (gateways.length > 0) {
-        const ctrlPublic = new AbortController();
-        controllers.push(ctrlPublic);
-        
-        promises.push(new Promise<T>(async (resolve, reject) => {
-            // Give local gateway a 600ms headstart before trying public gateways
-            await new Promise(resolve => setTimeout(resolve, LOCAL_HEADSTART_MS));
-            
-            // If local already succeeded, abort public attempts
-            if (ctrlPublic.signal.aborted) {
-                reject(new Error("Aborted - local succeeded"));
-                return;
-            }
-            
-            // Try gateways sequentially
-            for (let i = 0; i < gateways.length; i++) {
-                if (ctrlPublic.signal.aborted) break;
-                const base = gateways[i];
-                
-                try {
-                    const reqCtrl = new AbortController();
-                    const id = setTimeout(() => reqCtrl.abort(), publicTimeoutMs);
-                    
-                    // Construct URL correctly:
-                    // - Normalize base URL (remove trailing slashes)
-                    // - If base already ends with /ipfs/ or /ipns/, use resourcePath as-is (after removing leading /)
-                    // - Otherwise, strip /ipfs/ or /ipns/ from resourcePath to avoid duplication
-                    let normalizedBase = base.trim().replace(/\/+$/, ''); // Remove trailing slashes
-                    let url: string;
-                    if (normalizedBase.endsWith(pathPrefix.slice(0, -1))) { // Check without trailing slash
-                        // Base already has the prefix (e.g., ends with /ipfs), append CID/key
-                        const cidOrKey = resourcePath.replace(pathPrefix, '').replace(/^\/+/, '');
-                        url = `${normalizedBase}/${cidOrKey}`;
-                    } else {
-                        // Base doesn't have the prefix, use resourcePath as-is (it already has /ipfs/ or /ipns/)
-                        url = `${normalizedBase}${resourcePath}`;
-                    }
-                    
-                    const res = await fetch(url, { signal: reqCtrl.signal });
-                    clearTimeout(id);
-                    
-                    if (res.ok) {
-                        promoteGateway(base, gatewayType);
-                        const result = await responseProcessor(res);
-                        resolve(result);
-                        return;
-                    } else {
-                        demoteGateway(base, gatewayType);
-                    }
-                } catch (e) {
-                    demoteGateway(base, gatewayType);
-                    // Continue to next gateway if this one failed
-                }
-            }
-            reject(new Error("All public gateways failed"));
-        }));
-    }
+
+    if (gateways.length === 0) return null;
+
+    const ctrlPublic = new AbortController();
 
     try {
-        const result = await Promise.any(promises);
-        controllers.forEach(c => c.abort());
-        return result;
-    } catch {
+        for (let i = 0; i < gateways.length; i++) {
+            if (ctrlPublic.signal.aborted) break;
+            const base = gateways[i];
+
+            try {
+                const reqCtrl = new AbortController();
+                const id = setTimeout(() => reqCtrl.abort(), publicTimeoutMs);
+
+                let normalizedBase = base.trim().replace(/\/+$/, '');
+                let url: string;
+                if (normalizedBase.endsWith(pathPrefix.slice(0, -1))) {
+                    const cidOrKey = resourcePath.replace(pathPrefix, '').replace(/^\/+/, '');
+                    url = `${normalizedBase}/${cidOrKey}`;
+                } else {
+                    url = `${normalizedBase}${resourcePath}`;
+                }
+
+                const res = await fetch(url, { signal: reqCtrl.signal });
+                clearTimeout(id);
+
+                if (res.ok) {
+                    promoteGateway(base, gatewayType);
+                    return await responseProcessor(res);
+                }
+                demoteGateway(base, gatewayType);
+            } catch {
+                demoteGateway(base, gatewayType);
+            }
+        }
         return null;
+    } finally {
+        ctrlPublic.abort();
     }
 }

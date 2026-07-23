@@ -1,7 +1,6 @@
-import { getSession } from './session';
-import { fetchKubo } from './kuboClient';
-import { toGatewayUrl, getRankedGateways, promoteGateway, demoteGateway } from './gatewayUtils';
-import { IPNS_CACHE_TTL, LOCAL_IPNS_TIMEOUT_MS, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
+import { getRankedGateways, promoteGateway, demoteGateway } from './gatewayUtils';
+import { IPNS_CACHE_TTL, PUBLIC_GATEWAY_TIMEOUT_MS } from '../constants';
+import { heliaResolveIpnsOffline, getHeliaStatus } from './heliaNode';
 
 // --- CACHE ---
 const IPNS_STORAGE_PREFIX = 'dsocial_ipns_cache_';
@@ -14,6 +13,14 @@ const saveToPersistentCache = (ipnsKey: string, cid: string) => {
         localStorage.setItem(`${IPNS_STORAGE_PREFIX}${ipnsKey}`, JSON.stringify(entry));
     } catch (e) { /* ignore */ }
 };
+
+/** Seed resolve caches after a local Helia publish (avoids public-gateway probes). */
+export function rememberIpnsResolution(ipnsKey: string, cid: string): void {
+    if (!ipnsKey || !cid) return;
+    const key = ipnsKey.startsWith('/ipns/') ? ipnsKey.slice(6) : ipnsKey;
+    ipnsResolutionCache.set(key, { cid, timestamp: Date.now() });
+    saveToPersistentCache(key, cid);
+}
 
 const loadFromPersistentCache = (ipnsKey: string): PersistentIpnsEntry | null => {
     try {
@@ -114,14 +121,26 @@ export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
         return pendingRequests.get(ipnsIdentifier)!;
     }
 
-    const session = getSession();
-    
     const execution = async (): Promise<string> => {
-        // PRIMARY: Try delegated IPFS service first (fastest, most reliable)
+        const cacheHit = (cid: string) => {
+            ipnsResolutionCache.set(ipnsIdentifier, { cid, timestamp: Date.now() });
+            saveToPersistentCache(ipnsIdentifier, cid);
+            return cid;
+        };
+
+        // 0) Local Helia — records this browser just published
+        if (getHeliaStatus().status === 'ready') {
+            try {
+                const localCid = await heliaResolveIpnsOffline(ipnsIdentifier);
+                if (localCid) return cacheHit(localCid);
+            } catch { /* ignore */ }
+        }
+
+        // 1) Delegated IPFS routing (CORS-friendly, no HEAD spam)
         try {
             const delegatedUrl = `https://delegated-ipfs.dev/routing/v1/ipns/${ipnsIdentifier}`;
             const ctrl = new AbortController();
-            const timeoutId = setTimeout(() => ctrl.abort(), 10000); // 10s timeout
+            const timeoutId = setTimeout(() => ctrl.abort(), 10000);
             
             const res = await fetch(delegatedUrl, {
                 method: 'GET',
@@ -135,121 +154,38 @@ export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
             if (res.ok) {
                 const recordData = await res.blob();
                 const cid = await parseIpnsRecord(recordData);
-                
-                if (cid) {
-                    ipnsResolutionCache.set(ipnsIdentifier, { cid, timestamp: Date.now() });
-                    saveToPersistentCache(ipnsIdentifier, cid);
-                    return cid;
-                }
+                if (cid) return cacheHit(cid);
             }
         } catch (e) {
-            // Fall through to other methods
             console.debug('[IPNS] Delegated service failed, trying fallback methods', e);
         }
-        
-        // FALLBACK 1: Try Kubo RPC if available
-        if (session.sessionType === 'kubo' && session.rpcApiUrl) {
+
+        // Prefer stale local/persistent cache before noisy public IPNS gateways
+        // (unpublished / not-yet-propagated names produce 500/CORS in the console).
+        const persistent = loadFromPersistentCache(ipnsIdentifier);
+        if (persistent?.cid) return persistent.cid;
+
+        // 2) Public gateways — last resort; try at most two (CORS/500 noise for unpublished names)
+        const gateways = getRankedGateways('ipns').slice(0, 2);
+        for (const base of gateways) {
             try {
-                const res = await fetchKubo(
-                    session.rpcApiUrl, 
-                    '/api/v0/name/resolve', 
-                    { arg: ipnsIdentifier }, 
-                    undefined, 
-                    { username: session.kuboUsername, password: session.kuboPassword }, 
-                    2000, 
-                    1     
-                );
-                
-                // Handle both parsed JSON object and raw response
-                let pathValue: string | null = null;
-                
-                if (res && typeof res === 'object') {
-                    // If fetchKubo already parsed it
-                    pathValue = res.Path || res.path || null;
-                } else if (typeof res === 'string') {
-                    // If it's a string, try to parse it
-                    try {
-                        const parsed = JSON.parse(res);
-                        pathValue = parsed.Path || parsed.path || null;
-                    } catch (e) {
-                        // Not JSON, ignore
-                    }
-                }
-                
-                if (pathValue) {
-                    // Extract CID from path (format: "/ipfs/Qm..." or "/ipfs/baf...")
-                    const resolved = pathValue.replace(/^\/ipfs\//, '').split('/')[0];
-                    if (resolved && (resolved.startsWith('Qm') || resolved.startsWith('baf'))) {
-                        ipnsResolutionCache.set(ipnsIdentifier, { cid: resolved, timestamp: Date.now() });
-                        saveToPersistentCache(ipnsIdentifier, resolved);
-                        return resolved;
-                    }
-                }
-            } catch (e) {
-                // Fall through to gateway resolution
-            }
-        }
+                const reqCtrl = new AbortController();
+                const id = setTimeout(() => reqCtrl.abort(), PUBLIC_GATEWAY_TIMEOUT_MS);
+                const res = await fetch(`${base}${ipnsIdentifier}`, { method: 'HEAD', signal: reqCtrl.signal });
+                clearTimeout(id);
 
-        const controllers: AbortController[] = [];
-        const promises: Promise<string>[] = [];
-
-        if (session.sessionType === 'kubo' && session.rpcApiUrl) {
-            const ctrl = new AbortController();
-            controllers.push(ctrl);
-            const localGw = toGatewayUrl(session.rpcApiUrl);
-            
-            promises.push(new Promise<string>(async (resolve, reject) => {
-                const id = setTimeout(() => { ctrl.abort(); reject(new Error("Local Timeout")); }, LOCAL_IPNS_TIMEOUT_MS);
-                try {
-                    const res = await fetch(`${localGw}/ipns/${ipnsIdentifier}`, { 
-                        method: 'HEAD', signal: ctrl.signal, cache: 'no-store' 
-                    });
-                    clearTimeout(id);
-                    
+                if (res.ok) {
                     const cid = extractCidFromResponse(res);
-                    if (cid) resolve(cid);
-                    else reject(new Error("Local OK but no CID extracted"));
-                } catch(e) { clearTimeout(id); reject(e); }
-            }));
-        }
-
-        const ctrlPublic = new AbortController();
-        controllers.push(ctrlPublic);
-        promises.push(new Promise<string>(async (resolve, reject) => {
-            const gateways = getRankedGateways('ipns');
-            for (const base of gateways) {
-                if (ctrlPublic.signal.aborted) break;
-                try {
-                    const reqCtrl = new AbortController();
-                    const id = setTimeout(() => reqCtrl.abort(), PUBLIC_GATEWAY_TIMEOUT_MS);
-                    const res = await fetch(`${base}${ipnsIdentifier}`, { method: 'HEAD', signal: reqCtrl.signal });
-                    clearTimeout(id);
-
-                    if (res.ok) {
-                        const cid = extractCidFromResponse(res);
-                        if (cid) {
-                            promoteGateway(base, 'ipns');
-                            resolve(cid);
-                            return;
-                        }
+                    if (cid) {
+                        promoteGateway(base, 'ipns');
+                        return cacheHit(cid);
                     }
-                    demoteGateway(base, 'ipns');
-                } catch { demoteGateway(base, 'ipns'); }
-            }
-            reject(new Error("Public fail"));
-        }));
-
-        try {
-            const resolvedCid = await Promise.any(promises);
-            controllers.forEach(c => c.abort()); 
-            ipnsResolutionCache.set(ipnsIdentifier, { cid: resolvedCid, timestamp: Date.now() });
-            saveToPersistentCache(ipnsIdentifier, resolvedCid);
-            return resolvedCid;
-        } catch (error) {
-            const p = loadFromPersistentCache(ipnsIdentifier);
-            if (p) return p.cid;
-            return '';
+                }
+                demoteGateway(base, 'ipns');
+            } catch { demoteGateway(base, 'ipns'); }
         }
+
+        return '';
     };
 
     const finalPromise = execution().finally(() => {

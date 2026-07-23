@@ -1,6 +1,6 @@
 // fileName: src/components/SettingsDialog.tsx
 import React, { useState, useEffect } from 'react';
-import { PUBLIC_CONTENT_GATEWAYS, PUBLIC_IPNS_GATEWAYS } from '../constants';
+import { PUBLIC_CONTENT_GATEWAYS, PUBLIC_IPNS_GATEWAYS, PEER_DISCOVERY_TOPIC } from '../constants';
 
 interface SettingsDialogProps {
     isOpen: boolean;
@@ -10,7 +10,7 @@ interface SettingsDialogProps {
 // Default values to fallback to if localStorage is empty
 const DEFAULT_GATEWAYS = PUBLIC_CONTENT_GATEWAYS.join(',');
 const DEFAULT_IPNS_GATEWAYS = PUBLIC_IPNS_GATEWAYS.join(',');
-const DEFAULT_CHANNELS = "d-social-general";
+const DEFAULT_CHANNELS = PEER_DISCOVERY_TOPIC;
 
 const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
     const [gateways, setGateways] = useState('');
@@ -72,15 +72,15 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 <div className="form-group" style={{ marginTop: '1.5rem' }}>
-                    <label>PubSub Channels (comma separated)</label>
+                    <label>Discovery channels (comma separated)</label>
                     <input 
                         type="text"
                         value={channels}
                         onChange={e => setChannels(e.target.value)}
-                        placeholder="d-social-v1, ..."
+                        placeholder={`${PEER_DISCOVERY_TOPIC}, ...`}
                     />
                     <small style={{ display: 'block', color: '#888', marginTop: '0.25rem' }}>
-                        Channels to listen on for peer discovery.
+                        Trystero room names for online-peer presence (WebRTC + Nostr signaling).
                     </small>
                 </div>
 

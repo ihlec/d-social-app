@@ -2,13 +2,14 @@ import { Session } from '../types';
 import { getCookie, setCookie, eraseCookie, loadSessionCookie } from '../lib/utils';
 import { SESSION_COOKIE_PREFIX, CURRENT_USER_LABEL_KEY } from '../constants';
 
-// --- IN-MEMORY SECRETS ---
-// We do NOT store passwords in cookies/localStorage to prevent XSS leakage.
+// In-memory keychain passphrase (never cookie-stored)
 let sessionMemoryPassword: string | undefined;
 
 export const setSessionMemoryPassword = (pwd: string | undefined) => {
     sessionMemoryPassword = pwd;
 };
+
+export const getSessionMemoryPassword = (): string | undefined => sessionMemoryPassword;
 
 export function getDynamicSessionCookieName(label?: string | null): string | null {
     let userLabel = label || sessionStorage.getItem(CURRENT_USER_LABEL_KEY);
@@ -24,32 +25,28 @@ export function getSession(): Session {
     const cookieName = getDynamicSessionCookieName();
     if (cookieName) {
         const sessionCookie = loadSessionCookie<Session>(cookieName);
-        if (sessionCookie?.sessionType === 'kubo' && 
-            sessionCookie.rpcApiUrl && 
-            sessionCookie.rpcApiUrl !== 'undefined' && 
-            sessionCookie.rpcApiUrl.startsWith('http')) {
-            return { 
-                ...sessionCookie, 
-                kuboPassword: sessionMemoryPassword 
-            };
+        if (sessionCookie?.sessionType === 'helia' && sessionCookie.ipnsKeyName) {
+            return { ...sessionCookie };
+        }
+        // Migrate old kubo cookies → treat as logged out (keys were on Kubo node)
+        if ((sessionCookie as any)?.sessionType === 'kubo') {
+            return { sessionType: null };
         }
     }
     const optimisticKey = getCookie('dsocial_optimistic_login');
     if (optimisticKey) {
         return {
-            sessionType: 'kubo', rpcApiUrl: 'http://127.0.0.1:5001',
-            ipnsKeyName: optimisticKey, resolvedIpnsKey: undefined, kuboUsername: undefined, kuboPassword: undefined
+            sessionType: 'helia',
+            ipnsKeyName: optimisticKey,
+            resolvedIpnsKey: undefined,
+            requiresPassword: false,
         };
     }
     return { sessionType: null };
 }
 
 export function saveSessionCookie<T extends Partial<Session>>(name: string, value: T): void {
-    const safeValue = { ...value };
-    if ('kuboPassword' in safeValue) {
-        delete safeValue.kuboPassword;
-    }
-    try { setCookie(name, JSON.stringify(safeValue), 7); } catch (e) { console.error("Failed save cookie:", e); }
+    try { setCookie(name, JSON.stringify(value), 7); } catch (e) { console.error("Failed save cookie:", e); }
 }
 
 export function logoutSession(): void {
