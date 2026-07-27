@@ -13,6 +13,7 @@ import { resolveIpns, fetchUserState } from '../api/ipfsIpns';
 import { POST_COOLDOWN_MS } from '../constants';
 import { pinCid } from '../api/admin';
 import * as contentCache from '../lib/contentCache';
+import { findThreadRoot } from '../lib/feedRoots';
 
 export interface FeedContextState {
     allPostsMap: Map<string, Post>;
@@ -512,32 +513,21 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         const followsSet = new Set(userState.follows.map(f => f.ipnsKey));
         const blockedSet = new Set(userState.blockedUsers || []);
         
-        // Helper: Find Root
-        const findRoot = (startId: string): string => {
-            let curr = debouncedPostsMap.get(startId);
-            const visited = new Set<string>();
-            while (curr && curr.referenceCID && !visited.has(curr.id)) {
-                visited.add(curr.id);
-                const parent = debouncedPostsMap.get(curr.referenceCID);
-                if (!parent) break; 
-                curr = parent;
-            }
-            return curr ? curr.id : startId;
-        };
-
-        // Identify threads I participated in
-        const myParticipatedRootIds = new Set<string>();
+        // Threads you or a follow participated in (incl. stranger roots they replied to)
+        const activityRootIds = new Set<string>();
         allPosts.forEach(p => {
-             if (p.authorKey === myPeerId) {
-                 myParticipatedRootIds.add(findRoot(p.id));
+             if (blockedSet.has(p.authorKey)) return;
+             if (p.authorKey === myPeerId || followsSet.has(p.authorKey)) {
+                 activityRootIds.add(findThreadRoot(debouncedPostsMap, p.id).rootId);
              }
         });
 
         const myFeed = allPosts.filter(p => {
-            if (p.authorKey === myPeerId) return true;
             if (blockedSet.has(p.authorKey)) return false;
+            if (p.authorKey === myPeerId) return true;
             if (followsSet.has(p.authorKey)) return true;
-            if (myParticipatedRootIds.has(p.id)) return true;
+            // Stranger root (or intermediate) kept because follow/self activity is in-thread
+            if (activityRootIds.has(p.id)) return true;
             return false;
         });
 
@@ -546,7 +536,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         const exploreRelevantIds = new Set<string>();
         allPosts.forEach(post => {
              if (isStranger(post.authorKey)) {
-                 exploreRelevantIds.add(findRoot(post.id));
+                 exploreRelevantIds.add(findThreadRoot(debouncedPostsMap, post.id).rootId);
              }
         });
 

@@ -181,11 +181,15 @@ export const useFeedFetch = ({
         );
 
         const foundIds: string[] = [];
-        fromIdb.forEach((_post, id) => foundIds.push(id));
+        fromIdb.forEach((post, id) => {
+            foundIds.push(id);
+            if (post.referenceCID) fetchMissingParentPost(post.referenceCID);
+        });
         results.forEach((post) => {
             if (post && post.id && post.timestamp !== 0) {
                 newPosts.set(post.id, post);
                 foundIds.push(post.id);
+                if (post.referenceCID) fetchMissingParentPost(post.referenceCID);
             }
         });
 
@@ -194,7 +198,7 @@ export const useFeedFetch = ({
             contentCache.putPosts(Array.from(newPosts.values())).catch(() => {});
         }
         return foundIds;
-    }, [allPostsMap, setAllPostsMap]);
+    }, [allPostsMap, setAllPostsMap, fetchMissingParentPost]);
 
     return {
         fetchStateAndPosts,

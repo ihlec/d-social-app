@@ -7,6 +7,7 @@ import Feed from '../features/feed/Feed';
 import { NewPostData } from '../types';
 import logo from '/logo.png';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
+import { collectHomeFeedRootIds } from '../lib/feedRoots';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
@@ -56,49 +57,37 @@ const HomePage: React.FC = () => {
         }
     }, [userState]);
 
-    const unifiedTopLevelIds = useMemo(() => {
+    const { homeRootIds, missingParentIds } = useMemo(() => {
         // Only filter using the initial set, so new dislikes don't disappear immediately
         const dislikedIds = initialDislikesRef.current || new Set(userState?.dislikedPostCIDs || []);
+        const { rootIds, missingParentIds: missing } = collectHomeFeedRootIds(allPostsMap, {
+            myKeys: [myIpnsKey, myPeerId],
+            followingKeys: (userState?.follows || []).map((f) => f.ipnsKey),
+            blockedKeys: userState?.blockedUsers || [],
+            dislikedIds,
+        });
+        return { homeRootIds: rootIds, missingParentIds: missing };
+    }, [allPostsMap, userState, myIpnsKey, myPeerId]);
+
+    // Fetch missing parents so follow-replies can promote stranger roots into Home
+    useEffect(() => {
+        if (missingParentIds.length === 0) return;
+        void ensurePostsAreFetched(missingParentIds);
+    }, [missingParentIds, ensurePostsAreFetched]);
+
+    const unifiedTopLevelIds = useMemo(() => {
+        const dislikedIds = initialDislikesRef.current || new Set(userState?.dislikedPostCIDs || []);
         const blockedUsers = new Set(userState?.blockedUsers || []);
-        
-        // Helper: Is this a top-level post we want to see?
-        const isValidRootPost = (p: any) => !p.referenceCID && !dislikedIds.has(p.id) && !blockedUsers.has(p.authorKey);
+        const isValidRootPost = (p: { referenceCID?: string; id: string; authorKey: string }) =>
+            !p.referenceCID && !dislikedIds.has(p.id) && !blockedUsers.has(p.authorKey);
 
-        // My feed from allPostsMap insertion order (load order), not timestamp sort.
-        const followingSet = new Set(userState?.follows?.map(f => f.ipnsKey) || []);
-        
-        // 2. Iterate map values (Preserves Insertion Order -> Appended behavior)
-        const myIds: string[] = [];
-        for (const post of allPostsMap.values()) {
-            // Determine if this is "my" post (checking both keys for safety)
-            const isMyPost = (myIpnsKey && post.authorKey === myIpnsKey) || (myPeerId && post.authorKey === myPeerId);
-            const isFollowed = followingSet.has(post.authorKey);
-
-            if (!isValidRootPost(post)) continue;
-            
-            let shouldInclude = false;
-
-            if (isFollowed) {
-                shouldInclude = true;
-            } else if (isMyPost) {
-                 // Always show my own posts in the Home Feed
-                 shouldInclude = true;
-            }
-
-            if (shouldInclude) {
-                myIds.push(post.id);
-            }
-        }
-
-        // 3. Merge Explore (Deduplicated)
-        // We append Explore posts at the end of My Feed content
-        const myIdsSet = new Set(myIds);
+        const myIdsSet = new Set(homeRootIds);
         const exploreIds = exploreFeedPosts
-            .filter(p => isValidRootPost(p) && !myIdsSet.has(p.id))
-            .map(p => p.id);
+            .filter((p) => isValidRootPost(p) && !myIdsSet.has(p.id))
+            .map((p) => p.id);
 
-        return [...myIds, ...exploreIds];
-    }, [allPostsMap, exploreFeedPosts, userState, myIpnsKey]);
+        return [...homeRootIds, ...exploreIds];
+    }, [homeRootIds, exploreFeedPosts, userState]);
 
     const feedContainerRef = useRef<HTMLDivElement>(null);
     const isAnyLoading = isLoadingFeed || isLoadingExplore;
