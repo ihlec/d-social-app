@@ -22,6 +22,7 @@ import {
 import type { PresencePayload, PeerFeedSnapshot, SyncRequest } from '../../api/pubsub';
 import { circleTopic, homeShard, shardTopic } from '../../lib/peerShards';
 import { libraryPage } from '../../lib/peerLibrary';
+import { startSessionWakeLock } from '../../lib/sessionWakeLock';
 
 const HEARTBEAT_INTERVAL_MS = 30000;
 const PRUNE_INTERVAL_MS = 5000;
@@ -318,9 +319,18 @@ export const useAppPeers = ({
             burstFnRef.current();
             pruneFnRef.current();
         };
+        /** Page Lifecycle: Chromium freezes background tabs — re-announce on resume. */
+        const onResume = () => {
+            burstFnRef.current();
+            pruneFnRef.current();
+        };
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', onVisibility);
+            // Page Lifecycle: tab frozen in background → re-announce when resumed
+            document.addEventListener('resume', onResume as EventListener);
         }
+
+        const stopWakeLock = startSessionWakeLock();
 
         return () => {
             abortController.abort();
@@ -328,8 +338,10 @@ export const useAppPeers = ({
             clearInterval(heartbeatInterval);
             clearInterval(keepaliveInterval);
             clearInterval(pruneInterval);
+            stopWakeLock();
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', onVisibility);
+                document.removeEventListener('resume', onResume as EventListener);
             }
             stableTopicsRef.current = [];
             heartbeatFnRef.current = () => {};
