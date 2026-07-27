@@ -8,6 +8,7 @@ import { NewPostData } from '../types';
 import logo from '/logo.png';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { collectHomeFeedRootIds } from '../lib/feedRoots';
+import { saveHomeFeedSnapshot } from '../lib/contentCache';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
@@ -74,6 +75,13 @@ const HomePage: React.FC = () => {
         if (missingParentIds.length === 0) return;
         void ensurePostsAreFetched(missingParentIds);
     }, [missingParentIds, ensurePostsAreFetched]);
+
+    // Remember last Home roots so the next refresh paints immediately from IDB
+    useEffect(() => {
+        if (homeRootIds.length === 0) return;
+        const t = window.setTimeout(() => saveHomeFeedSnapshot(homeRootIds), 400);
+        return () => window.clearTimeout(t);
+    }, [homeRootIds]);
 
     const unifiedTopLevelIds = useMemo(() => {
         const dislikedIds = initialDislikesRef.current || new Set(userState?.dislikedPostCIDs || []);

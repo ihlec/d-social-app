@@ -24,7 +24,7 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeicnooshturtpaoiqfb5ncai6m5z3ht7xmk2qo5aej4bc52mxpcg74 | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeia4ec2e327e2pket7tnecvh4eyks7t4uvw5dvei4yycrw6d4py3gy | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
@@ -75,6 +75,10 @@ Presence is **not** one unbounded WebRTC mesh. Each logged-in peer joins a cappe
 * optional **affinity channels** from Settings
 
 Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join another peer’s home shard, then leave. Explore seeds from follows plus peers already seen in joined rooms.
+
+**Online Peers** in the sidebar is recent presence (about **5 minutes**). Strangers still need a shared room (`dsocial-bootstrap`, overlapping shards, or a follow circle). Follow circles are one-way unless mutual — following someone lets you hear them; they only hear you if they follow back or you share bootstrap/shards.
+
+**Snowball explore:** syncing an online peer pulls a page of their local library (own + liked + saved posts they still hold), then Explore can page deeper through that peer and crawl authors those posts reveal — so one well-stocked peer seeds older content without the original authors being online.
 
 **Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` with no other fiddling. Console noise like `wss://…libp2p.direct` failing is Helia dialing public IPFS peers; peer sync uses Trystero (Nostr + WebRTC), not those sockets.
 

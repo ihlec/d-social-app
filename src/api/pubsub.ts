@@ -89,6 +89,8 @@ export type PeerFeedSnapshot = {
     stateCid: string;
     state: UserState | null;
     posts: Post[];
+    /** Next offset into the peer's local library (own+liked+saved); null if exhausted. */
+    nextOffset?: number | null;
 };
 
 export type PeerLocation = {
@@ -98,14 +100,18 @@ export type PeerLocation = {
     lastSeen: number;
 };
 
-type SyncRequest = { ipnsKey: string };
+export type SyncRequest = {
+    ipnsKey: string;
+    /** Offset into the peer's local library (own + liked + saved). */
+    offset?: number;
+};
 type MediaRequest = { cid: string };
 type PostRequest = { cid: string };
 type PostSyncResult = { ok: boolean; post?: Post };
 export type WantPayload = { cid: string; timestamp: number };
 type Listener = (msg: PresencePayload, trysteroPeerId: string) => void;
 type WantListener = (msg: WantPayload, trysteroPeerId: string) => void;
-type FeedProvider = () => Promise<PeerFeedSnapshot>;
+type FeedProvider = (req: SyncRequest) => Promise<PeerFeedSnapshot>;
 type ContentWantHandler = (cid: string) => void;
 
 interface RoomEntry {
@@ -113,7 +119,11 @@ interface RoomEntry {
     topic: string;
     sendPresence: (data: PresencePayload) => Promise<void>;
     sendWant: (data: WantPayload) => Promise<void>;
-    requestFeed: (ipnsKey: string, targetPeerId: string) => Promise<PeerFeedSnapshot>;
+    requestFeed: (
+        ipnsKey: string,
+        targetPeerId: string,
+        offset?: number
+    ) => Promise<PeerFeedSnapshot>;
     requestMedia: (cid: string, targetPeerId: string) => Promise<Uint8Array>;
     requestPost: (cid: string, targetPeerId: string) => Promise<PostSyncResult>;
     listeners: Set<Listener>;
@@ -192,19 +202,20 @@ export function getTurnConfig(): RTCIceServer[] {
 }
 
 function emptySnapshot(ipnsKey: string): PeerFeedSnapshot {
-    return { ok: false, ipnsKey, stateCid: '', state: null, posts: [] };
+    return { ok: false, ipnsKey, stateCid: '', state: null, posts: [], nextOffset: null };
 }
 
 async function serveLocalFeed(req: SyncRequest): Promise<PeerFeedSnapshot> {
     if (!feedProvider) return emptySnapshot(req.ipnsKey || '');
     try {
-        const snap = await feedProvider();
+        const snap = await feedProvider(req || { ipnsKey: '' });
         return {
             ok: !!snap.ok && !!snap.state,
             ipnsKey: snap.ipnsKey || req.ipnsKey,
             stateCid: snap.stateCid || '',
             state: snap.state,
             posts: Array.isArray(snap.posts) ? snap.posts : [],
+            nextOffset: snap.nextOffset ?? null,
         };
     } catch (e) {
         console.warn('[Trystero] feed provider failed', e);
@@ -464,8 +475,11 @@ async function ensureRoom(topic: string, sticky = false): Promise<RoomEntry> {
             topic,
             sendPresence: (data) => presence.send(data),
             sendWant: (data) => want.send(data),
-            requestFeed: (ipnsKey, targetPeerId) =>
-                sync.request({ ipnsKey }, { target: targetPeerId, timeoutMs: SYNC_TIMEOUT_MS }),
+            requestFeed: (ipnsKey, targetPeerId, offset) =>
+                sync.request(
+                    { ipnsKey, ...(typeof offset === 'number' ? { offset } : {}) },
+                    { target: targetPeerId, timeoutMs: SYNC_TIMEOUT_MS }
+                ),
             requestMedia: async (cid, targetPeerId) => {
                 const raw = await media.request(
                     { cid },
@@ -702,12 +716,16 @@ async function withMappedHomePeer<T>(
     }
 }
 
-/** Ask an online peer (by IPNS key) for their recent UserState + posts over WebRTC. */
-export async function requestPeerFeed(ipnsKey: string): Promise<PeerFeedSnapshot | null> {
+/** Ask an online peer (by IPNS key) for a page of their local library over WebRTC. */
+export async function requestPeerFeed(
+    ipnsKey: string,
+    opts?: { offset?: number }
+): Promise<PeerFeedSnapshot | null> {
     if (!ipnsKey) return null;
 
+    const offset = opts?.offset;
     const snap = await withMappedHomePeer(ipnsKey, (entry, loc) =>
-        entry.requestFeed(ipnsKey, loc.peerId)
+        entry.requestFeed(ipnsKey, loc.peerId, offset)
     );
     if (snap?.ok && snap.state) {
         bumpSyncOk();

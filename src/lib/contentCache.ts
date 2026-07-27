@@ -10,6 +10,7 @@
  */
 
 import { Post, UserState } from '../types';
+import { isUsefulDisplayName, rememberName } from './nameDirectory';
 
 const DB_NAME = 'dsocial_content_cache';
 const DB_VERSION = 1;
@@ -20,7 +21,11 @@ export const IDB_MAX_POSTS = 5000;
 export const IDB_MAX_STATES = 500;
 export const IDB_POST_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const IDB_STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Posts loaded into React on cold start (newest-first by timestamp). */
 export const IDB_HYDRATE_WINDOW = 400;
+/** Home feed root CIDs remembered for instant paint after refresh. */
+export const HOME_FEED_SNAPSHOT_N = 60;
+const HOME_FEED_SNAPSHOT_KEY = 'dsocial_home_feed_snapshot_v1';
 
 interface CachedPost {
     id: string;
@@ -116,8 +121,80 @@ export async function putPost(post: Post): Promise<void> {
 }
 
 export async function putPosts(posts: Post[]): Promise<void> {
-    for (const p of posts) {
-        await putPost(p);
+    const list = posts.filter((p) => p?.id && p.timestamp !== 0);
+    if (list.length === 0) return;
+    const now = Date.now();
+    try {
+        await withStore(POSTS_STORE, 'readwrite', async (store) => {
+            for (const post of list) {
+                const entry: CachedPost = {
+                    id: post.id,
+                    post,
+                    lastAccessed: now,
+                    authorKey: post.authorKey || '',
+                };
+                await reqToPromise(store.put(entry));
+            }
+            return null;
+        });
+    } catch (e: any) {
+        if (e?.name === 'QuotaExceededError' || String(e).includes('QuotaExceeded')) {
+            await runGc(true);
+            await withStore(POSTS_STORE, 'readwrite', async (store) => {
+                for (const post of list) {
+                    await reqToPromise(
+                        store.put({
+                            id: post.id,
+                            post,
+                            lastAccessed: now,
+                            authorKey: post.authorKey || '',
+                        } as CachedPost)
+                    );
+                }
+                return null;
+            });
+        }
+    }
+    maybeGc().catch(() => {});
+}
+
+/** Persist posts newly added/changed between two map snapshots (debounced callers OK). */
+export function rememberPostsDiff(
+    prev: Map<string, Post>,
+    next: Map<string, Post>
+): void {
+    if (prev === next) return;
+    const changed: Post[] = [];
+    for (const [id, post] of next) {
+        if (!post?.id || post.timestamp === 0) continue;
+        if (prev.get(id) !== post) changed.push(post);
+    }
+    if (changed.length > 0) void putPosts(changed);
+}
+
+export function saveHomeFeedSnapshot(rootIds: string[]): void {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        const ids = rootIds.filter(Boolean).slice(0, HOME_FEED_SNAPSHOT_N);
+        localStorage.setItem(
+            HOME_FEED_SNAPSHOT_KEY,
+            JSON.stringify({ ids, at: Date.now() })
+        );
+    } catch { /* ignore quota / private mode */ }
+}
+
+export function loadHomeFeedSnapshot(): string[] {
+    try {
+        if (typeof localStorage === 'undefined') return [];
+        const raw = localStorage.getItem(HOME_FEED_SNAPSHOT_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as { ids?: unknown };
+        if (!Array.isArray(parsed?.ids)) return [];
+        return parsed.ids
+            .filter((id): id is string => typeof id === 'string' && !!id)
+            .slice(0, HOME_FEED_SNAPSHOT_N);
+    } catch {
+        return [];
     }
 }
 
@@ -162,6 +239,10 @@ export async function putUserState(ipnsKey: string, state: UserState, headCid?: 
                 return null;
             });
         }
+    }
+    // Keep a durable name even if full state is later GC'd
+    if (state.profile && isUsefulDisplayName(state.profile.name)) {
+        void rememberName(ipnsKey, state.profile);
     }
 }
 
@@ -210,17 +291,23 @@ export async function clearContentCache(): Promise<void> {
     }
 }
 
-/** Load newest-by-access posts for React hydrate. */
+/**
+ * Load recent posts for React hydrate.
+ * Prefers last Home-feed snapshot order, then fills with newest-by-timestamp.
+ */
 export async function hydrateRecentPosts(limit: number = IDB_HYDRATE_WINDOW): Promise<Post[]> {
+    const snapshotIds = loadHomeFeedSnapshot();
     const rows = await withStore(POSTS_STORE, 'readonly', async (store) => {
         const idx = store.index('lastAccessed');
         return new Promise<CachedPost[]>((resolve, reject) => {
             const results: CachedPost[] = [];
+            // Pull a wider LRU window, then re-rank by post timestamp
+            const pull = Math.max(limit * 2, limit + snapshotIds.length);
             const cursorReq = idx.openCursor(null, 'prev');
             cursorReq.onerror = () => reject(cursorReq.error);
             cursorReq.onsuccess = () => {
                 const cursor = cursorReq.result;
-                if (!cursor || results.length >= limit) {
+                if (!cursor || results.length >= pull) {
                     resolve(results);
                     return;
                 }
@@ -229,7 +316,38 @@ export async function hydrateRecentPosts(limit: number = IDB_HYDRATE_WINDOW): Pr
             };
         });
     });
-    return (rows || []).map(r => r.post);
+
+    const byId = new Map<string, Post>();
+    for (const row of rows || []) {
+        const p = row.post;
+        if (p?.id && p.timestamp !== 0) byId.set(p.id, p);
+    }
+
+    // Snapshot roots may have aged out of the LRU pull — fetch them explicitly
+    const missingSnap = snapshotIds.filter((id) => !byId.has(id));
+    if (missingSnap.length > 0) {
+        const found = await getPosts(missingSnap);
+        found.forEach((p, id) => byId.set(id, p));
+    }
+
+    const ordered: Post[] = [];
+    const seen = new Set<string>();
+    for (const id of snapshotIds) {
+        const p = byId.get(id);
+        if (!p || seen.has(id)) continue;
+        seen.add(id);
+        ordered.push(p);
+    }
+
+    const rest = [...byId.values()]
+        .filter((p) => !seen.has(p.id))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    for (const p of rest) {
+        if (ordered.length >= limit) break;
+        ordered.push(p);
+    }
+    return ordered;
 }
 
 export async function hydrateRecentUserStates(limit: number = 100): Promise<Map<string, UserState>> {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Post, UserProfile } from '../../types';
 import { formatTimeAgo, sanitizeText, shortId } from '../../lib/utils';
+import { isUsefulDisplayName } from '../../lib/nameDirectory';
 
 interface PostHeaderProps {
   post: Post;
@@ -25,7 +26,9 @@ const PostHeader: React.FC<PostHeaderProps> = ({
       const parentPost = allPostsMap.get(post.referenceCID);
       if (parentPost) {
           const parentProfile = userProfilesMap.get(parentPost.authorKey);
-          return sanitizeText(parentProfile?.name) || shortId(parentPost.authorKey);
+          return isUsefulDisplayName(parentProfile?.name)
+              ? sanitizeText(parentProfile!.name)
+              : shortId(parentPost.authorKey);
       }
       return "Deleted Post";
   };
@@ -33,8 +36,8 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const replyingToName = getReplyingToName();
 
   // Prefer display name; fall back to short opaque ID (full ID in title for copy/debug)
-  const displayName = authorProfile && authorProfile.name && authorProfile.name.trim().length > 0
-      ? sanitizeText(authorProfile.name)
+  const displayName = isUsefulDisplayName(authorProfile?.name)
+      ? sanitizeText(authorProfile!.name)
       : shortId(post.authorKey);
 
   return (

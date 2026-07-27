@@ -7,6 +7,7 @@ import PostActions from './PostActions';
 import { useAppContext } from '../../state/AppContext';
 import { useGatewayRace, getMimeType } from '../../hooks/useGatewayRace';
 import { sanitizeText } from '../../lib/utils';
+import { isUsefulDisplayName } from '../../lib/nameDirectory';
 import './PostItem.css';
 
 interface PostProps {
@@ -76,9 +77,15 @@ const PostComponent: React.FC<PostProps> = ({
   const post = allPostsMap.get(postId);
   const isMine = post?.authorKey === myPeerId;
   let authorProfile = post && profilesMap ? profilesMap.get(post.authorKey) : undefined;
-  
+
   if (isMine && currentUserState?.profile) {
       authorProfile = currentUserState.profile;
+  } else if (post && !isUsefulDisplayName(authorProfile?.name)) {
+      // Offline fallback: name snapshotted on our follow list
+      const followSnap = currentUserState?.follows?.find((f) => f.ipnsKey === post.authorKey);
+      if (isUsefulDisplayName(followSnap?.name)) {
+          authorProfile = { name: followSnap!.name!.trim(), bio: authorProfile?.bio };
+      }
   }
 
   const isDisliked = useMemo(() => {
@@ -90,7 +97,7 @@ const PostComponent: React.FC<PostProps> = ({
   }, [currentUserState?.blockedUsers, post]);
 
   const isProfileValid = (profile?: UserProfile) => {
-      return profile && profile.name && profile.name.trim().length > 0;
+      return !!profile && isUsefulDisplayName(profile.name);
   };
 
   useEffect(() => {

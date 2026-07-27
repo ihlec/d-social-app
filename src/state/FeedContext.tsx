@@ -14,6 +14,11 @@ import { POST_COOLDOWN_MS } from '../constants';
 import { pinCid } from '../api/admin';
 import * as contentCache from '../lib/contentCache';
 import { findThreadRoot } from '../lib/feedRoots';
+import {
+    hydrateNameDirectory,
+    isUsefulDisplayName,
+    rememberProfilesDiff,
+} from '../lib/nameDirectory';
 
 export interface FeedContextState {
     allPostsMap: Map<string, Post>;
@@ -83,12 +88,34 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         isLoggedIn, userState, myIpnsKey, myPeerId, latestStateCID, setLatestStateCID, setUserState 
     } = authState;
 
-    const [allPostsMap, setAllPostsMap] = useState<Map<string, Post>>(new Map());
+    const [allPostsMap, setAllPostsMapState] = useState<Map<string, Post>>(new Map());
     const [allUserStatesMap, setAllUserStatesMap] = useState<Map<string, UserState>>(new Map());
-    const [userProfilesMap, setUserProfilesMap] = useState<Map<string, UserProfile>>(new Map());
+    const [userProfilesMap, setUserProfilesMapState] = useState<Map<string, UserProfile>>(new Map());
     const [unresolvedFollows, setUnresolvedFollows] = useState<string[]>([]);
     const [followCursors, setFollowCursors] = useState<Map<string, string | null>>(new Map());
     const [isFeedLoaded, setIsFeedLoaded] = useState(false);
+
+    // Persist every useful name learned into IndexedDB (offline-safe directory)
+    const setUserProfilesMap = React.useCallback<
+        React.Dispatch<React.SetStateAction<Map<string, UserProfile>>>
+    >((action) => {
+        setUserProfilesMapState((prev) => {
+            const next = typeof action === 'function' ? action(prev) : action;
+            if (next !== prev) rememberProfilesDiff(prev, next);
+            return next;
+        });
+    }, []);
+
+    // Persist posts to IndexedDB so refresh hydrates a populated feed
+    const setAllPostsMap = React.useCallback<
+        React.Dispatch<React.SetStateAction<Map<string, Post>>>
+    >((action) => {
+        setAllPostsMapState((prev) => {
+            const next = typeof action === 'function' ? action(prev) : action;
+            if (next !== prev) contentCache.rememberPostsDiff(prev, next);
+            return next;
+        });
+    }, []);
 
     // Refs
     const allPostsMapRef = React.useRef(allPostsMap);
@@ -109,25 +136,36 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
         contentCache.markAuthorEvictable(ipnsKey).catch(() => {});
     }, [rawUnfollowUser]);
 
-    // Hydrate posts/states from IndexedDB before network crawl
+    // Hydrate posts/states/names from IndexedDB before network crawl
     const hasHydrated = React.useRef(false);
     React.useEffect(() => {
         if (hasHydrated.current) return;
         hasHydrated.current = true;
         (async () => {
             try {
-                const [posts, states] = await Promise.all([
+                const [posts, states, names] = await Promise.all([
                     contentCache.hydrateRecentPosts(),
                     contentCache.hydrateRecentUserStates(),
+                    hydrateNameDirectory(),
                 ]);
                 if (posts.length > 0) {
-                    setAllPostsMap(prev => {
-                        if (prev.size > 0) return prev;
-                        return new Map(
-                            posts
-                                .filter(p => p?.id && p.timestamp !== 0)
-                                .map(p => [p.id, p])
-                        );
+                    // Merge always — never drop cache if a race already inserted a few posts
+                    setAllPostsMapState((prev) => {
+                        if (prev.size === 0) {
+                            return new Map(
+                                posts
+                                    .filter((p) => p?.id && p.timestamp !== 0)
+                                    .map((p) => [p.id, p])
+                            );
+                        }
+                        let changed = false;
+                        const next = new Map(prev);
+                        for (const p of posts) {
+                            if (!p?.id || p.timestamp === 0 || next.has(p.id)) continue;
+                            next.set(p.id, p);
+                            changed = true;
+                        }
+                        return changed ? next : prev;
                     });
                 }
                 if (states.size > 0) {
@@ -135,28 +173,61 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
                         if (prev.size > 0) return prev;
                         return states;
                     });
+                }
+                if (names.size > 0 || states.size > 0) {
                     setUserProfilesMap(prev => {
                         const next = new Map(prev);
+                        names.forEach((profile, key) => {
+                            if (!next.has(key)) next.set(key, profile);
+                        });
                         states.forEach((st, key) => {
-                            if (st.profile && !next.has(key)) next.set(key, st.profile);
+                            if (st.profile && isUsefulDisplayName(st.profile.name)) {
+                                next.set(key, st.profile);
+                            }
                         });
                         return next;
                     });
                 }
-                console.debug(`[Feed] Hydrated ${posts.length} posts, ${states.size} user states from IndexedDB`);
+                console.debug(
+                    `[Feed] Hydrated ${posts.length} posts, ${states.size} states, ${names.size} names from IndexedDB`
+                );
             } catch (e) {
                 console.warn('[Feed] IndexedDB hydrate failed', e);
             }
         })();
-    }, []);
+    }, [setUserProfilesMap]);
+
+    // Seed profiles from follow.name snapshots in our own state (works fully offline)
+    React.useEffect(() => {
+        const follows = userState?.follows;
+        if (!follows?.length) return;
+        setUserProfilesMap((prev) => {
+            let changed = false;
+            const next = new Map(prev);
+            for (const f of follows) {
+                if (!f.ipnsKey || !isUsefulDisplayName(f.name)) continue;
+                const existing = next.get(f.ipnsKey);
+                if (!existing || !isUsefulDisplayName(existing.name)) {
+                    next.set(f.ipnsKey, { name: f.name!.trim(), bio: existing?.bio });
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [userState?.follows, setUserProfilesMap]);
 
     // Shared Fetcher
     const { fetchMissingParentPost } = useParentPostFetcher({
         allPostsMap, setAllPostsMap, userProfilesMap, setUserProfilesMap
     });
 
-    // Peers
-    const { otherUsers } = useAppPeers({ isLoggedIn, myPeerId, userState });
+    // Peers (presence announces also refresh the local name directory)
+    const { otherUsers } = useAppPeers({
+        isLoggedIn,
+        myPeerId,
+        userState,
+        setUserProfilesMap,
+    });
     useContentServe({ isLoggedIn, userState });
 
     // Main Feed

@@ -222,10 +222,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                           // PRIORITY: 1. Live Cache, 2. Saved Snapshot, 3. Fallback
                           const cachedProfile = userProfilesMap.get(follow.ipnsKey);
                           let displayName = cachedProfile?.name;
-                          
-                          if (!displayName) {
+
+                          if (!displayName || displayName.startsWith('k51')) {
                               displayName = follow.name;
-                              if (!displayName || displayName === follow.ipnsKey) {
+                              if (!displayName || displayName === follow.ipnsKey || displayName.startsWith('k51')) {
                                   displayName = shortId(follow.ipnsKey);
                               }
                           }
