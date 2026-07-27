@@ -42,6 +42,7 @@ interface FeedProps {
   allPostsMap: Map<string, Post>;
   userProfilesMap: Map<string, UserProfile>;
   onViewProfile: (key: string) => void;
+  onSetReplyingTo?: (post: Post | null) => void;
   onLikePost?: (postId: string) => void;
   onDislikePost?: (postId: string) => void;
   onSavePost?: (postId: string) => void;
@@ -55,6 +56,7 @@ interface FeedPropsContextType {
     allPostsMap: Map<string, Post>;
     userProfilesMap: Map<string, UserProfile>;
     onViewProfile: (key: string) => void;
+    onSetReplyingTo?: (post: Post | null) => void;
     onLikePost?: (postId: string) => void;
     onDislikePost?: (postId: string) => void;
     onSavePost?: (postId: string) => void;
@@ -71,7 +73,7 @@ const FeedPostCard = ({ data: item }: { index: number, data: { id: string }, wid
     if (!props) return <div style={{ height: 0 }} />;
 
     const { 
-        allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, onSavePost,
+        allPostsMap, userProfilesMap, onViewProfile, onSetReplyingTo, onLikePost, onDislikePost, onSavePost,
         currentUserState, myPeerId, ensurePostsAreFetched, getContextIds 
     } = props;
 
@@ -94,6 +96,7 @@ const FeedPostCard = ({ data: item }: { index: number, data: { id: string }, wid
                 allPostsMap={allPostsMap}
                 userProfilesMap={userProfilesMap}
                 onViewProfile={onViewProfile}
+                onSetReplyingTo={onSetReplyingTo}
                 onLikePost={onLikePost}
                 onDislikePost={onDislikePost}
                 onSavePost={onSavePost}
@@ -112,6 +115,7 @@ const Feed: React.FC<FeedProps> = ({
   allPostsMap,
   userProfilesMap,
   onViewProfile,
+  onSetReplyingTo,
   onLikePost,
   onDislikePost,
   onSavePost,
@@ -159,6 +163,7 @@ const Feed: React.FC<FeedProps> = ({
       allPostsMap,
       userProfilesMap,
       onViewProfile,
+      onSetReplyingTo,
       onLikePost,
       onDislikePost,
       onSavePost,
@@ -166,7 +171,7 @@ const Feed: React.FC<FeedProps> = ({
       myPeerId,
       ensurePostsAreFetched,
       getContextIds
-  }), [allPostsMap, userProfilesMap, onViewProfile, onLikePost, onDislikePost, onSavePost, currentUserState, myPeerId, ensurePostsAreFetched, getContextIds]);
+  }), [allPostsMap, userProfilesMap, onViewProfile, onSetReplyingTo, onLikePost, onDislikePost, onSavePost, currentUserState, myPeerId, ensurePostsAreFetched, getContextIds]);
 
   if (isLoading) {
     return (

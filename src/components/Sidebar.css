@@ -242,6 +242,28 @@
     align-items: center;
 }
 
+.sidebar-add-row--emphasize .sidebar-add-input {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(182, 255, 0, 0.15);
+}
+
+.sidebar-bootstrap-hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary-color);
+    line-height: 1.35;
+}
+
+.sidebar-mesh-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: #777;
+    line-height: 1.35;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
 .sidebar-add-input {
     flex: 1;
     background: rgba(255,255,255,0.05);
@@ -267,4 +289,15 @@
 .sidebar-logout-btn {
     width: 100%;
     background: #333;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    padding: 0.6em 1.5em;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.sidebar-logout-btn:hover {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
 }

@@ -158,6 +158,10 @@ button:focus { outline: none; }
 }
 .new-post-button:disabled { background-color: #333; color: #888; cursor: not-allowed; }
 .reply-to-indicator { color: var(--text-secondary-color); font-size: 0.9em; margin-bottom: 0.5rem; }
+.new-post-form--reply {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(182, 255, 0, 0.12);
+}
 
 /* --- 10. Profile & Login --- */
 .login-container {

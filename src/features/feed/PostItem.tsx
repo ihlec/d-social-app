@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Post, UserProfile, UserState } from '../../types';
 import PostMedia from './PostMedia';
@@ -9,6 +9,86 @@ import { useGatewayRace, getMimeType } from '../../hooks/useGatewayRace';
 import { sanitizeText } from '../../lib/utils';
 import { isUsefulDisplayName } from '../../lib/nameDirectory';
 import './PostItem.css';
+
+const PDF_IFRAME_TIMEOUT_MS = 3000;
+
+function isInlinePdfCandidate(url: string, mimeHint: string): boolean {
+  if (!url) return false;
+  // Gateway/http iframes often show empty PDF chrome; only try local blob: URLs.
+  if (!url.startsWith('blob:')) return false;
+  return !mimeHint || mimeHint.includes('pdf') || mimeHint === 'application/octet-stream';
+}
+
+/** Expanded PDF: try blob iframe briefly, collapse to card + Open PDF if blank/broken. */
+const PdfExpandedPreview: React.FC<{
+  url: string | null;
+  fileName?: string;
+}> = ({ url, fileName }) => {
+  const mimeHint = getMimeType(fileName);
+  const canTryIframe = !!url && isInlinePdfCandidate(url, mimeHint);
+  const [showIframe, setShowIframe] = useState(canTryIframe);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    loadedRef.current = false;
+    const ok = !!url && isInlinePdfCandidate(url, mimeHint);
+    setShowIframe(ok);
+    if (!ok || !url) return;
+
+    const t = window.setTimeout(() => {
+      // onLoad often fires for empty PDF viewers — still collapse if still blank-looking.
+      // Keep iframe only when load completed quickly; otherwise fall back.
+      if (!loadedRef.current) setShowIframe(false);
+    }, PDF_IFRAME_TIMEOUT_MS);
+    return () => window.clearTimeout(t);
+  }, [url, mimeHint]);
+
+  if (!url) {
+    return (
+      <div className="pdf-card-preview pdf-loading">
+        <div className="pdf-icon">📄</div>
+        <div className="pdf-info">
+          <div className="pdf-name">{sanitizeText(fileName) || 'PDF Document'}</div>
+          <div className="pdf-meta">Loading PDF…</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {showIframe ? (
+        <iframe
+          src={`${url}#view=FitH`}
+          className="pdf-preview-frame"
+          title="PDF Preview"
+          onLoad={() => {
+            loadedRef.current = true;
+          }}
+          onError={() => setShowIframe(false)}
+        />
+      ) : (
+        <div className="pdf-card-preview pdf-fallback-card">
+          <div className="pdf-icon">📄</div>
+          <div className="pdf-info">
+            <div className="pdf-name">{sanitizeText(fileName) || 'PDF Document'}</div>
+            <div className="pdf-meta">Preview unavailable in-app</div>
+          </div>
+        </div>
+      )}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="file-download-link pdf-open-link"
+        onClick={(e) => e.stopPropagation()}
+        data-testid="open-pdf-link"
+      >
+        Open PDF
+      </a>
+    </>
+  );
+};
 
 interface PostProps {
   postId: string;
@@ -265,34 +345,10 @@ const PostComponent: React.FC<PostProps> = ({
              {isPdfAttachment ? (
                  isExpandedView ? (
                      <div className="pdf-preview-container" onClick={(e) => e.stopPropagation()}>
-                         {attachmentUrl ? (
-                             <>
-                                 <iframe
-                                    src={`${attachmentUrl}#view=FitH`}
-                                    className="pdf-preview-frame"
-                                    title="PDF Preview"
-                                 />
-                                 <a
-                                    href={attachmentUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="file-download-link pdf-open-link"
-                                    onClick={(e) => e.stopPropagation()}
-                                 >
-                                    Open PDF
-                                 </a>
-                             </>
-                         ) : (
-                             <div className="pdf-card-preview pdf-loading">
-                                 <div className="pdf-icon">📄</div>
-                                 <div className="pdf-info">
-                                     <div className="pdf-name">
-                                         {sanitizeText(post.fileName) || 'PDF Document'}
-                                     </div>
-                                     <div className="pdf-meta">Loading PDF…</div>
-                                 </div>
-                             </div>
-                         )}
+                         <PdfExpandedPreview
+                             url={attachmentUrl || null}
+                             fileName={post.mediaFileName || post.fileName}
+                         />
                      </div>
                  ) : (
                      <div className="pdf-card-preview">

@@ -263,23 +263,30 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </p>
               )}
 
-              <div className="sidebar-add-row">
+              <div className={`sidebar-add-row ${otherUsers.length === 0 ? 'sidebar-add-row--emphasize' : ''}`}>
                   <input
                       type="text"
                       placeholder="Paste ID or profile link"
                       value={manualFollowKey}
                       onChange={(e) => setManualFollowKey(e.target.value)}
                       className="sidebar-add-input"
+                      data-testid="follow-id-input"
                   />
                   <button
                       onClick={handleManualFollow}
                       disabled={!manualFollowKey.trim() || isAdding}
                       className="follow-button-small sidebar-add-btn"
                       title="Follow this person"
+                      data-testid="follow-id-submit"
                   >
                       {isAdding ? '...' : '+'}
                   </button>
               </div>
+              {otherUsers.length === 0 && (
+                  <p className="sidebar-bootstrap-hint">
+                      No peers online yet — paste someone’s ID to follow and sync.
+                  </p>
+              )}
           </div>
       )}
 
@@ -354,11 +361,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                      </li>
                  );
              })}
-             {otherUsers.length === 0 && <li className="sidebar-empty-list-item"><small>No other users found online.</small></li>}
+             {otherUsers.length === 0 && (
+                 <li className="sidebar-empty-list-item">
+                     <small>Looking for peers…</small>
+                     <small className="sidebar-mesh-hint">
+                         Peers sync over WebRTC when online. Paste an ID above to bootstrap if the mesh is quiet.
+                     </small>
+                 </li>
+             )}
          </ul>
 
         <div className="sidebar-logout-container">
-          <button onClick={onLogout} className="new-post-button sidebar-logout-btn">Logout</button>
+          <button type="button" onClick={onLogout} className="sidebar-logout-btn" data-testid="logout-button">
+            Logout
+          </button>
         </div>
       </div>
     </div>

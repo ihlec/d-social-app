@@ -65,6 +65,7 @@ const PostActions: React.FC<PostActionsProps> = ({
           }}
           disabled={isTemporaryPost}
           title={isLiked ? "Unlike (stops serving)" : "Like (pins & serves post + media)"}
+          data-testid="like-button"
         >
           <LikeIcon />
         </button>
@@ -90,6 +91,7 @@ const PostActions: React.FC<PostActionsProps> = ({
             }}
             disabled={isTemporaryPost}
             title={isSaved ? 'Unsave bookmark' : 'Save bookmark (pins full file)'}
+            data-testid="save-button"
           >
             <SaveIcon />
           </button>
@@ -102,6 +104,7 @@ const PostActions: React.FC<PostActionsProps> = ({
               requireLogin(() => onReplyClick());
           }}
           title="Reply"
+          data-testid="reply-button"
         >
           <ReplyIcon />
           {totalReplyCount > 0 && (

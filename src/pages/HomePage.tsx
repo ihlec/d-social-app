@@ -4,11 +4,12 @@ import { useAppState } from '../state/useAppStorage';
 import Sidebar from '../components/Sidebar';
 import NewPostForm from '../features/feed/NewPostForm';
 import Feed from '../features/feed/Feed';
-import { NewPostData } from '../types';
+import { NewPostData, Post } from '../types';
 import logo from '/logo.png';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { collectHomeFeedRootIds } from '../lib/feedRoots';
 import { saveHomeFeedSnapshot } from '../lib/contentCache';
+import { sanitizeText } from '../lib/utils';
 import './HomePage.css';
 
 const HomePage: React.FC = () => {
@@ -48,6 +49,15 @@ const HomePage: React.FC = () => {
 
     const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [replyingToPost, setReplyingToPost] = useState<Post | null>(null);
+
+    useEffect(() => {
+        if (!replyingToPost) return;
+        document.querySelector('.new-post-form--reply')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+        });
+    }, [replyingToPost]);
 
     // Capture initial dislikes to only filter out historical dislikes, 
     // allowing new ones to remain in the list (handled by PostItem)
@@ -108,6 +118,9 @@ const HomePage: React.FC = () => {
 
     const handleAddPost = async (postData: NewPostData) => {
         await addPost(postData);
+        if (postData.referenceCID) {
+            setReplyingToPost(null);
+        }
     };
 
     const handleLoadMore = () => {
@@ -148,6 +161,7 @@ const HomePage: React.FC = () => {
                 className="sidebar-toggle-button"
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
+                data-testid="sidebar-toggle"
             >
                 <img src={logo} alt="D. Social" crossOrigin="anonymous"/>
             </button>
@@ -177,9 +191,14 @@ const HomePage: React.FC = () => {
             >
                 {userState && (
                     <NewPostForm
-                        replyingToPost={null}
-                        replyingToAuthorName={null}
+                        replyingToPost={replyingToPost}
+                        replyingToAuthorName={
+                            replyingToPost
+                                ? sanitizeText(userProfilesMap.get(replyingToPost.authorKey)?.name) || 'Unknown'
+                                : null
+                        }
                         onAddPost={handleAddPost}
+                        onCancel={replyingToPost ? () => setReplyingToPost(null) : undefined}
                         isProcessing={isProcessing}
                         isCoolingDown={isCoolingDown}
                         countdown={countdown}
@@ -192,6 +211,7 @@ const HomePage: React.FC = () => {
                     allPostsMap={allPostsMap}
                     userProfilesMap={userProfilesMap}
                     onViewProfile={(key) => navigate(`/profile/${key}`)}
+                    onSetReplyingTo={userState ? setReplyingToPost : undefined}
                     onLikePost={likePost}
                     onDislikePost={dislikePost}
                     onSavePost={savePost}

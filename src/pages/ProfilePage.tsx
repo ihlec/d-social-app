@@ -435,6 +435,7 @@ const ProfilePage: React.FC = () => {
                 className="sidebar-toggle-button"
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 title={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
+                data-testid="sidebar-toggle"
             >
                 <img src={logo} alt="Logo" crossOrigin="anonymous"/>
             </button>
@@ -458,6 +459,7 @@ const ProfilePage: React.FC = () => {
                 className="refresh-button"
                 onClick={() => navigate(isLoggedIn ? '/' : '/login')}
                 title={isLoggedIn ? 'Return to Feed' : 'Log in'}
+                data-testid="back-to-feed"
             >
                 <ArrowLeftIcon />
             </button>

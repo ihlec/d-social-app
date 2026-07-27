@@ -222,13 +222,21 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     });
 
     // Peers (presence announces also refresh the local name directory)
-    const { otherUsers } = useAppPeers({
+    const { otherUsers, nudgePresence } = useAppPeers({
         isLoggedIn,
         myPeerId,
         userState,
         setUserProfilesMap,
     });
     useContentServe({ isLoggedIn, userState });
+
+    const addPostAndNudge = React.useCallback(
+        async (postData: Parameters<typeof addPost>[0]) => {
+            await addPost(postData);
+            nudgePresence();
+        },
+        [addPost, nudgePresence]
+    );
 
     // Main Feed
     const { 
@@ -648,7 +656,7 @@ export const FeedProvider: React.FC<FeedProviderProps> = ({ children, authState 
     const value: FeedContextState = {
         allPostsMap, allUserStatesMap, userProfilesMap, unresolvedFollows, otherUsers,
         isLoadingFeed, isProcessing, isCoolingDown, countdown,
-        addPost, deletePost, likePost, dislikePost, savePost, clearMediaCache, followUser, unfollowUser, updateProfile,
+        addPost: addPostAndNudge, deletePost, likePost, dislikePost, savePost, clearMediaCache, followUser, unfollowUser, updateProfile,
         blockUser, unblockUser,
         refreshFeed, isLoadingExplore, loadMoreExplore, refreshExploreFeed, canLoadMoreExplore,
         loadMoreMyFeed, canLoadMoreMyFeed, ensurePostsAreFetched, fetchUser,

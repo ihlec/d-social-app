@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { UserState, OnlinePeer, Post, UserProfile } from '../../types';
 import { isUsefulDisplayName } from '../../lib/nameDirectory';
 import {
@@ -30,6 +30,9 @@ const PEER_TIMEOUT_MS = 300_000;
 /** App-level nudge so multi-hour tabs re-advertise IPNS while visible. */
 const IPNS_KEEPALIVE_MS = 18 * 60 * 1000;
 const JOIN_STAGGER_MS = 400;
+/** Quick re-announce after join / publish / tab focus. */
+const BURST_COUNT = 3;
+const BURST_GAP_MS = 700;
 
 interface UseAppPeersArgs {
     isLoggedIn: boolean | null;
@@ -76,7 +79,9 @@ export const useAppPeers = ({
     /** Per-topic abort controllers for follow circles — survive follow-list diffs. */
     const followControllersRef = useRef<Map<string, AbortController>>(new Map());
     const heartbeatFnRef = useRef<() => void>(() => {});
+    const burstFnRef = useRef<() => void>(() => {});
     const pruneFnRef = useRef<() => void>(() => {});
+    const burstTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
     const followKeysKey = (userState?.follows || [])
         .map((f) => f?.ipnsKey)
@@ -196,19 +201,14 @@ export const useAppPeers = ({
         const topics = rankDiscoveryTopics(getDiscoveryTopics(myPeerId, []), myPeerId);
         stableTopicsRef.current = topics;
 
+        const homeTopic = shardTopic(homeShard(myPeerId));
+        const egoCircle = circleTopic(myPeerId);
+        const primaryTopics = topics.filter((t) => t === homeTopic || t === egoCircle);
+        const secondaryTopics = topics.filter((t) => t !== homeTopic && t !== egoCircle);
+
         const onMessage = (msg: PresencePayload, peerId?: string) => {
             handlePresenceRef.current(msg, peerId);
         };
-
-        void (async () => {
-            for (let i = 0; i < topics.length; i++) {
-                if (abortController.signal.aborted) return;
-                void subscribeToPubsub(topics[i], onMessage, abortController.signal);
-                if (i < topics.length - 1) {
-                    await new Promise((r) => setTimeout(r, JOIN_STAGGER_MS));
-                }
-            }
-        })();
 
         const allTopics = () => {
             const seen = new Set<string>();
@@ -243,6 +243,23 @@ export const useAppPeers = ({
         };
         heartbeatFnRef.current = heartbeat;
 
+        const clearBurstTimers = () => {
+            for (const t of burstTimersRef.current) clearTimeout(t);
+            burstTimersRef.current = [];
+        };
+
+        const burstHeartbeat = () => {
+            clearBurstTimers();
+            heartbeat();
+            for (let i = 1; i < BURST_COUNT; i++) {
+                const timer = setTimeout(() => {
+                    if (!abortController.signal.aborted) heartbeat();
+                }, i * BURST_GAP_MS);
+                burstTimersRef.current.push(timer);
+            }
+        };
+        burstFnRef.current = burstHeartbeat;
+
         const updatePeersState = () => {
             const now = Date.now();
             const activePeers: OnlinePeer[] = [];
@@ -257,8 +274,28 @@ export const useAppPeers = ({
         };
         pruneFnRef.current = updatePeersState;
 
+        void (async () => {
+            // Join ego-circle + home shard first, then burst before staggered extras
+            for (const topic of primaryTopics) {
+                if (abortController.signal.aborted) return;
+                void subscribeToPubsub(topic, onMessage, abortController.signal);
+            }
+            if (abortController.signal.aborted) return;
+            burstHeartbeat();
+
+            for (let i = 0; i < secondaryTopics.length; i++) {
+                if (abortController.signal.aborted) return;
+                void subscribeToPubsub(secondaryTopics[i], onMessage, abortController.signal);
+                if (i < secondaryTopics.length - 1) {
+                    await new Promise((r) => setTimeout(r, JOIN_STAGGER_MS));
+                }
+            }
+            if (!abortController.signal.aborted) {
+                burstHeartbeat();
+            }
+        })();
+
         const heartbeatInterval = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
-        heartbeat();
 
         const republishIpnsKeepalive = () => {
             if (typeof document !== 'undefined' && document.hidden) return;
@@ -278,7 +315,7 @@ export const useAppPeers = ({
 
         const onVisibility = () => {
             if (typeof document === 'undefined' || document.hidden) return;
-            heartbeatFnRef.current();
+            burstFnRef.current();
             pruneFnRef.current();
         };
         if (typeof document !== 'undefined') {
@@ -287,6 +324,7 @@ export const useAppPeers = ({
 
         return () => {
             abortController.abort();
+            clearBurstTimers();
             clearInterval(heartbeatInterval);
             clearInterval(keepaliveInterval);
             clearInterval(pruneInterval);
@@ -295,6 +333,7 @@ export const useAppPeers = ({
             }
             stableTopicsRef.current = [];
             heartbeatFnRef.current = () => {};
+            burstFnRef.current = () => {};
             pruneFnRef.current = () => {};
         };
     }, [isLoggedIn, myPeerId]);
@@ -349,7 +388,7 @@ export const useAppPeers = ({
                 }
             }
             if (!cancelled && toJoin.length > 0) {
-                heartbeatFnRef.current();
+                burstFnRef.current();
             }
         })();
 
@@ -380,8 +419,15 @@ export const useAppPeers = ({
                 ac.abort();
             }
             followControllersRef.current.clear();
+            for (const t of burstTimersRef.current) clearTimeout(t);
+            burstTimersRef.current = [];
         }
     }, [isLoggedIn]);
 
-    return { otherUsers };
+    const nudgePresence = useCallback(() => {
+        burstFnRef.current();
+        pruneFnRef.current();
+    }, []);
+
+    return { otherUsers, nudgePresence };
 };

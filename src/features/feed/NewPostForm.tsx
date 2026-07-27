@@ -83,7 +83,11 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
   else if (isCoolingDown) buttonText = `Wait ${countdown}s`;
 
   return (
-    <form onSubmit={handleSubmit} className="new-post-form">
+    <form
+      onSubmit={handleSubmit}
+      className={`new-post-form${replyingToPost ? ' new-post-form--reply' : ''}`}
+      data-testid={replyingToPost ? 'reply-form' : 'new-post-form'}
+    >
       {replyingToPost && (
         <div className="reply-to-indicator">
           <span>Replying to {sanitizeText(replyingToAuthorName) || 'Post'}</span>
@@ -96,7 +100,8 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
         value={content}
         onChange={(e) => setContent(e.target.value)}
         disabled={isProcessing}
-        autoFocus={!!replyingToPost} // Auto-focus when opened
+        autoFocus={!!replyingToPost}
+        data-testid="composer-input"
       />
 
       <input
@@ -142,7 +147,12 @@ const NewPostForm: React.FC<NewPostFormProps> = ({
             <AddMediaIcon />
         </label>
 
-        <button type="submit" className="new-post-button" disabled={isButtonDisabled}>
+        <button
+            type="submit"
+            className="new-post-button"
+            disabled={isButtonDisabled}
+            data-testid={replyingToPost ? 'reply-submit' : 'post-submit'}
+        >
             {buttonText}
         </button>
       </div>

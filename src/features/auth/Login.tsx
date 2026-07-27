@@ -48,6 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
                         className="login-input"
                         disabled={isLoading}
                         autoFocus
+                        data-testid="login-identity"
                     />
                      <Tooltip text={<span>A label for your IPNS key in this browser. Reuse the same name on this device to open the same identity. New names create a fresh profile.</span>}>
                         <InfoIcon />
@@ -80,7 +81,7 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
                     {showPassphrase ? 'Hide Passphrase' : 'Add Passphrase (optional)'}
                 </button>
 
-                <button type="submit" disabled={isLoading} className="login-button">
+                <button type="submit" disabled={isLoading} className="login-button" data-testid="login-enter">
                     {isLoading ? 'Starting Helia...' : 'Enter'}
                 </button>
             </form>
