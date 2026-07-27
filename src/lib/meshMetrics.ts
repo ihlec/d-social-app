@@ -19,6 +19,8 @@ export type MeshMetricsSnapshot = {
     stickyTopics: string[];
     /** Active `dsocial-cid/<cid>` rooms (guest/share rendezvous). */
     contentTopics: string[];
+    /** Active time-sliced meetup lobbies (`dsocial-meetup/<n>`). */
+    meetupTopics: string[];
     ts: number;
 };
 
@@ -28,6 +30,7 @@ type MeshGauges = {
     peersByTopic: Record<string, number>;
     stickyTopics: string[];
     contentTopics: string[];
+    meetupTopics: string[];
 };
 
 const counters = {
@@ -45,6 +48,7 @@ let gauges: MeshGauges = {
     peersByTopic: {},
     stickyTopics: [],
     contentTopics: [],
+    meetupTopics: [],
 };
 
 let enabled = false;
@@ -150,6 +154,7 @@ export function getMeshMetricsSnapshot(): MeshMetricsSnapshot {
         peersByTopic: { ...gauges.peersByTopic },
         stickyTopics: [...gauges.stickyTopics],
         contentTopics: [...gauges.contentTopics],
+        meetupTopics: [...(gauges.meetupTopics || [])],
         ts: Date.now(),
     };
 }

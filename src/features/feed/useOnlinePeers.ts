@@ -20,7 +20,13 @@ import {
     PEER_DISCOVERY_TOPIC,
 } from '../../constants';
 import type { PresencePayload, PeerFeedSnapshot, SyncRequest } from '../../api/pubsub';
-import { circleTopic, homeShard, shardTopic } from '../../lib/peerShards';
+import {
+    activeMeetupTopics,
+    circleTopic,
+    homeShard,
+    msUntilNextMeetupSlot,
+    shardTopic,
+} from '../../lib/peerShards';
 import { libraryPage } from '../../lib/peerLibrary';
 import { startSessionWakeLock } from '../../lib/sessionWakeLock';
 
@@ -51,10 +57,11 @@ function rankDiscoveryTopics(topics: string[], myPeerId: string): string[] {
             if (t === egoCircle) return 1;
             if (t === BOOTSTRAP_TOPIC) return 2;
             if (t === DEV_LOCAL_RENDEZVOUS_TOPIC) return 3;
-            if (t.startsWith('dsocial-peers-v2/')) return 4;
-            if (t.startsWith('dsocial-circle/')) return 5;
-            if (t === PEER_DISCOVERY_TOPIC) return 7;
-            return 6;
+            if (t.startsWith('dsocial-meetup/')) return 4;
+            if (t.startsWith('dsocial-peers-v2/')) return 5;
+            if (t.startsWith('dsocial-circle/')) return 6;
+            if (t === PEER_DISCOVERY_TOPIC) return 8;
+            return 7;
         };
         return rank(a) - rank(b);
     });
@@ -77,6 +84,8 @@ export const useAppPeers = ({
 
     const stableTopicsRef = useRef<string[]>([]);
     const followTopicsRef = useRef<string[]>([]);
+    /** Time-sliced meetup lobbies (ephemeral; not sticky-budget). */
+    const meetupTopicsRef = useRef<string[]>([]);
     /** Per-topic abort controllers for follow circles — survive follow-list diffs. */
     const followControllersRef = useRef<Map<string, AbortController>>(new Map());
     const heartbeatFnRef = useRef<() => void>(() => {});
@@ -214,7 +223,11 @@ export const useAppPeers = ({
         const allTopics = () => {
             const seen = new Set<string>();
             const out: string[] = [];
-            for (const t of [...stableTopicsRef.current, ...followTopicsRef.current]) {
+            for (const t of [
+                ...stableTopicsRef.current,
+                ...followTopicsRef.current,
+                ...meetupTopicsRef.current,
+            ]) {
                 if (!t || seen.has(t)) continue;
                 seen.add(t);
                 out.push(t);
@@ -350,6 +363,75 @@ export const useAppPeers = ({
         };
     }, [isLoggedIn, myPeerId]);
 
+    // Time-sliced meetup lobbies — ephemeral join of current (+ previous) slot
+    useEffect(() => {
+        if (isLoggedIn !== true || !myPeerId) return;
+
+        const session = getSession();
+        if (session.sessionType !== 'helia') return;
+
+        let cancelled = false;
+        const controllers = new Map<string, AbortController>();
+        let boundaryTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const onMessage = (msg: PresencePayload, peerId?: string) => {
+            handlePresenceRef.current(msg, peerId);
+        };
+
+        const syncMeetupRooms = () => {
+            if (cancelled) return;
+            const wanted = activeMeetupTopics();
+            const wantedSet = new Set(wanted);
+
+            for (const [topic, ac] of [...controllers.entries()]) {
+                if (!wantedSet.has(topic)) {
+                    ac.abort();
+                    controllers.delete(topic);
+                }
+            }
+
+            for (const topic of wanted) {
+                if (controllers.has(topic)) continue;
+                const ac = new AbortController();
+                controllers.set(topic, ac);
+                void subscribeToPubsub(topic, onMessage, ac.signal);
+            }
+
+            const prev = meetupTopicsRef.current.join('\0');
+            const next = wanted.join('\0');
+            meetupTopicsRef.current = wanted;
+            if (prev !== next) {
+                // New lobby membership — announce promptly
+                burstFnRef.current();
+            } else {
+                heartbeatFnRef.current();
+            }
+        };
+
+        const scheduleBoundary = () => {
+            if (boundaryTimer) clearTimeout(boundaryTimer);
+            const wait = Math.max(250, msUntilNextMeetupSlot() + 75);
+            boundaryTimer = setTimeout(() => {
+                syncMeetupRooms();
+                scheduleBoundary();
+            }, wait);
+        };
+
+        syncMeetupRooms();
+        scheduleBoundary();
+        // Safety poll if timers drift / tab was frozen across a boundary
+        const pollTimer = setInterval(syncMeetupRooms, 15_000);
+
+        return () => {
+            cancelled = true;
+            if (boundaryTimer) clearTimeout(boundaryTimer);
+            clearInterval(pollTimer);
+            for (const ac of controllers.values()) ac.abort();
+            controllers.clear();
+            meetupTopicsRef.current = [];
+        };
+    }, [isLoggedIn, myPeerId]);
+
     // Follow-circle rooms — incremental join/leave only (no bootstrap remount)
     useEffect(() => {
         if (isLoggedIn !== true || !myPeerId) {
@@ -427,6 +509,7 @@ export const useAppPeers = ({
             setSelfPresenceKey('');
             stableTopicsRef.current = [];
             followTopicsRef.current = [];
+            meetupTopicsRef.current = [];
             for (const ac of followControllersRef.current.values()) {
                 ac.abort();
             }

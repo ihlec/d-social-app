@@ -16,7 +16,11 @@ import {
     MAX_SERVE_CIDS,
     MAX_STICKY_ROOMS,
     MAX_WANT_ROOMS,
+    MEETUP_OVERLAP_MS,
+    MEETUP_SLOT_MS,
+    MEETUP_TOPIC_PREFIX,
     NEIGHBOR_SHARD_COUNT,
+    NUM_MEETUP_SLOTS,
     NUM_SHARDS,
     NUM_WANT_SHARDS,
     PEER_DISCOVERY_TOPIC,
@@ -71,6 +75,39 @@ export function circleId(ipnsKey: string): string {
 
 export function circleTopic(ipnsKey: string): string {
     return `${CIRCLE_TOPIC_PREFIX}/${circleId(ipnsKey)}`;
+}
+
+/** Floor slot index from wall clock. */
+export function meetupSlotIndex(nowMs: number = Date.now()): number {
+    return Math.floor(nowMs / MEETUP_SLOT_MS);
+}
+
+export function meetupTopicForSlot(slot: number): string {
+    const idx = ((slot % NUM_MEETUP_SLOTS) + NUM_MEETUP_SLOTS) % NUM_MEETUP_SLOTS;
+    return `${MEETUP_TOPIC_PREFIX}/${idx}`;
+}
+
+/**
+ * Meetup rooms to hold now: current slot always; previous slot during overlap
+ * so late joiners still meet people leaving the last lobby.
+ */
+export function activeMeetupTopics(nowMs: number = Date.now()): string[] {
+    const slot = meetupSlotIndex(nowMs);
+    const topics = [meetupTopicForSlot(slot)];
+    const intoSlot = nowMs % MEETUP_SLOT_MS;
+    if (intoSlot < MEETUP_OVERLAP_MS) {
+        const prev = meetupTopicForSlot(slot - 1);
+        if (prev !== topics[0]) topics.push(prev);
+    }
+    return topics;
+}
+
+export function msUntilNextMeetupSlot(nowMs: number = Date.now()): number {
+    return MEETUP_SLOT_MS - (nowMs % MEETUP_SLOT_MS);
+}
+
+export function isMeetupTopic(topic: string): boolean {
+    return !!topic && topic.startsWith(`${MEETUP_TOPIC_PREFIX}/`);
 }
 
 /** Per-CID Trystero room for guest/share-link rendezvous. */
@@ -239,6 +276,7 @@ export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}
     for (const t of customChannels) {
         // Never sneak reserved mesh rooms in via custom channels
         if (t === PEER_DISCOVERY_TOPIC || t === BOOTSTRAP_TOPIC) continue;
+        if (isMeetupTopic(t)) continue;
         push(t);
     }
 

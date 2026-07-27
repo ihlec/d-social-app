@@ -40,6 +40,7 @@ import {
     hashIpnsKey,
     isBootstrapRoomEnabled,
     isLegacyPeerBridgeEnabled,
+    isMeetupTopic,
     parseCustomChannels,
     topicForPeer,
     topicsForSelf,
@@ -369,6 +370,7 @@ function refreshMeshGauges(): void {
     const peersByTopic: Record<string, number> = {};
     const stickyTopics: string[] = [];
     const contentTopics: string[] = [];
+    const meetupTopics: string[] = [];
     let stickyRooms = 0;
     for (const [topic, entry] of rooms) {
         try {
@@ -382,6 +384,7 @@ function refreshMeshGauges(): void {
             stickyTopics.push(topic);
         }
         if (isContentTopic(topic)) contentTopics.push(topic);
+        if (isMeetupTopic(topic)) meetupTopics.push(topic);
     }
     updateMeshGauges({
         stickyRooms,
@@ -389,6 +392,7 @@ function refreshMeshGauges(): void {
         peersByTopic,
         stickyTopics,
         contentTopics,
+        meetupTopics,
     });
 }
 

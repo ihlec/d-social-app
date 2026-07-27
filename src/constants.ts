@@ -12,6 +12,18 @@ export const DEV_LOCAL_RENDEZVOUS_TOPIC = 'dsocial-dev-local';
  * gateways) find each other without follows or Settings fiddling. Opt out via Settings.
  */
 export const BOOTSTRAP_TOPIC = 'dsocial-bootstrap';
+/**
+ * Time-sliced rendezvous: `dsocial-meetup/<0..NUM_MEETUP_SLOTS-1>`.
+ * All online peers join the current (and previous) slot so strangers collide
+ * without random tourist hops. Ephemeral — not part of the sticky room budget.
+ */
+export const MEETUP_TOPIC_PREFIX = 'dsocial-meetup';
+/** Wall-clock slot length for meetup rotation. */
+export const MEETUP_SLOT_MS = 2 * 60 * 1000;
+/** Rotating meetup topics (smaller = denser lobbies; PoC-friendly). */
+export const NUM_MEETUP_SLOTS = 4;
+/** Also hold the previous slot this long after a boundary (overlap). */
+export const MEETUP_OVERLAP_MS = 45_000;
 /** Hash-sharded presence rooms: `dsocial-peers-v2/<0..NUM_SHARDS-1>`. */
 export const PEER_TOPIC_PREFIX_V2 = 'dsocial-peers-v2';
 export const CIRCLE_TOPIC_PREFIX = 'dsocial-circle';

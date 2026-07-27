@@ -24,7 +24,7 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeicqeyxqilis4zdz2kgdjblaipeja6ysfhuqlg72wjjba372kcfo6q | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeifo3enxftzu2als54mlyegiqqatcan5iju4pvk6fggw5bdxx6f254 | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
@@ -72,6 +72,7 @@ Presence is **not** one unbounded WebRTC mesh. Each logged-in peer joins a cappe
 * a **home shard** and **neighbor shards** derived from `hash(ipnsKey) % NUM_SHARDS`
 * a **follow-circle** room (ego + capped follow circles)
 * **`dsocial-bootstrap`** — **on by default** so strangers on a shared IPFS app link find each other without follows or Settings tweaks (opt out in Settings when the network grows)
+* **`dsocial-meetup/<0..3>`** — time-sliced lobby (2‑minute wall-clock slots). Everyone joins the current slot (and briefly the previous one) so strangers collide even if bootstrap is quiet; these rooms are ephemeral and outside the sticky-room budget
 * optional **affinity channels** from Settings
 
 Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join another peer’s home shard, then leave. Explore seeds from follows plus peers already seen in joined rooms.
@@ -80,7 +81,7 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 
 **Snowball explore:** syncing an online peer pulls a page of their local library (own + liked + saved posts they still hold), then Explore can page deeper through that peer and crawl authors those posts reveal — so one well-stocked peer seeds older content without the original authors being online.
 
-**Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` with no other fiddling. Console noise like `wss://…libp2p.direct` failing is Helia dialing public IPFS peers; peer sync uses Trystero (Nostr + WebRTC), not those sockets.
+**Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` and/or the current `dsocial-meetup/*` slot with no other fiddling. Console noise like `wss://…libp2p.direct` failing is Helia dialing public IPFS peers; peer sync uses Trystero (Nostr + WebRTC), not those sockets.
 
 **Legacy global room** (`dsocial-peers-v1`) stays **off by default** (migration escape hatch only). Prefer bootstrap for normal discovery.
 
@@ -97,7 +98,7 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 ### Quick two-browser check (IPFS or localhost)
 
 1. Open the app in two browsers/profiles. Both **log in**. Bootstrap room left on (default). Use `?debugMesh=1`.
-2. Confirm `window.__dsocialMesh.stickyTopics` includes `dsocial-bootstrap` and length ≤ 8.
+2. Confirm `window.__dsocialMesh.stickyTopics` includes `dsocial-bootstrap` and length ≤ 8. With `?debugMesh=1`, `meetupTopics` should list the current `dsocial-meetup/<n>` lobby.
 3. Testers should see each other in Explore / online peers without following. Optional: follow for circle rooms.
 4. To isolate shards later: uncheck “Public bootstrap room” in Settings on both, reload — strangers stop meeting unless they follow.
 
