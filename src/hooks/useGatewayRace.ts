@@ -24,6 +24,7 @@ export const getMimeType = (filename?: string): string => {
         'gif': 'image/gif',
         'webp': 'image/webp',
         'avif': 'image/avif',
+        'pdf': 'application/pdf',
     };
     return mimeMap[ext || ''] || 'video/mp4';
 };

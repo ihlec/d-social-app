@@ -19,11 +19,18 @@ const PostMedia: React.FC<PostMediaProps> = ({
     post.mediaType === 'image' ? mimeType : 'image/jpeg';
   const isImage = post.mediaType === 'image';
   const isVideo = post.mediaType === 'video';
+  // File attachments (PDFs, etc.) are rendered by PostItem — do not race their
+  // bytes here or a wrong MIME hint can poison the shared blob: URL cache.
+  const isFileAttachment = post.mediaType === 'file';
 
   // Feed cards only need the thumbnail — loading full video via Helia blobs
   // into RAM can kill the Chromium renderer. Resolution order: Helia → P2P → gateway.
   const mediaCidForRace =
-    isExpandedView || isImage || !post.thumbnailCid ? post.mediaCid : undefined;
+    isFileAttachment
+      ? undefined
+      : isExpandedView || isImage || !post.thumbnailCid
+        ? post.mediaCid
+        : undefined;
 
   const { bestUrl: activeImgUrl, allUrls: mediaUrls } = useGatewayRace(mediaCidForRace, {
     mimeHint: mimeType,
@@ -74,6 +81,10 @@ const PostMedia: React.FC<PostMediaProps> = ({
   };
 
   const previewAlt = isVideo ? 'Video thumbnail' : 'Post image';
+
+  if (isFileAttachment) {
+    return null;
+  }
 
   if (isExpandedView) {
      if (mediaUrls.length > 0 && isImage) {

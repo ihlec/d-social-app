@@ -61,13 +61,27 @@
 }
 
 /* PDF Preview Styles */
+.pdf-preview-container {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .pdf-preview-frame {
     width: 100%;
     height: 600px;
     border: none;
     background: #f0f0f0;
     border-radius: 4px;
-    margin-top: 1rem;
+}
+
+.pdf-open-link {
+    align-self: flex-start;
+}
+
+.pdf-loading {
+    cursor: default;
 }
 
 .pdf-card-preview {
@@ -237,34 +251,75 @@
 
 /* Actions */
 .post-footer {
-    display: flex; justify-content: space-between; align-items: center;
-    padding-top: 0rem; border: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    /* Match .post-header horizontal inset so share isn't flush to the card edge */
+    padding: 0.15rem 0.5rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
 }
-.post-actions { display: flex; gap: 1.5rem; }
+.post-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    min-width: 0;
+}
 
 .action-button, .comment-button {
     background: none; border: none;
     color: var(--text-secondary-color); 
-    cursor: pointer; display: flex; align-items: center; gap: 4px;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
     padding: 6px; 
+    margin: 0;
+    line-height: 1;
     border-radius: 0;
     transition: color 0.2s;
+    flex-shrink: 0;
 }
 .action-button:hover, .comment-button:hover { color: var(--primary-color); background: rgba(255,255,255,0.05); }
-.action-button svg, .comment-button svg { width: 20px; height: 20px; }
+.action-button svg, .comment-button svg { width: 20px; height: 20px; display: block; }
+.share-action-button {
+    align-self: center;
+}
 .action-button.liked { color: #f91880; }
 .action-button.saved { color: #1d9bf0; } 
 .action-button.disliked { color: var(--danger-color); }
 
 /* Replies */
-.replies-container { margin-top: 1rem; padding-left: 1rem; border-left: 1px solid #333; }
-.reply-post { 
-    box-shadow: none; border: none; padding-top: 1rem;
-    margin-bottom: 0; 
-    border-radius: 0; background: transparent;
+.replies-container {
+    margin-top: 0.5rem;
+    padding-left: 1rem;
+    border-left: 1px solid #333;
+    /* Keep nested posts inside the thread column (no border-overlap bleed) */
+    overflow: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.reply-post {
+    /* Override .post border-overlap (margin:-1px / width:calc(100%+2px))
+       so timestamp + share stay inside the indented reply column */
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    padding-top: 0.75rem;
+    padding-bottom: 0.25rem;
     transition: background-color 0.2s ease;
 }
 
 .reply-post:hover {
     background-color: rgba(255, 255, 255, 0.06);
+}
+
+.reply-post .post-header,
+.reply-post .post-footer {
+    width: 100%;
+    max-width: 100%;
 }

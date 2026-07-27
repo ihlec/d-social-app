@@ -175,12 +175,19 @@ const PostComponent: React.FC<PostProps> = ({
   const isShortText = post.content.length < 100;
   const useOverlayStyle = !isExpandedView && isMediaPost && isShortText && !isDisliked;
 
-  // Race the PDF/File URL as well
-  const { bestUrl: attachmentUrl } = useGatewayRace(post.mediaCid, {
-    mimeHint: getMimeType(post.mediaFileName),
-    peerIpnsKey: post.authorKey,
-    rendezvousCid: post.id,
-  });
+  // Race PDF / file attachment URLs (full body — needed for iframe + download)
+  const isFileAttachment = post.mediaType === 'file';
+  const isPdfAttachment =
+    isFileAttachment && !!post.fileName?.toLowerCase().endsWith('.pdf');
+  const { bestUrl: attachmentUrl } = useGatewayRace(
+    isFileAttachment ? post.mediaCid : undefined,
+    {
+      mimeHint: getMimeType(post.mediaFileName || post.fileName),
+      peerIpnsKey: post.authorKey,
+      rendezvousCid: post.id,
+      allowLarge: true,
+    }
+  );
 
   return (
     <div 
@@ -246,16 +253,39 @@ const PostComponent: React.FC<PostProps> = ({
            )
        )}
 
-      {!isDisliked && post.mediaCid && post.mediaType === 'file' && (
+      {!isDisliked && post.mediaCid && isFileAttachment && (
          <>
-             {post.fileName?.toLowerCase().endsWith('.pdf') ? (
+             {isPdfAttachment ? (
                  isExpandedView ? (
-                     <div onClick={(e) => e.stopPropagation()}>
-                         <iframe 
-                            src={attachmentUrl ? `${attachmentUrl}#view=FitH` : ''} 
-                            className="pdf-preview-frame"
-                            title="PDF Preview"
-                         />
+                     <div className="pdf-preview-container" onClick={(e) => e.stopPropagation()}>
+                         {attachmentUrl ? (
+                             <>
+                                 <iframe
+                                    src={`${attachmentUrl}#view=FitH`}
+                                    className="pdf-preview-frame"
+                                    title="PDF Preview"
+                                 />
+                                 <a
+                                    href={attachmentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="file-download-link pdf-open-link"
+                                    onClick={(e) => e.stopPropagation()}
+                                 >
+                                    Open PDF
+                                 </a>
+                             </>
+                         ) : (
+                             <div className="pdf-card-preview pdf-loading">
+                                 <div className="pdf-icon">📄</div>
+                                 <div className="pdf-info">
+                                     <div className="pdf-name">
+                                         {sanitizeText(post.fileName) || 'PDF Document'}
+                                     </div>
+                                     <div className="pdf-meta">Loading PDF…</div>
+                                 </div>
+                             </div>
+                         )}
                      </div>
                  ) : (
                      <div className="pdf-card-preview">
@@ -273,7 +303,7 @@ const PostComponent: React.FC<PostProps> = ({
              ) : (
                 <div className="post-file-container" onClick={(e) => e.stopPropagation()}>
                     <a 
-                        href={attachmentUrl || ''} 
+                        href={attachmentUrl || undefined} 
                         target="_blank" 
                         rel="noopener noreferrer" 
                         className="file-download-link" 

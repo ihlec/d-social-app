@@ -51,6 +51,16 @@ function toBlobPart(bytes: Uint8Array): BlobPart {
 }
 
 function sniffMime(bytes: Uint8Array): string | null {
+    // %PDF
+    if (
+        bytes.length >= 4
+        && bytes[0] === 0x25
+        && bytes[1] === 0x50
+        && bytes[2] === 0x44
+        && bytes[3] === 0x46
+    ) {
+        return 'application/pdf';
+    }
     if (bytes.length < 12) return null;
     if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
         return 'image/png';
@@ -120,7 +130,9 @@ export function cacheMediaBytesAsBlob(
         lastEphemeralLargeCid = cid;
     }
 
-    const mime = mimeHint || sniffMime(bytes) || 'application/octet-stream';
+    // Prefer magic-byte sniff so a wrong extension/hint (e.g. PDF as video/mp4)
+    // cannot poison the blob: URL Content-Type used by <iframe>/<img>/<video>.
+    const mime = sniffMime(bytes) || mimeHint || 'application/octet-stream';
     const url = URL.createObjectURL(new Blob([toBlobPart(bytes)], { type: mime }));
     urlCache.set(cid, url);
     notifyHeliaMediaReady(cid);

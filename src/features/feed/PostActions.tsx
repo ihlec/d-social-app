@@ -112,9 +112,10 @@ const PostActions: React.FC<PostActionsProps> = ({
         </button>
       </div>
 
-      <button 
-        className="action-button" 
-        onClick={handleShare} 
+      <button
+        type="button"
+        className="action-button share-action-button"
+        onClick={handleShare}
         title="Share Post"
       >
         <ShareIcon />
