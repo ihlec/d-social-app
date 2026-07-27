@@ -20,7 +20,11 @@ Day-to-day UX hides raw CIDs / IPNS keys (copy from **Identity & debug** in the 
 
 -> Join a Social Network with it OR just use it for blogging. 
 
-You can find the latest version of D. Social App here: https://ipfs.io/ipfs/bafybeiglrabdi3bsugxnlmapebklcou3ytvs76diugtcnpqpxwg5h6tnve
+You can find the latest version of D. Social App here:
+
+| | |
+|:--|:--|
+| https://ipfs.io/ipfs/bafybeiglrabdi3bsugxnlmapebklcou3ytvs76diugtcnpqpxwg5h6tnve | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
