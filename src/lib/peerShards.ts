@@ -94,14 +94,20 @@ export function wantTopic(cidOrShard: string | number): string {
 }
 
 /**
- * Newest own + saved CIDs a logged-in peer may auto-serve via want→content-room.
- * Likes excluded (thumb-only / anti-spam).
+ * Newest own + liked + saved CIDs a logged-in peer may auto-serve via want→content-room.
+ * Likes are a serve commitment (full pin); newest likes preferred within the cap.
  */
 export function serveCidsFromState(state: UserState | null | undefined): string[] {
     if (!state) return [];
     const out: string[] = [];
     const seen = new Set<string>();
-    for (const cid of [...(state.postCIDs || []), ...(state.savedPostCIDs || [])]) {
+    // postCIDs: newest-first; likedPostCIDs: append-order → reverse for newest-first
+    const likesNewestFirst = [...(state.likedPostCIDs || [])].reverse();
+    for (const cid of [
+        ...(state.postCIDs || []),
+        ...likesNewestFirst,
+        ...(state.savedPostCIDs || []),
+    ]) {
         const c = (cid || '').trim();
         if (!c || seen.has(c)) continue;
         seen.add(c);

@@ -151,7 +151,7 @@ export function setPeerFeedProvider(provider: FeedProvider | null): void {
     feedProvider = provider;
 }
 
-/** Holder callback when a guest wants a CID (own/saved serve path). */
+/** Holder callback when a guest wants a CID (own/liked/saved serve path). */
 export function setContentWantHandler(handler: ContentWantHandler | null): void {
     contentWantHandler = handler;
 }
@@ -1022,7 +1022,7 @@ export async function publishContentWant(cid: string): Promise<void> {
 }
 
 /**
- * Holder: join ≤ MAX_WANT_ROOMS covering own/saved serve CIDs; leave stale want rooms.
+ * Holder: join ≤ MAX_WANT_ROOMS covering own/liked/saved serve CIDs; leave stale want rooms.
  */
 export async function syncWantRoomsForServeSet(serveCids: string[]): Promise<void> {
     const nextTopics = new Set(wantTopicsForServeSet(serveCids));

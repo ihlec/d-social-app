@@ -24,7 +24,7 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeiglrabdi3bsugxnlmapebklcou3ytvs76diugtcnpqpxwg5h6tnve | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeihwx4l6yl27yipnb4xdmcz3y6jc6wf3gkgeg5ic6qoq6dvydj676y | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
@@ -86,7 +86,7 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 
 **TURN** defaults to public Open Relay for ICE when direct WebRTC fails (see Settings). Override with your own servers JSON, or set `[]` / `off` to disable.
 
-**Share links:** copy Share to get `/#/post/<cid>?a=<authorIpns>`. Guests load from (1) author home shard if the author is online anywhere in the app, (2) content room `dsocial-cid/<cid>` (any peer with the blocks), (3) want shards `dsocial-want/<0..31>` that summon holders with **own** or **Saved** CIDs into the content room — post UI need not be open. Likes do not auto-serve. At most 2 want rooms per holder; content sticky ≤ 1 viewed CID.
+**Share links:** copy Share to get `/#/post/<cid>?a=<authorIpns>`. Guests load from (1) author home shard if the author is online anywhere in the app, (2) content room `dsocial-cid/<cid>` (any peer with the blocks), (3) want shards `dsocial-want/<0..31>` that summon holders with **own**, **Liked**, or **Saved** CIDs into the content room — post UI need not be open. A like is a serve commitment (pins post + full media). At most 2 want rooms per holder; content sticky ≤ 1 viewed CID.
 
 **Mesh debug:** set `localStorage.dsocial_debug_mesh = '1'` or open with `?debugMesh=1`, then inspect `window.__dsocialMesh` (sticky topics, `contentTopics`, peers/room, sync ok/fail). Console snapshots log every 30s.
 
@@ -102,7 +102,7 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 1. Logged-in browser A: stay on the **home feed** (do not open the post). Copy Share on a post you authored (URL includes `?a=`).
 2. Logged-out browser B: open that link (gateways left off).
 3. Post + media should arrive via author home-shard P2P without A having the post open.
-4. Optional: A offline, B has Saved the post and is online on the feed — guest bare/share link should still load after want summons B.
+4. Optional: A offline, B has Liked or Saved the post and is online on the feed — guest bare/share link should still load after want summons B.
 
 ## TODO
 - following not possible when on public gateway hosted url (guest / no Helia write path)

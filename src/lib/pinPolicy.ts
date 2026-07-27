@@ -1,8 +1,8 @@
 /**
  * Pin policy for browser Helia:
  * - Author: post + media + thumbnail
- * - Like: post + thumbnail only (not full video)
- * - Save: post + media + thumbnail (quota-gated P2P fetch)
+ * - Like: post + media + thumbnail (serve commitment — holder for want/content rooms)
+ * - Save: same pin set as like (bookmark + full hold)
  */
 
 import type { Post } from '../types';
@@ -23,12 +23,12 @@ export function cidsToKeepForPost(post: Post, mode: PinKeepMode): string[] {
     if (post.thumbnailCid && !post.thumbnailCid.startsWith('http')) {
         out.push(post.thumbnailCid);
     }
-    if (mode === 'author' || mode === 'save') {
+    // Author, like, and save all hold full media so peers can fetch after OP churn.
+    if (mode === 'author' || mode === 'like' || mode === 'save') {
         if (post.mediaCid && !post.mediaCid.startsWith('http')) {
             out.push(post.mediaCid);
         }
     }
-    // like: intentionally omit full mediaCid for videos/images (thumb is enough for feed)
     return out;
 }
 
@@ -46,70 +46,73 @@ async function pinIfLocal(cid: string): Promise<boolean> {
     }
 }
 
-/**
- * After like: ensure post JSON + thumbnail are local (P2P from author) and pinned.
- * Does not pin full video/media bodies.
- */
-export async function pinForLike(post: Post): Promise<void> {
-    if (!post?.id) return;
-    const author = post.authorKey || '';
+async function ensurePinnedMedia(
+    cid: string | undefined,
+    author: string,
+    mimeHint?: string,
+    sizeHint = 20 * 1024 * 1024
+): Promise<{ ok: boolean; reason?: string }> {
+    if (!cid || cid.startsWith('http')) return { ok: true };
+    if (await pinIfLocal(cid)) return { ok: true };
 
-    // Post JSON — usually already in memory; pin if local
-    await pinIfLocal(post.id);
-
-    const thumb = post.thumbnailCid;
-    if (!thumb || thumb.startsWith('http')) return;
-
-    if (await pinIfLocal(thumb)) return;
-
-    if (!author) return;
-    const sizeHint = 512 * 1024; // thumbs are small
     if (!(await hasStorageHeadroom(sizeHint))) {
-        console.warn('[PinPolicy] skip thumb pin — low storage headroom');
-        return;
+        return { ok: false, reason: 'Browser storage is nearly full — free space or clear media cache.' };
+    }
+    if (!author) {
+        return { ok: false, reason: 'Author unknown — cannot fetch media over P2P.' };
     }
 
-    const url = await requestPeerMedia(author, thumb, 'image/jpeg');
-    if (url) await pinIfLocal(thumb);
+    const url = await requestPeerMedia(author, cid, mimeHint);
+    if (!url) {
+        return { ok: false, reason: 'Author offline or media unavailable over P2P.' };
+    }
+    if (!(await pinIfLocal(cid))) {
+        return { ok: false, reason: 'Media loaded for viewing but could not be pinned (storage full).' };
+    }
+    return { ok: true };
 }
 
 /**
- * Explicit Save: pull full media from author over P2P and pin when quota allows.
+ * Pin post JSON + thumbnail + full media (P2P from author when needed).
+ * Used by both like (serve commitment) and explicit save.
  */
-export async function pinForSave(post: Post): Promise<{ ok: boolean; reason?: string }> {
+async function pinFullPost(post: Post): Promise<{ ok: boolean; reason?: string }> {
     if (!post?.id) return { ok: false, reason: 'missing post' };
     const author = post.authorKey || '';
 
     await pinIfLocal(post.id);
-    if (post.thumbnailCid) {
-        await pinForLike(post);
+
+    const thumbResult = await ensurePinnedMedia(
+        post.thumbnailCid,
+        author,
+        'image/jpeg',
+        512 * 1024
+    );
+    if (!thumbResult.ok) {
+        // Thumb miss is non-fatal when there is no thumb; warn only if present.
+        if (post.thumbnailCid) {
+            console.warn('[PinPolicy] thumbnail pin:', thumbResult.reason);
+        }
     }
 
     const media = post.mediaCid;
     if (!media || media.startsWith('http')) return { ok: true };
 
-    if (await pinIfLocal(media)) return { ok: true };
+    return ensurePinnedMedia(media, author);
+}
 
-    // Need bytes — check headroom (assume up to 20MB if unknown)
-    const need = 20 * 1024 * 1024;
-    if (!(await hasStorageHeadroom(need))) {
-        return { ok: false, reason: 'Browser storage is nearly full — free space or clear media cache.' };
-    }
+/**
+ * Like = serve commitment: pull and pin post + thumb + full media when possible.
+ */
+export async function pinForLike(post: Post): Promise<{ ok: boolean; reason?: string }> {
+    return pinFullPost(post);
+}
 
-    if (!author) {
-        return { ok: false, reason: 'Author unknown — cannot fetch media over P2P.' };
-    }
-
-    const url = await requestPeerMedia(author, media);
-    if (!url) {
-        return { ok: false, reason: 'Author offline or media unavailable over P2P.' };
-    }
-    const pinned = await pinIfLocal(media);
-    if (!pinned) {
-        // Ephemeral blob may still play; pin failed (quota)
-        return { ok: false, reason: 'Media loaded for viewing but could not be pinned (storage full).' };
-    }
-    return { ok: true };
+/**
+ * Explicit Save: same full hold as like (bookmark semantics in UI).
+ */
+export async function pinForSave(post: Post): Promise<{ ok: boolean; reason?: string }> {
+    return pinFullPost(post);
 }
 
 /** Remove a CID DAG from local Helia (unpin + delete blocks). */

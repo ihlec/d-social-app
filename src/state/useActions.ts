@@ -436,37 +436,41 @@ export const useAppActions = ({
             const currentLikes = currentState.likedPostCIDs || [];
             let newLikes: string[];
             const isLiked = currentLikes.includes(postId);
-            
+            const stillSaved = (currentState.savedPostCIDs || []).includes(postId);
+            const isAuthor = loadedPost.authorKey === myPeerId;
+
             if (isLiked) {
                 newLikes = currentLikes.filter(id => id !== postId);
-                // Drop full media if not saved/authored; keep thumb until GC
-                const stillSaved = (currentState.savedPostCIDs || []).includes(postId);
-                const isAuthor = loadedPost.authorKey === myPeerId;
-                if (!stillSaved && !isAuthor && loadedPost.mediaCid) {
-                    void dropLocalCid(loadedPost.mediaCid);
+                // Drop serve hold unless still saved or authored
+                if (!stillSaved && !isAuthor) {
+                    if (loadedPost.mediaCid) void dropLocalCid(loadedPost.mediaCid);
+                    if (loadedPost.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
+                    void dropLocalCid(postId);
                 }
             } else {
+                // Serve commitment: pin post + thumb + full media before recording like
+                const result = await pinForLike(loadedPost);
+                if (!result.ok) {
+                    toast.error(result.reason || 'Could not pin post to serve');
+                    return { newState: currentState };
+                }
                 newLikes = [...currentLikes, postId];
                 reportFetchSuccess(postId);
-                // Pin post + thumbnail only (not full video) via P2P if needed
-                void pinForLike(loadedPost).catch((e) =>
-                    console.debug('[likePost] pinForLike', e)
-                );
             }
 
             const newDislikes = (currentState.dislikedPostCIDs || []).filter(id => id !== postId);
-            
-            const newState = { 
-                ...currentState, 
-                likedPostCIDs: newLikes, 
+
+            const newState = {
+                ...currentState,
+                likedPostCIDs: newLikes,
                 dislikedPostCIDs: newDislikes,
                 updatedAt: Date.now(),
-                extendedUserState: currentState.extendedUserState 
+                extendedUserState: currentState.extendedUserState
             };
-            
+
             setUserState(newState);
             queuePersistence(newState);
-            
+
             return { newState };
         });
     }, [myPeerId, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
@@ -488,13 +492,11 @@ export const useAppActions = ({
                 newSaved = currentSaved.filter((id) => id !== postId);
                 const stillLiked = (currentState.likedPostCIDs || []).includes(postId);
                 const isAuthor = loadedPost.authorKey === myPeerId;
+                // Like is also a full serve hold — only drop when neither like nor author
                 if (!stillLiked && !isAuthor) {
                     if (loadedPost.mediaCid) void dropLocalCid(loadedPost.mediaCid);
                     if (loadedPost.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
                     void dropLocalCid(postId);
-                } else if (!isAuthor && loadedPost.mediaCid) {
-                    // Still liked — drop full media, keep thumb policy
-                    void dropLocalCid(loadedPost.mediaCid);
                 }
                 toast.success('Removed saved media pin');
             } else {
@@ -522,6 +524,8 @@ export const useAppActions = ({
 
 
     const dislikePost = useCallback(async (postId: string) => {
+        const loadedPost = allPostsMapRef.current.get(postId);
+
         queueAction('dislikePost', async (rawState) => {
             const currentState = mergePendingUpdates(rawState);
             const currentDislikes = currentState.dislikedPostCIDs || [];
@@ -533,22 +537,34 @@ export const useAppActions = ({
                 newDislikes = [...currentDislikes, postId];
             }
 
+            const wasLiked = (currentState.likedPostCIDs || []).includes(postId);
             const newLikes = (currentState.likedPostCIDs || []).filter(id => id !== postId);
 
-            const newState = { 
-                ...currentState, 
-                likedPostCIDs: newLikes, 
+            // Dislike clears like → drop serve hold unless saved/authored
+            if (wasLiked && loadedPost) {
+                const stillSaved = (currentState.savedPostCIDs || []).includes(postId);
+                const isAuthor = loadedPost.authorKey === myPeerId;
+                if (!stillSaved && !isAuthor) {
+                    if (loadedPost.mediaCid) void dropLocalCid(loadedPost.mediaCid);
+                    if (loadedPost.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
+                    void dropLocalCid(postId);
+                }
+            }
+
+            const newState = {
+                ...currentState,
+                likedPostCIDs: newLikes,
                 dislikedPostCIDs: newDislikes,
                 updatedAt: Date.now(),
-                extendedUserState: currentState.extendedUserState 
+                extendedUserState: currentState.extendedUserState
             };
-            
+
             setUserState(newState);
             queuePersistence(newState);
-            
+
             return { newState };
         });
-    }, [myIpnsKey, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
+    }, [myPeerId, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
 
 
     const followUser = useCallback(async (

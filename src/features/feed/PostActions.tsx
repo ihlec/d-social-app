@@ -64,7 +64,7 @@ const PostActions: React.FC<PostActionsProps> = ({
               requireLogin(() => onLikePost?.(post.id)); 
           }}
           disabled={isTemporaryPost}
-          title={isLiked ? "Unlike" : "Like (pins thumbnail only)"}
+          title={isLiked ? "Unlike (stops serving)" : "Like (pins & serves post + media)"}
         >
           <LikeIcon />
         </button>
@@ -89,7 +89,7 @@ const PostActions: React.FC<PostActionsProps> = ({
               requireLogin(() => onSavePost?.(post.id));
             }}
             disabled={isTemporaryPost}
-            title={isSaved ? 'Unsave media pin' : 'Save media locally (pins full file)'}
+            title={isSaved ? 'Unsave bookmark' : 'Save bookmark (pins full file)'}
           >
             <SaveIcon />
           </button>

@@ -14,7 +14,7 @@ interface UseContentServeArgs {
     userState: UserState | null;
 }
 
-/** Join want shards for own/saved CIDs; on match, open an ephemeral content room. */
+/** Join want shards for own/liked/saved CIDs; on match, open an ephemeral content room. */
 export function useContentServe({ isLoggedIn, userState }: UseContentServeArgs): void {
     const serveKey = serveCidsFromState(userState).join(',');
     const servingRef = useRef(new Set<string>());

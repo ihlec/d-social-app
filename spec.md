@@ -27,7 +27,7 @@ No local Kubo node. Session type is Helia-only.
 
 1. Write locally to Helia; publish IPNS tip locally (network put best-effort).
 2. Announce tip over Trystero; peers pull full `UserState` + recent posts + media over WebRTC.
-3. Share links prefer `/post/<cid>?a=<authorIpns>`: guest pulls via author home-shard `syncPost`/`syncMedia` while the author is online (any screen). Fallback: content room `dsocial-cid/<cid>` (any peer with blocks) and want shards `dsocial-want/<shard>` that summon own/Saved holders into the content room. Likes are not auto-servers. Max 2 want rooms; max 1 sticky content CID while viewing.
+3. Share links prefer `/post/<cid>?a=<authorIpns>`: guest pulls via author home-shard `syncPost`/`syncMedia` while the author is online (any screen). Fallback: content room `dsocial-cid/<cid>` (any peer with blocks) and want shards `dsocial-want/<shard>` that summon own/Liked/Saved holders into the content room. A like is a serve commitment (pin post + full media). Max 2 want rooms; max 1 sticky content CID while viewing.
 4. Public gateways only if Settings enables fallback — do not assume they have browser-only CIDs.
 
 ## Presence
@@ -36,4 +36,4 @@ Hash-sharded rooms + follow-circles (capped sticky rooms). Default-on `dsocial-b
 
 ## Out of scope here
 
-Historical Kubo RPC / guest-gateway-first designs are obsolete. Guest home/explore feeds, Bitswap/DHT as gateway replacement, and sticky content rooms for every like are out of scope. Future CRDT/full-DAG ideas are not part of the current runtime.
+Historical Kubo RPC / guest-gateway-first designs are obsolete. Guest home/explore feeds and Bitswap/DHT as gateway replacement are out of scope. Liked CIDs join want shards ephemerally (same as saved); sticky content rooms remain capped at the viewed CID. Future CRDT/full-DAG ideas are not part of the current runtime.

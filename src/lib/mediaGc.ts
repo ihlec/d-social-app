@@ -50,7 +50,7 @@ export function buildMediaKeepSet(
 
     for (const id of own) addPost(id, 'author');
     for (const id of saved) addPost(id, 'save');
-    // Aggressive reclaim drops liked thumbs to free space for uploads
+    // Aggressive reclaim drops liked holds to free space for uploads
     if (mode === 'normal') {
         for (const id of liked) {
             if (own.has(id) || saved.has(id)) continue;

@@ -30,9 +30,10 @@ export interface UserState {
     profile: UserProfile;
     postCIDs: string[];
     follows: Follow[];
+    /** Liked posts — serve commitment (pin post + media; join want shards). */
     likedPostCIDs?: string[];
     dislikedPostCIDs?: string[];
-    /** Explicitly saved posts — pins full media (not just thumbs). */
+    /** Bookmarked posts — same full pin as like; kept if you unlike. */
     savedPostCIDs?: string[];
     /** IPNS keys */
     blockedUsers?: string[];

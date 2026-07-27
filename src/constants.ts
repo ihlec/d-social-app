@@ -21,11 +21,11 @@ export const CONTENT_TOPIC_PREFIX = 'dsocial-cid';
 export const WANT_TOPIC_PREFIX = 'dsocial-want';
 export const NUM_WANT_SHARDS = 32;
 /**
- * Max want-shard rooms a holder joins (own/saved serve set).
+ * Max want-shard rooms a holder joins (own/liked/saved serve set).
  * Kept tiny vs WebRTC mesh budget; shards are chosen by coverage density.
  */
 export const MAX_WANT_ROOMS = 2;
-/** Newest own+saved CIDs considered when picking want-shard coverage. */
+/** Newest own+liked+saved CIDs considered when picking want-shard coverage. */
 export const MAX_SERVE_CIDS = 40;
 /** Idle leave for non-sticky content rooms. */
 export const CONTENT_ROOM_IDLE_MS = 45_000;
