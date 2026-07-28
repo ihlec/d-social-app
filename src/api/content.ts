@@ -1,15 +1,13 @@
 import { DEFAULT_USER_STATE_CID } from '../constants';
 import { UserState, Post, Follow } from '../types';
 import { isPeerId } from '../lib/utils';
-import { fetchFromGateways } from './gatewayUtils';
 import { heliaCatJson, getHeliaStatus } from './heliaNode';
-import { isGatewayFallbackEnabled } from '../lib/gatewayFallback';
 
 export async function fetchPost<T = Post | UserState | any>(
     cid: string,
     authorHint?: string
 ): Promise<T | null> {
-    // Local CAS first — content we just wrote is not on public gateways.
+    // Local CAS first
     if (getHeliaStatus().status === 'ready') {
         try {
             const local = await heliaCatJson<T>(cid);
@@ -42,17 +40,7 @@ export async function fetchPost<T = Post | UserState | any>(
         }
     } catch { /* fall through */ }
 
-    if (!isGatewayFallbackEnabled()) return null;
-
-    const result = await fetchFromGateways(
-        `/ipfs/${cid}`,
-        'ipfs',
-        async (res) => {
-            const data = await res.json();
-            return { ...data, id: cid } as T;
-        }
-    );
-    return result;
+    return null;
 }
 
 /**
@@ -96,12 +84,7 @@ export async function fetchUserStateChunk(
         }
         return data as Partial<UserState>;
     } catch (e: any) {
-        // Re-throw with more context for backoff handling
-        const error = e instanceof Error ? e : new Error(String(e));
-        if (error.message.includes('504') || error.message.includes('Gateway Timeout') || error.message.includes('timeout')) {
-            error.message = `Gateway timeout: ${cid}`;
-        }
-        throw error;
+        throw e instanceof Error ? e : new Error(String(e));
     }
 }
 

@@ -173,12 +173,6 @@ export async function startHelia(password?: string): Promise<void> {
     return enqueueLifecycle(() => startUnlocked());
 }
 
-/** @deprecated Compatibility stub — CAS has no Helia instance. */
-export async function getHelia(): Promise<null> {
-    await startHelia();
-    return null;
-}
-
 /** Wipe content blocks + pins; keep identities and tips. */
 export async function wipeHeliaBlockstore(): Promise<void> {
     await enqueueLifecycle(async () => {

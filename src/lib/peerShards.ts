@@ -10,8 +10,6 @@ import {
     CONTENT_TOPIC_PREFIX,
     DEV_LOCAL_RENDEZVOUS_TOPIC,
     INCLUDE_BOOTSTRAP_ROOM_DEFAULT,
-    INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT,
-    LEGACY_PEER_BRIDGE_STORAGE_KEY,
     MAX_CIRCLE_ROOMS,
     MAX_SERVE_CIDS,
     MAX_STICKY_ROOMS,
@@ -23,7 +21,6 @@ import {
     NUM_MEETUP_SLOTS,
     NUM_SHARDS,
     NUM_WANT_SHARDS,
-    PEER_DISCOVERY_TOPIC,
     PEER_TOPIC_PREFIX_V2,
     WANT_TOPIC_PREFIX,
 } from '../constants';
@@ -179,16 +176,6 @@ export function parseCustomChannels(): string[] {
     }
 }
 
-/** Opt-in legacy global room (`legacy_peer_bridge=1`). Off by default for scale. */
-export function isLegacyPeerBridgeEnabled(): boolean {
-    try {
-        const v = localStorage.getItem(LEGACY_PEER_BRIDGE_STORAGE_KEY);
-        if (v === '1' || v === 'true') return true;
-        if (v === '0' || v === 'false') return false;
-    } catch { /* ignore */ }
-    return INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT;
-}
-
 /** Public bootstrap room — on by default; set `bootstrap_room=0` to opt out. */
 export function isBootstrapRoomEnabled(): boolean {
     try {
@@ -211,8 +198,6 @@ export function isLocalDevHost(): boolean {
 }
 
 export interface TopicsForSelfOptions {
-    /** Dual-publish on legacy global room during migration. Default from constant / Settings. */
-    includeLegacy?: boolean;
     /** Public bootstrap room for stranger discovery. Default on. */
     includeBootstrap?: boolean;
     /** Extra affinity rooms from settings. */
@@ -225,11 +210,10 @@ export interface TopicsForSelfOptions {
 
 /**
  * Rooms this tab should stay joined to, ranked and capped:
- * home → ego circle → bootstrap → localhost rendezvous → neighbors → follow circles → custom → legacy.
+ * home → ego circle → bootstrap → localhost rendezvous → neighbors → follow circles → custom.
  */
 export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}): string[] {
     const {
-        includeLegacy = INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT,
         includeBootstrap = INCLUDE_BOOTSTRAP_ROOM_DEFAULT,
         customChannels = parseCustomChannels(),
         followKeys = [],
@@ -253,7 +237,7 @@ export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}
             push(BOOTSTRAP_TOPIC);
         }
 
-        // Same-machine Firefox↔Chromium without mutual follows / global v1
+        // Same-machine Firefox↔Chromium without mutual follows
         if (isLocalDevHost()) {
             push(DEV_LOCAL_RENDEZVOUS_TOPIC);
         }
@@ -275,13 +259,11 @@ export function topicsForSelf(myIpnsKey: string, opts: TopicsForSelfOptions = {}
 
     for (const t of customChannels) {
         // Never sneak reserved mesh rooms in via custom channels
-        if (t === PEER_DISCOVERY_TOPIC || t === BOOTSTRAP_TOPIC) continue;
+        if (t === BOOTSTRAP_TOPIC || t === DEV_LOCAL_RENDEZVOUS_TOPIC) continue;
         if (isMeetupTopic(t)) continue;
+        if (t.startsWith(`${PEER_TOPIC_PREFIX_V2}/`)) continue;
+        if (t.startsWith(`${CIRCLE_TOPIC_PREFIX}/`)) continue;
         push(t);
-    }
-
-    if (includeLegacy) {
-        push(PEER_DISCOVERY_TOPIC);
     }
 
     return ranked.slice(0, Math.max(0, maxStickyRooms));

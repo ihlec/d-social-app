@@ -17,7 +17,6 @@ import {
     BOOTSTRAP_TOPIC,
     DEV_LOCAL_RENDEZVOUS_TOPIC,
     MAX_MAPPED_ONLINE_PEERS,
-    PEER_DISCOVERY_TOPIC,
 } from '../../constants';
 import type { PresencePayload, PeerFeedSnapshot, SyncRequest } from '../../api/pubsub';
 import {
@@ -60,7 +59,6 @@ function rankDiscoveryTopics(topics: string[], myPeerId: string): string[] {
             if (t.startsWith('dsocial-meetup/')) return 4;
             if (t.startsWith('dsocial-peers-v2/')) return 5;
             if (t.startsWith('dsocial-circle/')) return 6;
-            if (t === PEER_DISCOVERY_TOPIC) return 8;
             return 7;
         };
         return rank(a) - rank(b);

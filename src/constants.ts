@@ -1,15 +1,13 @@
 
 // Network & Topics
-/** Legacy global room — migration escape hatch only (off by default for 100k scale). */
-export const PEER_DISCOVERY_TOPIC = 'dsocial-peers-v1';
 /**
  * Localhost-only rendezvous so two browsers on the same machine can meet without
- * the global v1 mesh or mutual follows. Never joined on production hosts.
+ * mutual follows. Never joined on production hosts.
  */
 export const DEV_LOCAL_RENDEZVOUS_TOPIC = 'dsocial-dev-local';
 /**
  * Default-on public rendezvous so logged-in peers on production hosts (e.g. IPFS
- * gateways) find each other without follows or Settings fiddling. Opt out via Settings.
+ * app links) find each other without follows or Settings fiddling. Opt out via Settings.
  */
 export const BOOTSTRAP_TOPIC = 'dsocial-bootstrap';
 /**
@@ -67,16 +65,10 @@ export const MAX_CIRCLE_ROOMS = 16;
  * Primary lever for WebRTC load — Trystero full-meshes everyone in each joined room.
  */
 export const MAX_STICKY_ROOMS = 8;
-/** Join legacy `dsocial-peers-v1` only when Settings opts in (`legacy_peer_bridge=1`). */
-export const INCLUDE_LEGACY_PEER_BRIDGE_DEFAULT = false;
-/** localStorage key for opt-in legacy global peer room. */
-export const LEGACY_PEER_BRIDGE_STORAGE_KEY = 'legacy_peer_bridge';
 /** Join `dsocial-bootstrap` when unset / `1` (PoC tester discovery). */
 export const INCLUDE_BOOTSTRAP_ROOM_DEFAULT = true;
 /** localStorage key — set `0` to opt out of the public bootstrap room. */
 export const BOOTSTRAP_ROOM_STORAGE_KEY = 'bootstrap_room';
-/** Opt-in public IPFS gateway fallback (off by default). */
-export const GATEWAY_FALLBACK_STORAGE_KEY = 'gateway_fallback';
 /** localStorage / query flag for mesh debug metrics. */
 export const DEBUG_MESH_STORAGE_KEY = 'dsocial_debug_mesh';
 
@@ -99,7 +91,7 @@ export const FEED_FOLLOW_BATCH_SIZE = 4;
 /** Max media bytes served/fetched over Trystero (WebRTC data channel). */
 export const MAX_P2P_MEDIA_BYTES = 20 * 1024 * 1024;
 /**
- * Max file size for in-app Helia uploads. Keep ≤ MAX_P2P_MEDIA_BYTES so peers
+ * Max file size for in-app uploads. Keep ≤ MAX_P2P_MEDIA_BYTES so peers
  * can still fetch via syncMedia; larger files belong outside this PoC.
  */
 export const MAX_UPLOAD_BYTES = MAX_P2P_MEDIA_BYTES;
@@ -107,9 +99,6 @@ export const MAX_UPLOAD_BYTES = MAX_P2P_MEDIA_BYTES;
 export const MEDIA_SYNC_TIMEOUT_MS = 90_000;
 /** Cap media CIDs pulled after a tip sync (thumbs first). */
 export const MAX_P2P_MEDIA_PER_SYNC = 8;
-
-/** Public gateway fetch timeout (cold fallback path). */
-export const PUBLIC_GATEWAY_TIMEOUT_MS = 30000;
 
 // Logic Constants
 export const MAX_POSTS_PER_STATE = 100; // Bucketing limit
@@ -120,24 +109,7 @@ export const SESSION_COOKIE_PREFIX = 'dSocialSession';
 export const CURRENT_USER_LABEL_KEY = 'currentUserLabel';
 /** localStorage — survives tab close / refresh (session persistence). */
 export const ACTIVE_IDENTITY_STORAGE_KEY = 'dsocial_active_identity';
-/** localStorage backup of Helia session JSON (cookies can be blocked). */
+/** localStorage backup of session JSON (cookies can be blocked). */
 /** Bumped for CAS migration — old Helia session backups must not auto-login. */
 export const SESSION_BACKUP_STORAGE_KEY = 'dsocial_session_v2';
 export const SESSION_BACKUP_LEGACY_KEYS = ['dsocial_session_v1'] as const;
-
-// Note: We removed dweb.link (subdomain gateways) due to 504 Timeouts.
-// These are now simple string arrays to support the new "Ranked" logic.
-
-export const PUBLIC_IPNS_GATEWAYS = [
-    'https://ipfs.io/ipns/',
-    'https://gateway.pinata.cloud/ipns/',
-    'https://ipfs.filebase.io/ipns/',
-    'https://k51qzi5uqu5dj.ipns.dweb.link/' // Example subdomain fallback, though dynamic is better
-];
-
-export const PUBLIC_CONTENT_GATEWAYS = [
-    'https://ipfs.io/ipfs/',
-    'https://gateway.pinata.cloud/ipfs/',
-    'https://ipfs.filebase.io/ipfs/',
-    'https://4everland.io/ipfs/'
-];

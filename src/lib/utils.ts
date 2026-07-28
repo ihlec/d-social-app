@@ -130,7 +130,6 @@ export const isPeerId = (id: string | undefined | null): boolean => {
     if (!id) return false;
     const trimmed = id.trim();
     if (!trimmed) return false;
-    if (trimmed.includes('.')) return true; // DNSLink leftover
     return /^(k51|bafk|bafy|Qm|1)/i.test(trimmed);
 };
 

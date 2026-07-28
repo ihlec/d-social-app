@@ -23,8 +23,8 @@ const PostMedia: React.FC<PostMediaProps> = ({
   // bytes here or a wrong MIME hint can poison the shared blob: URL cache.
   const isFileAttachment = post.mediaType === 'file';
 
-  // Feed cards only need the thumbnail — loading full video via Helia blobs
-  // into RAM can kill the Chromium renderer. Resolution order: Helia → P2P → gateway.
+  // Feed cards only need the thumbnail — loading full video via CAS blobs
+  // into RAM can kill the Chromium renderer. Resolution order: local CAS → P2P.
   const mediaCidForRace =
     isFileAttachment
       ? undefined

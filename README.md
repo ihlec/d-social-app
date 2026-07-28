@@ -26,7 +26,7 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeihz7smffb2553f6psxasq7asgb5yeiyxnnkq763cs3njre2hpr6du | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeib2tslfeahuz43qxcyl3bbxkap6mg3rem74nfb7wo7c6meqreqot4 | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
@@ -86,8 +86,6 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 
 **Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` and/or the current `dsocial-meetup/*` slot with no other fiddling. Peer sync uses Trystero (Nostr + WebRTC) only.
 
-**Legacy global room** (`dsocial-peers-v1`) is no longer exposed in Settings; prefer bootstrap + meetup slots.
-
 **Localhost testing:** on `localhost` / `127.0.0.1`, peers also join `dsocial-dev-local`. Production hosts rely on `dsocial-bootstrap` instead.
 
 **Signaling relays** are configurable in Settings (`custom_nostr_relays`). They only carry Trystero signaling; content and presence payloads stay on peer WebRTC. Run or use community Nostr relays — the app does not depend on a single operator. Defaults ship with several public relays for bootstrap.
@@ -108,13 +106,6 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 ### Guest share-link check
 
 1. Logged-in browser A: stay on the **home feed** (do not open the post). Copy Share on a post you authored (URL includes `?a=`).
-2. Logged-out browser B: open that link (gateways left off).
+2. Logged-out browser B: open that link.
 3. Post + media should arrive via author home-shard P2P without A having the post open.
 4. Optional: A offline, B has Liked or Saved the post and is online on the feed — guest bare/share link should still load after want summons B.
-
-## TODO
-- following not possible when on public gateway hosted url (guest / no write path)
-- allow creating user aliases
-- export/import of user's private key
-- moderator features / filter disliked posts of followed users in the role of moderators
-- scale through users - the more users cache (view) and pin (like) content, the faster the network will become.
