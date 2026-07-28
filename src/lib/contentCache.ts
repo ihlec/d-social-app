@@ -13,7 +13,8 @@ import { Post, UserState } from '../types';
 import { isUsefulDisplayName, rememberName } from './nameDirectory';
 
 const DB_NAME = 'dsocial_content_cache';
-const DB_VERSION = 1;
+/** v2: wipe Helia-era posts/states on upgrade (CAS fresh start). */
+const DB_VERSION = 2;
 const POSTS_STORE = 'posts';
 const STATES_STORE = 'userStates';
 
@@ -54,7 +55,7 @@ function openDb(): Promise<IDBDatabase> {
             const req = indexedDB.open(DB_NAME, DB_VERSION);
             req.onerror = () => reject(req.error);
             req.onsuccess = () => resolve(req.result);
-            req.onupgradeneeded = () => {
+            req.onupgradeneeded = (event) => {
                 const db = req.result;
                 if (!db.objectStoreNames.contains(POSTS_STORE)) {
                     const posts = db.createObjectStore(POSTS_STORE, { keyPath: 'id' });
@@ -64,6 +65,18 @@ function openDb(): Promise<IDBDatabase> {
                 if (!db.objectStoreNames.contains(STATES_STORE)) {
                     const states = db.createObjectStore(STATES_STORE, { keyPath: 'ipnsKey' });
                     states.createIndex('lastAccessed', 'lastAccessed');
+                }
+                // CAS migration: drop cached Helia-era feed data
+                if (event.oldVersion > 0 && event.oldVersion < 2) {
+                    const tx = (event.target as IDBOpenDBRequest).transaction;
+                    try {
+                        tx?.objectStore(POSTS_STORE).clear();
+                        tx?.objectStore(STATES_STORE).clear();
+                        console.info('[ContentCache] Cleared stores on v2 upgrade');
+                    } catch { /* ignore */ }
+                    try {
+                        localStorage.removeItem(HOME_FEED_SNAPSHOT_KEY);
+                    } catch { /* ignore */ }
                 }
             };
         });
@@ -198,6 +211,13 @@ export function loadHomeFeedSnapshot(): string[] {
     }
 }
 
+export function clearHomeFeedSnapshot(): void {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.removeItem(HOME_FEED_SNAPSHOT_KEY);
+    } catch { /* ignore */ }
+}
+
 export async function getPost(cid: string): Promise<Post | null> {
     const row = await withStore(POSTS_STORE, 'readwrite', async (store) => {
         const existing = await reqToPromise(store.get(cid)) as CachedPost | undefined;
@@ -280,12 +300,14 @@ export async function markAuthorEvictable(authorKey: string): Promise<void> {
 }
 
 export async function clearContentCache(): Promise<void> {
+    clearHomeFeedSnapshot();
     try {
         const db = await openDb();
         await Promise.all([
             reqToPromise(db.transaction(POSTS_STORE, 'readwrite').objectStore(POSTS_STORE).clear()),
             reqToPromise(db.transaction(STATES_STORE, 'readwrite').objectStore(STATES_STORE).clear()),
         ]);
+        console.info('[ContentCache] Cleared posts, states, and home snapshot');
     } catch (e) {
         console.warn('[ContentCache] clear failed', e);
     }
@@ -320,7 +342,11 @@ export async function hydrateRecentPosts(limit: number = IDB_HYDRATE_WINDOW): Pr
     const byId = new Map<string, Post>();
     for (const row of rows || []) {
         const p = row.post;
-        if (p?.id && p.timestamp !== 0) byId.set(p.id, p);
+        if (!p?.id || p.timestamp === 0) continue;
+        // Dead Helia IPNS authors — never hydrate into CAS feeds
+        const author = p.authorKey || row.authorKey || '';
+        if (typeof author === 'string' && author.startsWith('k51')) continue;
+        byId.set(p.id, p);
     }
 
     // Snapshot roots may have aged out of the LRU pull — fetch them explicitly

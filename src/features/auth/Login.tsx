@@ -36,7 +36,7 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
         <div className="login-container">
             <h1>Welcome to dSocial</h1>
             <p style={{ color: '#888', margin: '1rem 0' }}>
-                Sign in with a browser identity. Your key lives in this device’s Helia keychain — no local Kubo node required.
+                Sign in with a browser identity. Your key lives in this device’s local storage — sync with peers over Trystero.
             </p>
             
             <form onSubmit={handleSubmit} className="login-form">
@@ -50,7 +50,7 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
                         autoFocus
                         data-testid="login-identity"
                     />
-                     <Tooltip text={<span>A label for your IPNS key in this browser. Reuse the same name on this device to open the same identity. New names create a fresh profile.</span>}>
+                     <Tooltip text={<span>A label for your identity on this device. Reuse the same name here to open the same profile. New names create a fresh identity.</span>}>
                         <InfoIcon />
                     </Tooltip>
                 </div>
@@ -61,11 +61,11 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
                             <input 
                                 type="password" 
                                 name="passphrase" 
-                                placeholder="Keychain passphrase (optional)" 
+                                placeholder="Identity passphrase (optional)" 
                                 className="login-input"
                                 disabled={isLoading} 
                             />
-                            <Tooltip text={<span>Optional passphrase that encrypts your Helia keychain on this device. Leave empty for the default. You will need the same passphrase after a refresh to post.</span>}>
+                            <Tooltip text={<span>Optional passphrase that encrypts your private key on this device. Leave empty to store unencrypted. You will need the same passphrase after a refresh if you set one.</span>}>
                                 <InfoIcon />
                             </Tooltip>
                         </div>
@@ -82,7 +82,7 @@ const Login: React.FC<LoginProps> = ({ onLoginHelia }) => {
                 </button>
 
                 <button type="submit" disabled={isLoading} className="login-button" data-testid="login-enter">
-                    {isLoading ? 'Starting Helia...' : 'Enter'}
+                    {isLoading ? 'Starting…' : 'Enter'}
                 </button>
             </form>
         </div>

@@ -5,6 +5,7 @@ import {
     CURRENT_USER_LABEL_KEY,
     ACTIVE_IDENTITY_STORAGE_KEY,
     SESSION_BACKUP_STORAGE_KEY,
+    SESSION_BACKUP_LEGACY_KEYS,
 } from '../constants';
 
 // In-memory keychain passphrase (never cookie/localStorage-stored)
@@ -72,6 +73,23 @@ function clearSessionBackup(): void {
     try {
         localStorage.removeItem(SESSION_BACKUP_STORAGE_KEY);
     } catch { /* ignore */ }
+    for (const key of SESSION_BACKUP_LEGACY_KEYS) {
+        try {
+            localStorage.removeItem(key);
+        } catch { /* ignore */ }
+    }
+}
+
+/** Drop pre-CAS session backups once so Login is shown after the Helia → CAS cut. */
+function purgeLegacySessionBackups(): void {
+    for (const key of SESSION_BACKUP_LEGACY_KEYS) {
+        try {
+            if (localStorage.getItem(key)) {
+                localStorage.removeItem(key);
+                console.info('[Session] Cleared legacy session backup', key);
+            }
+        } catch { /* ignore */ }
+    }
 }
 
 export function getDynamicSessionCookieName(label?: string | null): string | null {
@@ -97,29 +115,34 @@ function asHeliaSession(data: unknown): Session | null {
 }
 
 export function getSession(): Session {
+    purgeLegacySessionBackups();
+
     const label = readActiveIdentityLabel();
     const cookieName = getDynamicSessionCookieName(label);
     if (cookieName) {
         const fromCookie = asHeliaSession(loadSessionCookie<Session>(cookieName));
-        if (fromCookie) return fromCookie;
+        if (fromCookie) {
+            // Legacy Helia peer ids are not valid CAS sessions
+            if (fromCookie.resolvedIpnsKey?.startsWith('k51')) {
+                logoutSession();
+                return { sessionType: null };
+            }
+            return fromCookie;
+        }
     }
 
     const fromBackup = readSessionBackup();
     if (fromBackup) {
+        if (fromBackup.resolvedIpnsKey?.startsWith('k51')) {
+            logoutSession();
+            return { sessionType: null };
+        }
         // Re-sync label pointers so cookie name resolution works next time
         setActiveIdentityLabel(fromBackup.ipnsKeyName!);
         return fromBackup;
     }
 
-    const optimisticKey = getCookie('dsocial_optimistic_login');
-    if (optimisticKey) {
-        return {
-            sessionType: 'helia',
-            ipnsKeyName: optimisticKey,
-            resolvedIpnsKey: undefined,
-            requiresPassword: false,
-        };
-    }
+    // Optimistic cookie alone is not enough after CAS — require a real Login.
     return { sessionType: null };
 }
 

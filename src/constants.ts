@@ -121,7 +121,9 @@ export const CURRENT_USER_LABEL_KEY = 'currentUserLabel';
 /** localStorage — survives tab close / refresh (session persistence). */
 export const ACTIVE_IDENTITY_STORAGE_KEY = 'dsocial_active_identity';
 /** localStorage backup of Helia session JSON (cookies can be blocked). */
-export const SESSION_BACKUP_STORAGE_KEY = 'dsocial_session_v1';
+/** Bumped for CAS migration — old Helia session backups must not auto-login. */
+export const SESSION_BACKUP_STORAGE_KEY = 'dsocial_session_v2';
+export const SESSION_BACKUP_LEGACY_KEYS = ['dsocial_session_v1'] as const;
 
 // Note: We removed dweb.link (subdomain gateways) due to 504 Timeouts.
 // These are now simple string arrays to support the new "Ranked" logic.

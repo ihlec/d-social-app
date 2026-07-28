@@ -15,6 +15,7 @@ import {
     isHeliaAvailable,
     isStorageQuotaError,
 } from '../api/heliaNode';
+import { casPin, casPutBlock } from './cas/db';
 import { MAX_P2P_MEDIA_BYTES } from '../constants';
 
 /** Soft cap for automatic blob: URLs (thumbs / small images). */
@@ -195,7 +196,16 @@ export async function ingestMediaBytes(
     if (isHeliaAvailable()) {
         try {
             await startHelia();
-            await heliaAddBytes(bytes, true);
+            // Store under peer-agreed CID (verify hash when it matches).
+            const computed = await heliaAddBytes(bytes, true);
+            if (computed !== expectedCid) {
+                // Peer sent a different CID scheme — keep lookup key they expect.
+                await casPutBlock(expectedCid, bytes);
+                try { await casPin(expectedCid); } catch { /* ignore */ }
+                console.warn(
+                    `[CAS] ingest CID mismatch: expected ${expectedCid.slice(0, 12)}… got ${computed.slice(0, 12)}…`
+                );
+            }
         } catch (e) {
             if (isStorageQuotaError(e)) {
                 console.warn(

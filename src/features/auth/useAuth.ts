@@ -11,7 +11,7 @@ import {
     loadOptimisticCookie,
     getSessionMemoryPassword,
     startHelia,
-    ensureIdentityKey,
+    getExistingIdentityKey,
 } from '../../api/ipfsIpns';
 import { persistSession } from '../../api/session';
 import { getLatestLocalCid } from '../../lib/utils';
@@ -69,6 +69,12 @@ export const useAppAuth = (): UseAppAuthReturn => {
 
     useEffect(() => {
         const checkSession = async () => {
+            const clearToLogin = () => {
+                logoutSession();
+                resetAllState();
+                setIsLoggedIn(false);
+            };
+
             const session = getSession();
 
             if (session.sessionType !== 'helia' || !session.ipnsKeyName) {
@@ -76,78 +82,81 @@ export const useAppAuth = (): UseAppAuthReturn => {
                 return;
             }
 
-            // Passphrase sessions: stay logged-in but locked until unlock
-            if (session.requiresPassword && !getSessionMemoryPassword()) {
-                setIsSessionLocked(true);
-                setMyIpnsKey(session.ipnsKeyName);
-                if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
-                setIsLoggedIn(true);
-                return;
-            }
-
             try {
                 await startHelia(getSessionMemoryPassword());
-                setMyIpnsKey(session.ipnsKeyName);
 
-                let peerId = session.resolvedIpnsKey || '';
-                try {
-                    const { ipnsName } = await ensureIdentityKey(session.ipnsKeyName);
-                    peerId = ipnsName || peerId;
-                } catch (e) {
-                    console.warn('[Auth] ensureIdentityKey on restore failed', e);
+                // Never auto-create on restore — missing CAS identity ⇒ Login prompt
+                // (covers fresh CAS install + leftover Helia session cookies).
+                const existing = await getExistingIdentityKey(session.ipnsKeyName);
+                if (!existing) {
+                    console.info(
+                        '[Auth] No local identity for persisted session — showing Login'
+                    );
+                    clearToLogin();
+                    return;
                 }
-                if (peerId) setMyPeerId(peerId);
 
-                // Refresh persisted session with resolved IPNS (cookie/localStorage)
-                persistSession({
-                    ...session,
-                    resolvedIpnsKey: peerId || session.resolvedIpnsKey,
-                });
+                // Passphrase sessions: stay logged-in but locked until unlock
+                if (session.requiresPassword && !getSessionMemoryPassword()) {
+                    setIsSessionLocked(true);
+                    setMyIpnsKey(session.ipnsKeyName);
+                    setMyPeerId(existing.ipnsName);
+                    setIsLoggedIn(true);
+                    return;
+                }
 
+                setMyIpnsKey(session.ipnsKeyName);
+                setMyPeerId(existing.ipnsName);
                 setIsSessionLocked(false);
 
-                // Prefer local tip — public IPNS often missing for browser publishes
                 let cidToFetch =
                     loadOptimisticCookie(session.ipnsKeyName)?.cid
                     || getLatestLocalCid(session.ipnsKeyName)
-                    || getLatestLocalCid(peerId)
+                    || getLatestLocalCid(existing.ipnsName)
                     || '';
 
                 if (!cidToFetch) {
-                    const name = peerId || session.resolvedIpnsKey || session.ipnsKeyName;
                     try {
-                        cidToFetch = await resolveIpns(name);
+                        cidToFetch = await resolveIpns(existing.ipnsName);
                     } catch (e) {
-                        console.warn('[Auth] IPNS resolve during restore failed:', e);
+                        console.warn('[Auth] tip resolve during restore failed:', e);
                     }
                 }
 
-                if (cidToFetch) {
-                    try {
-                        const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
-                        setUserState(state);
-                        setLatestStateCID(cidToFetch);
-                    } catch (e) {
-                        console.warn('[Auth] State load on restore failed — staying logged in', e);
-                    }
+                if (!cidToFetch) {
+                    console.info('[Auth] Persisted session has no tip — showing Login');
+                    clearToLogin();
+                    return;
                 }
+
+                try {
+                    const state = await fetchUserState(cidToFetch, session.ipnsKeyName);
+                    if (!state?.profile) {
+                        console.info('[Auth] Tip has no profile — showing Login');
+                        clearToLogin();
+                        return;
+                    }
+                    setUserState(state);
+                    setLatestStateCID(cidToFetch);
+                } catch (e) {
+                    console.warn('[Auth] State load on restore failed — showing Login', e);
+                    clearToLogin();
+                    return;
+                }
+
+                persistSession({
+                    ...session,
+                    resolvedIpnsKey: existing.ipnsName,
+                });
 
                 setIsLoggedIn(true);
             } catch (e) {
-                // Intentionally stay logged in: localStorage session + tip often still
-                // work for read paths when Helia boot is flaky. Unlock covers writes.
-                console.error('[Auth] Session restore failed (keeping persisted login):', e);
-                setMyIpnsKey(session.ipnsKeyName);
-                if (session.resolvedIpnsKey) setMyPeerId(session.resolvedIpnsKey);
-                if (session.requiresPassword) {
-                    setIsSessionLocked(true);
-                }
-                setIsLoggedIn(true);
-                toast.error('Could not fully restore session. Try unlocking or reloading.');
+                console.error('[Auth] Session restore failed — showing Login:', e);
+                clearToLogin();
             }
         };
         void checkSession();
-    }, []);
+    }, [resetAllState]);
 
     const loginWithHeliaFn = useCallback(async (keyName: string, passphrase?: string) => {
         const attemptLogin = async (forceInit: boolean) => {

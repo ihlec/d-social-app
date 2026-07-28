@@ -10,15 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@helia/ipns": "^10.0.5",
-    "@helia/libp2p": "^1.0.6",
-    "@helia/unixfs": "^8.0.4",
-    "@ipld/dag-pb": "^4.1.7",
-    "blockstore-idb": "^4.0.1",
-    "datastore-idb": "^5.0.1",
     "dompurify": "^3.3.1",
-    "helia": "^7.1.0",
-    "ipfs-unixfs-importer": "^17.0.1",
     "masonic": "^4.1.0",
     "multiformats": "^14.0.4",
     "react": "^19.2.3",

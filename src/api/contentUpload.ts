@@ -5,7 +5,7 @@
 import { heliaAddBlob, heliaAddJson, isHeliaAvailable } from './heliaNode';
 
 export async function uploadJson(data: unknown): Promise<string> {
-    if (!isHeliaAvailable()) throw new Error('IndexedDB / Helia unavailable in this browser.');
+    if (!isHeliaAvailable()) throw new Error('IndexedDB unavailable in this browser.');
     const cid = await heliaAddJson(data, true);
     console.log(`[ContentUpload] JSON via Helia: ${cid}`);
     return cid;
@@ -15,7 +15,7 @@ export async function uploadFile(
     file: File | Blob,
     options?: { userLabel?: string; uniqueFileName?: string }
 ): Promise<{ cid: string; uniqueFileName: string }> {
-    if (!isHeliaAvailable()) throw new Error('IndexedDB / Helia unavailable in this browser.');
+    if (!isHeliaAvailable()) throw new Error('IndexedDB unavailable in this browser.');
 
     const originalFileName = (file instanceof File) ? file.name : 'blob';
     const extension = originalFileName.includes('.') ? originalFileName.substring(originalFileName.lastIndexOf('.')) : '';

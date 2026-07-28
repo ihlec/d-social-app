@@ -1,20 +1,22 @@
 # D. Social App 
 
-A decentralized social media proof-of-concept built with React, TypeScript, a browser Helia node, and Trystero peer sync.
+A decentralized social media proof-of-concept built with React, TypeScript, a thin local CAS (IndexedDB), WebCrypto identities, and Trystero peer sync.
 
 ## Architecture (how it actually works)
 
 | Layer | Role |
 |--------|------|
-| **Helia** | Identity (keychain → IPNS name), local content-addressed storage (UnixFS CIDs), local IPNS tip, pins/GC |
+| **Local CAS** | Content-addressed storage in IndexedDB (`bafkrei…` CIDs), pins/GC |
+| **WebCrypto identity** | ECDSA P-256 keypair; peer id = hash of public key; local tip (replaces IPNS) |
 | **Trystero** | Online presence, tip/feed sync, media bytes between peers (WebRTC + Nostr signaling) |
-| **Public gateways** | **Off by default** (Settings opt-in). Cold fallback only — browser-published content is often **not** on the public IPFS network yet |
 
-**Feeds** (home / explore) require login. **Guests** can open a single share link: `/post/:cid` (per-CID Trystero content room) or `/profile/:key` (author home-shard rendezvous). Default fetch path is Helia → Trystero P2P.
+**Feeds** (home / explore) require login. **Guests** can open a single share link: `/post/:cid` (per-CID Trystero content room) or `/profile/:key` (author home-shard rendezvous). Default fetch path is local CAS → Trystero P2P.
 
-Day-to-day UX hides raw CIDs / IPNS keys (copy from **Identity & debug** in the sidebar, or Share on a profile). Internally, users are still IPNS keys and posts/media are still CIDs.
+Day-to-day UX hides raw CIDs / peer ids (copy from **Identity & debug** in the sidebar, or Share on a profile). Internally, users are peer public ids and posts/media are content CIDs.
 
-**Session:** login is persisted in `localStorage` (plus a cookie backup). Refresh or reopening the tab restores your Helia identity; Logout clears it. Passphrase logins stay locked until you unlock after a reload.
+**Session:** login is persisted in `localStorage` (plus a cookie backup). Refresh or reopening the tab restores your identity; Logout clears it. Passphrase logins stay locked until you unlock after a reload.
+
+**Fresh start:** this build drops Helia/IPFS network interop. Old Helia identities and UnixFS CIDs will not carry over — create a new identity.
 
 ## I have an identity, what now?
 
@@ -24,11 +26,11 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeifo3enxftzu2als54mlyegiqqatcan5iju4pvk6fggw5bdxx6f254 | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeibaw4gngijz3ascclqs5b22hgpo6f2onz4p4coof5sg5dkbgk4a5q | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 
--> Read [spec.md](spec.md) (current Helia + Trystero architecture) and this README.
+-> Read [spec.md](spec.md) (current CAS + Trystero architecture) and this README.
 
 ## Getting Started
 
@@ -45,7 +47,7 @@ You can find the latest version of D. Social App here:
     ```
     This will start the Vite development server, typically at `http://localhost:5173`.
 
-    **Helia:** identity + local CAS (no Kubo required). Watch for `[Helia] Browser node ready`.
+    **CAS:** identity + local content store. Watch for `[CAS] Local node ready`.
     **Trystero:** use two browsers on localhost (dev room) or follow each other — that is the live sync path.
 
 3.  **Build for Production:**
@@ -62,8 +64,9 @@ You can find the latest version of D. Social App here:
 * React Router DOM
 * React Hot Toast (for notifications)
 * Masonic (masonry feed layout)
-* Helia (browser IPFS: storage + identity)
+* IndexedDB CAS + WebCrypto (storage + identity)
 * Trystero (WebRTC + Nostr: online presence / feed + media sync)
+* multiformats (CIDv1 raw sha2-256)
 
 ## Online presence (cluster of clusters)
 
@@ -81,9 +84,9 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 
 **Snowball explore:** syncing an online peer pulls a page of their local library (own + liked + saved posts they still hold), then Explore can page deeper through that peer and crawl authors those posts reveal — so one well-stocked peer seeds older content without the original authors being online.
 
-**Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` and/or the current `dsocial-meetup/*` slot with no other fiddling. Console noise like `wss://…libp2p.direct` failing is Helia dialing public IPFS peers; peer sync uses Trystero (Nostr + WebRTC), not those sockets.
+**Sharing with testers:** publish the app, open the link in two browsers, **both log in** — they should meet via `dsocial-bootstrap` and/or the current `dsocial-meetup/*` slot with no other fiddling. Peer sync uses Trystero (Nostr + WebRTC) only.
 
-**Legacy global room** (`dsocial-peers-v1`) stays **off by default** (migration escape hatch only). Prefer bootstrap for normal discovery.
+**Legacy global room** (`dsocial-peers-v1`) is no longer exposed in Settings; prefer bootstrap + meetup slots.
 
 **Localhost testing:** on `localhost` / `127.0.0.1`, peers also join `dsocial-dev-local`. Production hosts rely on `dsocial-bootstrap` instead.
 
@@ -110,7 +113,7 @@ Mapped peers per room are capped (~**32**). `syncFeed` may temporarily join anot
 4. Optional: A offline, B has Liked or Saved the post and is online on the feed — guest bare/share link should still load after want summons B.
 
 ## TODO
-- following not possible when on public gateway hosted url (guest / no Helia write path)
+- following not possible when on public gateway hosted url (guest / no write path)
 - allow creating user aliases
 - export/import of user's private key
 - moderator features / filter disliked posts of followed users in the role of moderators

@@ -59,7 +59,11 @@ const ACTION_WANT = 'wantCid';
 const LEAVE_DEBOUNCE_MS = 4000;
 const ON_DEMAND_IDLE_MS = 30000;
 const SYNC_TIMEOUT_MS = 15000;
-const PEER_WAIT_MS = 8000;
+/** Prefer home-shard mapping before falling back to discovery rooms. */
+const PEER_WAIT_HOME_MS = 12_000;
+/** Extra wait for mapping on any joined room (bootstrap / meetup / circle). */
+const PEER_WAIT_ANY_MS = 8_000;
+const PEER_WAIT_MS = PEER_WAIT_HOME_MS;
 /** Max non-sticky content rooms before LRU eviction. */
 const MAX_EPHEMERAL_CONTENT_ROOMS = 4;
 const RELAYS_STORAGE_KEY = 'custom_nostr_relays';
@@ -328,13 +332,26 @@ function evictOldestMapped(): void {
 /**
  * Remember a peer if under mesh cap for the room (deterministic subsample).
  * Returns false if rejected as too far from self when room is full.
+ * Prefers home-shard mappings over discovery rooms (bootstrap/meetup).
  */
 function rememberPeer(ipnsKey: string, peerId: string, topic: string): boolean {
     if (!ipnsKey || !peerId) return false;
     const shard = homeShard(ipnsKey);
+    const homeTopic = topicForPeer(ipnsKey);
     const now = Date.now();
     const existing = ipnsToPeer.get(ipnsKey);
     if (existing && existing.peerId === peerId && existing.topic === topic) {
+        existing.lastSeen = now;
+        return true;
+    }
+    // Don't downgrade a live home-shard map to a discovery-room peer id
+    // (Trystero peer ids are room-scoped — home RPC needs the home mapping).
+    if (
+        existing
+        && existing.topic === homeTopic
+        && topic !== homeTopic
+        && now - existing.lastSeen < 60_000
+    ) {
         existing.lastSeen = now;
         return true;
     }
@@ -363,6 +380,26 @@ function rememberPeer(ipnsKey: string, peerId: string, topic: string): boolean {
     evictOldestMapped();
     refreshMeshGauges();
     return true;
+}
+
+/** Best self-presence seen on any joined room (for seeding on-demand joins). */
+function bestEffortSelfPresence(): PresencePayload | null {
+    let best: PresencePayload | null = null;
+    for (const entry of rooms.values()) {
+        const p = entry.lastPayload;
+        if (!p?.ipnsKey) continue;
+        if (!best || p.timestamp > best.timestamp) best = p;
+    }
+    return best;
+}
+
+function seedPresenceOnRoom(entry: RoomEntry): void {
+    const self = bestEffortSelfPresence();
+    if (!self) return;
+    entry.lastPayload = self;
+    entry.sendPresence(self).catch((e) => {
+        console.debug('[Trystero] seed presence failed', entry.topic, e);
+    });
 }
 
 function refreshMeshGauges(): void {
@@ -542,10 +579,22 @@ async function ensureRoom(topic: string, sticky = false): Promise<RoomEntry> {
 
         room.onPeerJoin = (peerId) => {
             refreshMeshGauges();
+            // On-demand home joins often have null lastPayload until first publish —
+            // borrow self presence from any sticky room so newcomers can map us.
+            if (!entry.lastPayload) {
+                const borrowed = bestEffortSelfPresence();
+                if (borrowed) entry.lastPayload = borrowed;
+            }
             if (!entry.lastPayload) return;
-            entry.sendPresence(entry.lastPayload).catch((e) => {
+            const payload = entry.lastPayload;
+            entry.sendPresence(payload).catch((e) => {
                 console.debug('[Trystero] replay presence failed', peerId, e);
             });
+            // Second pulse — first can race ICE before the joiner's listener is ready
+            setTimeout(() => {
+                if (rooms.get(topic) !== entry) return;
+                entry.sendPresence(payload).catch(() => {});
+            }, 400);
         };
 
         rooms.set(topic, entry);
@@ -681,41 +730,84 @@ async function waitForMappedPeer(
     return loc && loc.topic === topic ? loc : null;
 }
 
+/** Wait until peer is mapped on any room we currently hold. */
+async function waitForMappedPeerAnyTopic(
+    ipnsKey: string,
+    timeoutMs: number
+): Promise<PeerLocation | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const loc = ipnsToPeer.get(ipnsKey);
+        if (loc && rooms.has(loc.topic)) return loc;
+        await sleep(250);
+    }
+    const loc = ipnsToPeer.get(ipnsKey);
+    return loc && rooms.has(loc.topic) ? loc : null;
+}
+
+/**
+ * Run RPC against a peer. Prefer their home shard; if mapping never lands there,
+ * fall back to whatever discovery room already has them (bootstrap / meetup / circle).
+ * Peer ids are room-scoped — always use the RoomEntry for loc.topic.
+ */
 async function withMappedHomePeer<T>(
     ipnsKey: string,
     run: (entry: RoomEntry, loc: PeerLocation) => Promise<T>
 ): Promise<T | null> {
     const homeTopic = topicForPeer(ipnsKey);
-    const existing = rooms.get(homeTopic);
-    const joinedOnDemand = !existing?.sticky;
-    let entry: RoomEntry | null = null;
+    const existingHome = rooms.get(homeTopic);
+    const joinedOnDemand = !existingHome?.sticky;
+    let homeEntry: RoomEntry | null = null;
+
+    const finishHome = () => {
+        if (joinedOnDemand && homeEntry && !homeEntry.sticky) {
+            scheduleLeave(homeTopic, homeEntry, ON_DEMAND_IDLE_MS);
+        }
+    };
 
     try {
-        entry = await ensureRoomForPeer(ipnsKey);
+        homeEntry = await ensureRoomForPeer(ipnsKey);
+        seedPresenceOnRoom(homeEntry);
 
         let loc: PeerLocation | null | undefined = ipnsToPeer.get(ipnsKey);
-        if (!loc || loc.topic !== homeTopic) {
-            loc = await waitForMappedPeer(ipnsKey, homeTopic, PEER_WAIT_MS);
+        if (loc?.topic === homeTopic) {
+            const result = await run(homeEntry, loc);
+            finishHome();
+            return result;
         }
 
-        if (!loc) {
-            console.debug('[Trystero] No WebRTC peer mapped for', ipnsKey.slice(0, 16));
-            if (joinedOnDemand && entry && !entry.sticky) {
-                scheduleLeave(homeTopic, entry, ON_DEMAND_IDLE_MS);
-            }
-            return null;
+        // Home wait — peer should replay presence on join
+        loc = await waitForMappedPeer(ipnsKey, homeTopic, PEER_WAIT_HOME_MS);
+        if (loc?.topic === homeTopic) {
+            const result = await run(homeEntry, loc);
+            finishHome();
+            return result;
         }
 
-        const result = await run(entry, loc);
-        if (joinedOnDemand && !entry.sticky) {
-            scheduleLeave(homeTopic, entry, ON_DEMAND_IDLE_MS);
+        // Fallback: RPC on bootstrap/meetup/circle where we already see them
+        let anyLoc: PeerLocation | undefined = ipnsToPeer.get(ipnsKey);
+        if (!anyLoc || !rooms.has(anyLoc.topic)) {
+            anyLoc = (await waitForMappedPeerAnyTopic(ipnsKey, PEER_WAIT_ANY_MS)) || undefined;
         }
-        return result;
+        if (anyLoc && rooms.has(anyLoc.topic)) {
+            const altEntry = rooms.get(anyLoc.topic)!;
+            console.debug(
+                '[Trystero] home map miss — RPC via',
+                anyLoc.topic,
+                'for',
+                ipnsKey.slice(0, 16)
+            );
+            const result = await run(altEntry, anyLoc);
+            finishHome();
+            return result;
+        }
+
+        console.debug('[Trystero] No WebRTC peer mapped for', ipnsKey.slice(0, 16));
+        finishHome();
+        return null;
     } catch (e) {
         console.warn('[Trystero] peer RPC failed', ipnsKey.slice(0, 16), e);
-        if (joinedOnDemand && entry && !entry.sticky) {
-            scheduleLeave(homeTopic, entry, ON_DEMAND_IDLE_MS);
-        }
+        finishHome();
         return null;
     }
 }

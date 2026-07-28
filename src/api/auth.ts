@@ -20,6 +20,15 @@ export class UserStateNotFoundError extends Error {
     }
 }
 
+async function wipeStaleFeedCaches(): Promise<void> {
+    try {
+        const { clearContentCache } = await import('../lib/contentCache');
+        await clearContentCache();
+    } catch (e) {
+        console.warn('[loginWithHelia] feed cache wipe failed', e);
+    }
+}
+
 /**
  * Login with browser Helia identity.
  * @param keyName - local keychain label / display name
@@ -37,8 +46,8 @@ export async function loginWithHelia(
     setSessionMemoryPassword(passphrase);
     const requiresPassword = !!(passphrase && passphrase.length > 0);
 
-    // Reuse warm node when password matches; only restart on keychain password change.
-    await startHelia(passphrase);
+    // Explicit string clears a previous passphrase when logging in without one.
+    await startHelia(passphrase || '');
 
     const { ipnsName } = await ensureIdentityKey(trimmed);
 
@@ -73,6 +82,7 @@ export async function loginWithHelia(
             }
         } catch (e) {
             if (forceInitialize) {
+                await wipeStaleFeedCaches();
                 initialState = createEmptyUserState({ name: trimmed });
                 initialCid = await uploadJson(initialState);
                 await publishIpns(trimmed, initialCid);
@@ -84,6 +94,7 @@ export async function loginWithHelia(
     } else {
         // New identity — create empty state + publish
         try {
+            await wipeStaleFeedCaches();
             initialState = createEmptyUserState({ name: trimmed });
             initialCid = await uploadJson(initialState);
             await publishIpns(trimmed, initialCid);

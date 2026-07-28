@@ -10,3 +10,9 @@ Paper.tex
 Paper_new.md
 DOCU.md
 REQs.md
+
+# Local smoke / Playwright (not part of the app)
+scripts/
+test-results/
+playwright-report/
+playwright/.cache/

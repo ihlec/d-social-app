@@ -355,11 +355,12 @@ button:focus { outline: none; }
     border: 1px solid var(--border-color);
 }
 
-.settings-arch-hint {
-    margin: 0 0 0.5rem;
-    font-size: 0.85rem;
-    color: #aaa;
-    line-height: 1.45;
+.settings-hint {
+    display: block;
+    color: #888;
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    line-height: 1.35;
 }
 
 .settings-advanced {
@@ -374,12 +375,6 @@ button:focus { outline: none; }
     color: #888;
     font-size: 0.85rem;
     font-weight: 600;
-}
-.settings-advanced-hint {
-    margin: 0.6rem 0 0.75rem;
-    font-size: 0.75rem;
-    color: #888;
-    line-height: 1.4;
 }
 
 .settings-container textarea, 
