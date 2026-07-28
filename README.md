@@ -26,7 +26,7 @@ You can find the latest version of D. Social App here:
 
 | | |
 |:--|:--|
-| https://ipfs.io/ipfs/bafybeibaw4gngijz3ascclqs5b22hgpo6f2onz4p4coof5sg5dkbgk4a5q | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
+| https://ipfs.io/ipfs/bafybeib3cond7srmaapqkl6zuhm4usufuixd2pqnx6527oqfj6v5ownwyy | <img src="assets/ipfs-app-qr.png" alt="QR code for the latest IPFS build" width="140" /> |
 
 ## You want to contribute?
 

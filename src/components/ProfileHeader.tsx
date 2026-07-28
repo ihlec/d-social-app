@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserProfile, Follow } from '../types';
 import { useAppState } from '../state/useAppStorage';
-import { ShareIcon } from './Icons'; 
+import { ShareIcon } from './Icons';
+import ShareLinkDialog from './ShareLinkDialog';
 import { getShareBaseUrl, sanitizeText } from '../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -18,6 +19,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
 
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [bioInput, setBioInput] = useState(profile?.bio || '');
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
 
   if (!profile) {
     return <div className="profile-header"><h2>Loading Profile...</h2></div>;
@@ -55,8 +57,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
   const handleShareProfile = () => {
       const baseUrl = getShareBaseUrl();
       const url = `${baseUrl}/#/profile/${profileKey}`;
-      navigator.clipboard.writeText(url);
-      toast.success('Profile URL copied!');
+      void navigator.clipboard.writeText(url).then(
+          () => toast.success('Profile URL copied!'),
+          () => { /* dialog still shows the link */ }
+      );
+      setShareUrl(url);
   };
 
   return (
@@ -126,6 +131,14 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profileKey, profile, isMy
        <button onClick={handleShareProfile} className="share-profile-button" title="Share Profile">
            <ShareIcon />
        </button>
+
+       {shareUrl && (
+           <ShareLinkDialog
+               url={shareUrl}
+               title="Share profile"
+               onClose={() => setShareUrl(null)}
+           />
+       )}
     </div>
   );
 };

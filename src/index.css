@@ -254,6 +254,58 @@ button:focus { outline: none; }
     cursor: pointer; z-index: 1001;
 }
 
+.share-link-dialog {
+    max-width: 360px;
+    margin: 4rem auto;
+    background: var(--surface-color, #1a1a1a);
+    border: 1px solid var(--border-color, #333);
+    text-align: center;
+}
+.share-link-qr-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0;
+}
+.share-link-qr {
+    width: 240px;
+    height: 240px;
+    border-radius: 4px;
+    background: #fff;
+}
+.share-link-qr--loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    font-size: 0.9rem;
+}
+.share-link-url {
+    word-break: break-all;
+    font-size: 0.75rem;
+    color: #aaa;
+    margin: 0.75rem 0 1.25rem;
+    text-align: left;
+}
+.share-link-dialog .dialog-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+}
+.share-link-dialog .dialog-btn-retry,
+.share-link-dialog .dialog-btn-init {
+    padding: 0.5rem 1rem;
+    border-radius: 3px;
+    border: 1px solid var(--border-color, #444);
+    background: var(--background-color, #111);
+    color: inherit;
+    cursor: pointer;
+}
+.share-link-dialog .dialog-btn-init {
+    background: var(--primary-color, #2d8a4e);
+    border-color: transparent;
+    color: #fff;
+}
+
 /* Replies styles moved to PostItem.css */
 
 .reply-form-container { 
