@@ -119,6 +119,17 @@ type WantListener = (msg: WantPayload, trysteroPeerId: string) => void;
 type FeedProvider = (req: SyncRequest) => Promise<PeerFeedSnapshot>;
 type ContentWantHandler = (cid: string) => void;
 
+/** Presence that arrived before any Online Peers listener was attached. */
+type BufferedRemotePresence = {
+    payload: PresencePayload;
+    peerId: string;
+    at: number;
+};
+
+/** Keep join-race presence long enough for staggered topic subscribe / Strict Mode remount. */
+const REMOTE_PRESENCE_TTL_MS = 120_000;
+const MAX_REMOTE_PRESENCE_PER_ROOM = 64;
+
 interface RoomEntry {
     room: Room;
     topic: string;
@@ -135,11 +146,49 @@ interface RoomEntry {
     wantListeners: Set<WantListener>;
     refCount: number;
     lastPayload: PresencePayload | null;
+    /** Latest remote presence per ipnsKey — replayed when a listener attaches. */
+    recentRemote: Map<string, BufferedRemotePresence>;
     leaveTimer: ReturnType<typeof setTimeout> | null;
     /** Sticky = discovery subscription; ephemeral = on-demand sync only. */
     sticky: boolean;
     /** Last activity for content-room LRU. */
     lastActive: number;
+}
+
+function rememberRemotePresence(
+    entry: RoomEntry,
+    data: PresencePayload,
+    peerId: string
+): void {
+    if (!data?.ipnsKey || !peerId) return;
+    if (selfIpnsKey && data.ipnsKey === selfIpnsKey) return;
+    const now = Date.now();
+    entry.recentRemote.set(data.ipnsKey, { payload: data, peerId, at: now });
+    if (entry.recentRemote.size <= MAX_REMOTE_PRESENCE_PER_ROOM) return;
+    let oldestKey: string | null = null;
+    let oldest = Infinity;
+    for (const [k, v] of entry.recentRemote) {
+        if (v.at < oldest) {
+            oldest = v.at;
+            oldestKey = k;
+        }
+    }
+    if (oldestKey) entry.recentRemote.delete(oldestKey);
+}
+
+function replayRemotePresence(entry: RoomEntry, listener: Listener): void {
+    const now = Date.now();
+    for (const [key, buf] of [...entry.recentRemote.entries()]) {
+        if (now - buf.at > REMOTE_PRESENCE_TTL_MS) {
+            entry.recentRemote.delete(key);
+            continue;
+        }
+        try {
+            listener(buf.payload, buf.peerId);
+        } catch (e) {
+            console.warn('[Trystero] presence replay error', e);
+        }
+    }
 }
 
 const rooms = new Map<string, RoomEntry>();
@@ -536,6 +585,7 @@ async function ensureRoom(topic: string, sticky = false): Promise<RoomEntry> {
             wantListeners,
             refCount: 0,
             lastPayload: null,
+            recentRemote: new Map(),
             leaveTimer: null,
             sticky,
             lastActive: Date.now(),
@@ -549,6 +599,7 @@ async function ensureRoom(topic: string, sticky = false): Promise<RoomEntry> {
             bumpPresenceReceived();
             if (data?.ipnsKey && context?.peerId) {
                 rememberPeer(data.ipnsKey, context.peerId, topic);
+                rememberRemotePresence(entry, data, context.peerId);
             }
             for (const listener of listeners) {
                 try {
@@ -590,11 +641,13 @@ async function ensureRoom(topic: string, sticky = false): Promise<RoomEntry> {
             entry.sendPresence(payload).catch((e) => {
                 console.debug('[Trystero] replay presence failed', peerId, e);
             });
-            // Second pulse — first can race ICE before the joiner's listener is ready
-            setTimeout(() => {
-                if (rooms.get(topic) !== entry) return;
-                entry.sendPresence(payload).catch(() => {});
-            }, 400);
+            // Extra pulses — first can race ICE / joiner listener attach (staggered rooms)
+            for (const delayMs of [400, 1500]) {
+                setTimeout(() => {
+                    if (rooms.get(topic) !== entry) return;
+                    entry.sendPresence(payload).catch(() => {});
+                }, delayMs);
+            }
         };
 
         rooms.set(topic, entry);
@@ -692,6 +745,9 @@ export async function subscribeToPubsub(
     const listener: Listener = (msg, peerId) => onMessage(msg, peerId);
     entry.listeners.add(listener);
     entry.refCount += 1;
+    // Presence often lands while ensureRoom is still connecting (listeners empty).
+    // Replay buffered remotes so Online Peers does not wait for the next 30s heartbeat.
+    replayRemotePresence(entry, listener);
 
     await new Promise<void>((resolve) => {
         if (abortSignal.aborted) {

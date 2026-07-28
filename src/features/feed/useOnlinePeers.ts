@@ -154,6 +154,16 @@ export const useAppPeers = ({
         return () => setPeerFeedProvider(null);
     }, [isLoggedIn, myPeerId]);
 
+    const presenceFlushScheduledRef = useRef(false);
+    const schedulePeersFlush = () => {
+        if (presenceFlushScheduledRef.current) return;
+        presenceFlushScheduledRef.current = true;
+        queueMicrotask(() => {
+            presenceFlushScheduledRef.current = false;
+            pruneFnRef.current();
+        });
+    };
+
     const handlePresenceRef = useRef<(msg: PresencePayload, trysteroPeerId?: string) => void>(() => {});
     handlePresenceRef.current = (msg: PresencePayload, trysteroPeerId?: string) => {
         if (!msg?.ipnsKey || !msg.name || !msg.timestamp) return;
@@ -172,10 +182,10 @@ export const useAppPeers = ({
         if (isUsefulDisplayName(msg.name) && setProfilesRef.current) {
             const key = msg.ipnsKey;
             const name = msg.name.trim();
-            setProfilesRef.current((prev) => {
-                const existing = prev.get(key);
-                if (existing?.name === name) return prev;
-                return new Map(prev).set(key, {
+            setProfilesRef.current((prevProfiles) => {
+                const existing = prevProfiles.get(key);
+                if (existing?.name === name) return prevProfiles;
+                return new Map(prevProfiles).set(key, {
                     name,
                     bio: existing?.bio,
                 });
@@ -193,6 +203,9 @@ export const useAppPeers = ({
             });
             if (oldestKey) peersMapRef.current.delete(oldestKey);
         }
+
+        // Don't wait for the 5s prune tick — join-race peers should appear immediately.
+        schedulePeersFlush();
     };
 
     // Stable discovery rooms — never tear down when the follow list changes
