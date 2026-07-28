@@ -1,5 +1,6 @@
 import { DEFAULT_USER_STATE_CID } from '../constants';
 import { UserState, Post, Follow } from '../types';
+import { isPeerId } from '../lib/utils';
 import { fetchFromGateways } from './gatewayUtils';
 import { heliaCatJson, getHeliaStatus } from './heliaNode';
 import { isGatewayFallbackEnabled } from '../lib/gatewayFallback';
@@ -8,7 +9,7 @@ export async function fetchPost<T = Post | UserState | any>(
     cid: string,
     authorHint?: string
 ): Promise<T | null> {
-    // Local Helia first — content we just wrote never hits public gateways yet.
+    // Local CAS first — content we just wrote is not on public gateways.
     if (getHeliaStatus().status === 'ready') {
         try {
             const local = await heliaCatJson<T>(cid);
@@ -20,7 +21,7 @@ export async function fetchPost<T = Post | UserState | any>(
 
     // Author home-shard P2P (profile / feed) when we know who holds the CID
     const author = (authorHint || '').trim();
-    if (author && author.startsWith('k51')) {
+    if (isPeerId(author)) {
         try {
             const { requestPeerPost } = await import('./pubsub');
             const p2p = await requestPeerPost(author, cid);
@@ -88,8 +89,7 @@ export async function fetchUserStateChunk(
     authorHint?: string
 ): Promise<Partial<UserState>> {
     try {
-        const author =
-            authorHint && authorHint.startsWith('k51') ? authorHint : undefined;
+        const author = isPeerId(authorHint) ? authorHint : undefined;
         const data = await fetchPost(cid, author);
         if (!data) {
             throw new Error(`Failed to fetch state chunk: ${cid}`);
@@ -119,9 +119,8 @@ export async function fetchUserState(cid: string, profileNameHint?: string): Pro
     let currentCid: string | null = cid; 
     let isHead = true; 
     let chunksProcessed = 0;
-    /** Callers often pass IPNS key as the second arg — use it for home-shard P2P. */
-    const authorHint =
-        profileNameHint && profileNameHint.startsWith('k51') ? profileNameHint : undefined;
+    /** Callers often pass peer id as the second arg — use it for home-shard P2P. */
+    const authorHint = isPeerId(profileNameHint) ? profileNameHint : undefined;
 
     while (currentCid && chunksProcessed < 50) {
         if (currentCid === DEFAULT_USER_STATE_CID) return createEmptyUserState({ name: profileNameHint || "User" });

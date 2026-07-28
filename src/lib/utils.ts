@@ -123,6 +123,18 @@ export const shortId = (id: string, head = 6, tail = 4): string => {
 };
 
 /**
+ * True for CAS peer ids (`bafkrei…`) and legacy Helia IPNS names (`k51…`).
+ * Also accepts other historical CID/libp2p forms used in older builds.
+ */
+export const isPeerId = (id: string | undefined | null): boolean => {
+    if (!id) return false;
+    const trimmed = id.trim();
+    if (!trimmed) return false;
+    if (trimmed.includes('.')) return true; // DNSLink leftover
+    return /^(k51|bafk|bafy|Qm|1)/i.test(trimmed);
+};
+
+/**
  * Accept a raw IPNS key, profile hash route, or /ipns/… URL and return the key.
  */
 export const parseFollowTarget = (input: string): string => {

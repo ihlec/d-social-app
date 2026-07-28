@@ -12,7 +12,7 @@ import { prefetchPeerMedia } from '../../lib/prefetchPeerMedia';
 interface UseFollowP2PSyncArgs {
     otherUsers: OnlinePeer[];
     userState: UserState | null;
-    /** Resolved k51 identity — same key space as OnlinePeer.ipnsKey. */
+    /** Resolved peer public id — same key space as OnlinePeer.ipnsKey. */
     myPeerId: string;
     setAllPostsMap: React.Dispatch<React.SetStateAction<Map<string, Post>>>;
     setAllUserStatesMap: React.Dispatch<React.SetStateAction<Map<string, UserState>>>;

@@ -200,8 +200,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       >
         <summary>Identity &amp; debug</summary>
         <p className="sidebar-advanced-hint">
-          Helia stores your keys and content locally. Peers sync over WebRTC when online.
-          Public gateways are a fallback only.
+          Your keys and content stay in this browser. Peers sync over WebRTC when online.
         </p>
         <InfoItem label="My ID (copy to share / follow)">
           <CopyableText value={peerId} displayValue={shortId(peerId)} title={peerId} />

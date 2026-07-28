@@ -12,7 +12,7 @@ const MAX_CRAWL_DEPTH = 2; // Friends of Friends only
 /** Max library pages to pull from one online peer per loadMore (snowball). */
 const LIBRARY_PAGES_PER_PEER = 2;
 
-/** Real IPNS/CID names only — skip display labels like "ccc" / "Tom". */
+/** Real peer ids / CIDs only — skip display labels like "ccc" / "Tom". */
 function isResolvableKey(key: string): boolean {
     return /^(k51|k2|Qm|bafy|bafk)/i.test(key);
 }
@@ -26,7 +26,7 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 interface UseAppExploreArgs {
-    /** Resolved k51 identity — same key space as OnlinePeer / follow.ipnsKey. */
+    /** Resolved peer public id — same key space as OnlinePeer / follow.ipnsKey. */
     myPeerId: string;
     userState: UserState | null;
     allPostsMap: Map<string, Post>;
@@ -94,7 +94,7 @@ export const useAppExplore = ({
     const processKeysBatch = useCallback(async (keys: string[]) => {
         const results = await Promise.allSettled(keys.map(async (key) => {
             if (!isResolvableKey(key)) {
-                console.debug('[Explore] Skipping non-IPNS seed', key);
+                console.debug('[Explore] Skipping non-peer-id seed', key);
                 return null;
             }
             // Own profile is already in local state — no gateway / P2P round-trip

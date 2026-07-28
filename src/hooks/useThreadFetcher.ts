@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Post, UserProfile } from '../types';
 import { fetchPost } from '../api/ipfsIpns';
+import { isPeerId } from '../lib/utils';
 import { fetchUserProfile } from '../state/stateActions';
 
 interface ThreadData {
@@ -15,7 +16,7 @@ export const useThreadFetcher = (
     displayCid: string | undefined,
     globalPostsMap: Map<string, Post>,
     globalProfilesMap: Map<string, UserProfile>,
-    /** Author IPNS from share link `?a=` — enables home-shard fetch without post UI open. */
+    /** Author peer id from share link `?a=` — enables home-shard fetch without post UI open. */
     authorHint?: string
 ) => {
     const [data, setData] = useState<ThreadData>({
@@ -37,8 +38,7 @@ export const useThreadFetcher = (
 
         const gen = ++loadGen.current;
         const stillCurrent = () => isMounted.current && loadGen.current === gen;
-        const author =
-            authorHint && authorHint.startsWith('k51') ? authorHint.trim() : undefined;
+        const author = isPeerId(authorHint) ? authorHint!.trim() : undefined;
 
         setData((prev) => ({ ...prev, isLoading: true, error: null }));
 
@@ -60,7 +60,7 @@ export const useThreadFetcher = (
 
                 let post = globalPostsRef.current.get(currentCid) || localPosts.get(currentCid);
 
-                // Helia → author home-shard → content room (if already joined) → optional gateway
+                // Local CAS → author home-shard → content room (if already joined) → optional gateway
                 if (!post) {
                     try {
                         const fetched = await fetchPost(currentCid, author);

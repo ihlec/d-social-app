@@ -14,6 +14,7 @@ export interface Post {
     id: string;
     timestamp: number;
     content: string;
+    /** Author peer public id (CAS `bafkrei…` or legacy `k51…`) */
     authorKey: string;
     referenceCID?: string;
     mediaCid?: string;
@@ -35,7 +36,7 @@ export interface UserState {
     dislikedPostCIDs?: string[];
     /** Bookmarked posts — same full pin as like; kept if you unlike. */
     savedPostCIDs?: string[];
-    /** IPNS keys */
+    /** Peer public ids */
     blockedUsers?: string[];
     updatedAt: number;
     extendedUserState?: string | null;
@@ -48,6 +49,7 @@ export interface OptimisticStateCookie {
 }
 
 export interface OnlinePeer {
+    /** Peer public id (CAS or legacy Helia) */
     ipnsKey: string;
     name: string;
     /** Latest state CID announced over Trystero (may not be on public gateways yet). */
@@ -66,8 +68,8 @@ export interface Session {
     sessionType: 'helia' | null;
     /** Local keychain label (e.g. display name) */
     ipnsKeyName?: string;
-    /** Public IPNS name (k51…) */
+    /** Public peer id (CAS `bafkrei…`, or legacy Helia `k51…`) */
     resolvedIpnsKey?: string;
-    /** User set a custom keychain passphrase */
+    /** User set a custom identity passphrase */
     requiresPassword?: boolean;
 }

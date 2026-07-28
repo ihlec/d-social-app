@@ -1,4 +1,5 @@
 import { IPNS_CACHE_TTL } from '../constants';
+import { isPeerId } from '../lib/utils';
 import { heliaResolveIpnsOffline, getHeliaStatus, startHelia } from './heliaNode';
 
 const IPNS_STORAGE_PREFIX = 'dsocial_ipns_cache_';
@@ -33,19 +34,13 @@ const loadFromPersistentCache = (ipnsKey: string): PersistentIpnsEntry | null =>
 const pendingRequests = new Map<string, Promise<string>>();
 const ipnsResolutionCache = new Map<string, { cid: string; timestamp: number }>();
 
-/** Peer ids are CIDv1 raw sha256 (`bafkrei…`); legacy Helia used `k51…`. */
-function looksLikePeerId(id: string): boolean {
-    if (id.includes('.')) return true; // DNSLink leftover
-    return /^(k51|bafk|bafy|Qm|1)/i.test(id);
-}
-
 /**
  * Resolve a peer tip → state CID.
  * Local CAS tip + memory/persistent cache only (no public IPNS — fresh-start CAS).
  */
 export async function resolveIpns(ipnsIdentifier: string): Promise<string> {
     if (!ipnsIdentifier || ipnsIdentifier === 'Unknown') return '';
-    if (!looksLikePeerId(ipnsIdentifier)) return '';
+    if (!isPeerId(ipnsIdentifier)) return '';
 
     const cached = ipnsResolutionCache.get(ipnsIdentifier);
     if (cached && (Date.now() - cached.timestamp < IPNS_CACHE_TTL)) return cached.cid;

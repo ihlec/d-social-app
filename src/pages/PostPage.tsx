@@ -6,7 +6,7 @@ import { useAppState } from '../state/useAppStorage';
 import { Post } from '../types';
 import NewPostForm from '../features/feed/NewPostForm';
 import { useThreadFetcher } from '../hooks/useThreadFetcher';
-import { sanitizeText } from '../lib/utils';
+import { isPeerId, sanitizeText } from '../lib/utils';
 import { startHelia } from '../api/heliaNode';
 import { ensureContentRoom, leaveContentRoom, publishContentWant } from '../api/pubsub';
 import { WANT_PUBLISH_MIN_INTERVAL_MS } from '../constants';
@@ -21,7 +21,7 @@ const PostPage: React.FC = () => {
     const displayCid = routeCid;
     const authorFromShare = (() => {
         const a = (searchParams.get('a') || '').trim();
-        return a.startsWith('k51') ? a : '';
+        return isPeerId(a) ? a : '';
     })();
 
     const {
@@ -47,7 +47,7 @@ const PostPage: React.FC = () => {
 
     const [contentRoomReady, setContentRoomReady] = useState(false);
 
-    // Thread fetch runs immediately (Helia / author `?a=`). Content room joins in parallel.
+    // Thread fetch runs immediately (local CAS / author `?a=`). Content room joins in parallel.
     const {
         threadPosts,
         threadProfiles,
@@ -95,7 +95,7 @@ const PostPage: React.FC = () => {
         };
     }, [displayCid]);
 
-    // After sticky join, retry once if Helia/author path missed (holder may now be in-room).
+    // After sticky join, retry once if local/author path missed (holder may now be in-room).
     const roomRetryCidRef = useRef<string | null>(null);
     useEffect(() => {
         if (!displayCid || !contentRoomReady || hasPost || isLoading) return;

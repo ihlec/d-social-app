@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Post, UserState } from '../../types';
 import { LikeIcon, DislikeIcon, ReplyIcon, ShareIcon, SaveIcon } from '../../components/Icons';
-import { getShareBaseUrl } from '../../lib/utils';
+import { getShareBaseUrl, isPeerId } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 interface PostActionsProps {
@@ -29,6 +29,7 @@ const PostActions: React.FC<PostActionsProps> = ({
   
   const isLiked = currentUserState?.likedPostCIDs?.includes(post.id);
   const isDisliked = currentUserState?.dislikedPostCIDs?.includes(post.id);
+  const isOwnPost = !!currentUserState?.postCIDs?.includes(post.id);
   const isSaved = currentUserState?.savedPostCIDs?.includes(post.id);
   const hasMedia = !!(post.mediaCid || post.thumbnailCid);
 
@@ -45,10 +46,7 @@ const PostActions: React.FC<PostActionsProps> = ({
     e.stopPropagation();
     const baseUrl = getShareBaseUrl();
     const author = (post.authorKey || '').trim();
-    const authorQ =
-      author && author.startsWith('k51')
-        ? `?a=${encodeURIComponent(author)}`
-        : '';
+    const authorQ = isPeerId(author) ? `?a=${encodeURIComponent(author)}` : '';
     const url = `${baseUrl}/#/post/${post.id}${authorQ}`;
     navigator.clipboard.writeText(url);
     toast.success('Link copied!');
@@ -77,7 +75,13 @@ const PostActions: React.FC<PostActionsProps> = ({
               requireLogin(() => onDislikePost?.(post.id)); 
           }}
           disabled={isTemporaryPost}
-          title={isDisliked ? "Remove Dislike" : "Dislike"}
+          title={
+            isOwnPost
+              ? 'Remove from your posts'
+              : isDisliked
+                ? 'Remove Dislike'
+                : 'Dislike'
+          }
         >
           <DislikeIcon />
         </button>

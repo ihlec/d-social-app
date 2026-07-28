@@ -163,6 +163,6 @@ export async function reclaimStorageForUpload(bytesNeeded: number): Promise<Clea
         console.error('[MediaGc] wipe failed', e);
         throw e instanceof Error
             ? e
-            : new Error('Failed to free Helia storage. Close other tabs on this app and retry.');
+            : new Error('Failed to free local storage. Close other tabs on this app and retry.');
     }
 }

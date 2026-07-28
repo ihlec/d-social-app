@@ -24,7 +24,7 @@ import { hasStorageHeadroom, formatBytes, describeStorageGap } from '../lib/stor
 import { resolveHeliaMediaUrl } from '../lib/heliaMediaUrl';
 
 function formatGcResult(r: { blocksDeleted: number; rootsUnpinned: number; wipedBlockstore?: boolean }): string {
-    if (r.wipedBlockstore) return 'Reset Helia media store (identity kept).';
+    if (r.wipedBlockstore) return 'Reset local media store (identity kept).';
     if (r.blocksDeleted <= 0 && r.rootsUnpinned <= 0) return '';
     return `Removed ${r.blocksDeleted} block(s)`
         + (r.rootsUnpinned > 0 ? `, unpinned ${r.rootsUnpinned} root(s)` : '')
@@ -255,7 +255,7 @@ export const useAppActions = ({
             const msg = formatGcResult(cleaned);
             toast.success(
                 msg
-                    ? `Cleared Helia storage: ${msg}`
+                    ? `Cleared local storage: ${msg}`
                     : 'Nothing to clear — only your posts and saved media remain pinned.'
             );
         } catch (e) {
@@ -288,7 +288,7 @@ export const useAppActions = ({
                 let ok = await hasStorageHeadroom(file.size);
                 if (!ok) {
                     // Fast wipe only — full blockstore getAll() sweeps hang Firefox for minutes
-                    toast.loading('Resetting Helia media store…', { id: 'upload-gc' });
+                    toast.loading('Resetting local media store…', { id: 'upload-gc' });
                     try {
                         const reclaimed = await reclaimStorageForUpload(file.size);
                         ok = await hasStorageHeadroom(file.size);
@@ -307,7 +307,7 @@ export const useAppActions = ({
             }
 
             toast.loading(
-                file ? `Uploading ${formatBytes(file.size)} to Helia…` : 'Publishing…',
+                file ? `Uploading ${formatBytes(file.size)}…` : 'Publishing…',
                 { id: 'upload-progress' }
             );
             const { finalPost, finalPostCID } = await uploadPost(postData, myPeerId);
@@ -343,7 +343,7 @@ export const useAppActions = ({
                 
                 setAllPostsMap(prev => new Map(prev).set(newPostObject.id, newPostObject));
 
-                // Warm blob: URLs from local Helia so PostPage doesn't wait on public gateways
+                // Warm blob: URLs from local CAS so PostPage doesn't wait on public gateways
                 if (newPostObject.thumbnailCid) {
                     void resolveHeliaMediaUrl(newPostObject.thumbnailCid, 'image/jpeg');
                 }
@@ -353,7 +353,7 @@ export const useAppActions = ({
                 
                 const stateCid = await uploadStateToIpfs(newState, myIpnsKey);
 
-                // Await local IPNS publish — network put stays fire-and-forget inside publishIpns
+                // Await local tip publish
                 toast.loading('Publishing…', { id: 'upload-progress' });
                 await publishStateToIpns(stateCid, myIpnsKey);
 
@@ -381,6 +381,7 @@ export const useAppActions = ({
                 || msg.includes('File too large')
                 || msg.includes('Could not delete')
                 || msg.includes('Close other tabs')
+                || msg.includes('Failed to free local storage')
                 || msg.includes('Failed to free Helia')
                     ? msg
                     : 'Failed to create post.'
@@ -503,7 +504,7 @@ export const useAppActions = ({
                 newSaved = [...currentSaved, postId];
                 const result = await pinForSave(loadedPost);
                 if (result.ok) {
-                    toast.success('Media saved locally (pinned in Helia)');
+                    toast.success('Media saved locally');
                 } else {
                     toast.error(result.reason || 'Could not save media');
                     return { newState: currentState };
@@ -528,6 +529,39 @@ export const useAppActions = ({
 
         queueAction('dislikePost', async (rawState) => {
             const currentState = mergePendingUpdates(rawState);
+            const inOwnHistory = (currentState.postCIDs || []).includes(postId);
+            const isAuthor =
+                loadedPost?.authorKey === myPeerId
+                || (inOwnHistory && (!loadedPost || loadedPost.authorKey === myPeerId));
+
+            // Dislike on your own post = delete from history + local store (not a dislike entry).
+            if (isAuthor) {
+                const newState: UserState = {
+                    ...currentState,
+                    postCIDs: (currentState.postCIDs || []).filter((id) => id !== postId),
+                    likedPostCIDs: (currentState.likedPostCIDs || []).filter((id) => id !== postId),
+                    savedPostCIDs: (currentState.savedPostCIDs || []).filter((id) => id !== postId),
+                    dislikedPostCIDs: (currentState.dislikedPostCIDs || []).filter((id) => id !== postId),
+                    updatedAt: Date.now(),
+                    extendedUserState: currentState.extendedUserState,
+                };
+
+                if (loadedPost?.mediaCid) void dropLocalCid(loadedPost.mediaCid);
+                if (loadedPost?.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
+                void dropLocalCid(postId);
+
+                setAllPostsMap((prev) => {
+                    if (!prev.has(postId)) return prev;
+                    const next = new Map(prev);
+                    next.delete(postId);
+                    return next;
+                });
+                setUserState(newState);
+                queuePersistence(newState);
+                toast.success('Post removed');
+                return { newState };
+            }
+
             const currentDislikes = currentState.dislikedPostCIDs || [];
             let newDislikes: string[];
 
@@ -540,11 +574,10 @@ export const useAppActions = ({
             const wasLiked = (currentState.likedPostCIDs || []).includes(postId);
             const newLikes = (currentState.likedPostCIDs || []).filter(id => id !== postId);
 
-            // Dislike clears like → drop serve hold unless saved/authored
+            // Dislike clears like → drop serve hold unless saved
             if (wasLiked && loadedPost) {
                 const stillSaved = (currentState.savedPostCIDs || []).includes(postId);
-                const isAuthor = loadedPost.authorKey === myPeerId;
-                if (!stillSaved && !isAuthor) {
+                if (!stillSaved) {
                     if (loadedPost.mediaCid) void dropLocalCid(loadedPost.mediaCid);
                     if (loadedPost.thumbnailCid) void dropLocalCid(loadedPost.thumbnailCid);
                     void dropLocalCid(postId);
@@ -564,7 +597,7 @@ export const useAppActions = ({
 
             return { newState };
         });
-    }, [myPeerId, setUserState, queueAction, mergePendingUpdates, queuePersistence]);
+    }, [myPeerId, setUserState, setAllPostsMap, queueAction, mergePendingUpdates, queuePersistence]);
 
 
     const followUser = useCallback(async (
